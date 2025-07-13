@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import os
+import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import sqlite3
@@ -59,13 +60,12 @@ def upload_pdf():
         return redirect(url_for('admin'))
     
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        original_filename = file.filename
         
-        # Check if file already exists
-        if os.path.exists(filepath):
-            flash(f'ファイル "{filename}" は既に存在します')
-            return redirect(url_for('admin'))
+        # Generate unique filename using UUID
+        file_extension = original_filename.rsplit('.', 1)[1].lower()
+        unique_filename = f"{uuid.uuid4().hex}.{file_extension}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         
         try:
             file.save(filepath)
@@ -73,10 +73,10 @@ def upload_pdf():
             # Get actual file size
             file_size = os.path.getsize(filepath)
             
-            # Add to database
-            add_pdf_to_db(filename, filepath, file_size)
+            # Add to database with both original and stored filename
+            add_pdf_to_db(original_filename, unique_filename, filepath, file_size)
             
-            flash(f'ファイル "{filename}" がアップロードされました')
+            flash(f'ファイル "{original_filename}" がアップロードされました')
         except Exception as e:
             flash(f'アップロードに失敗しました: {str(e)}')
     else:
@@ -125,7 +125,7 @@ def get_pdf_files():
         cursor = conn.cursor()
         
         files = cursor.execute('''
-            SELECT id, filename, file_path, file_size, upload_date 
+            SELECT id, original_filename, stored_filename, file_path, file_size, upload_date 
             FROM pdf_files 
             ORDER BY upload_date DESC
         ''').fetchall()
@@ -136,7 +136,8 @@ def get_pdf_files():
         for file in files:
             result.append({
                 'id': file['id'],
-                'name': file['filename'],
+                'name': file['original_filename'],
+                'stored_name': file['stored_filename'],
                 'path': file['file_path'],
                 'size': format_file_size(file['file_size']),
                 'upload_date': file['upload_date']
@@ -147,25 +148,46 @@ def get_pdf_files():
         print(f"Error getting PDF files: {e}")
         return []
 
-def add_pdf_to_db(filename, filepath, file_size):
+def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
     conn = sqlite3.connect('instance/database.db')
     cursor = conn.cursor()
     
-    # Create table if it doesn't exist
+    # Create table if it doesn't exist - updated schema
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS pdf_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
             file_path TEXT NOT NULL,
             file_size INTEGER,
             upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
+    # Check if we need to migrate old data
+    try:
+        cursor.execute("SELECT filename FROM pdf_files LIMIT 1")
+        # Old schema exists, need to migrate
+        try:
+            cursor.execute("ALTER TABLE pdf_files ADD COLUMN original_filename TEXT")
+            cursor.execute("ALTER TABLE pdf_files ADD COLUMN stored_filename TEXT")
+            # Update existing records
+            cursor.execute('''
+                UPDATE pdf_files 
+                SET original_filename = filename, stored_filename = filename 
+                WHERE original_filename IS NULL
+            ''')
+        except sqlite3.OperationalError:
+            # Columns already exist
+            pass
+    except sqlite3.OperationalError:
+        # New schema or migration already done
+        pass
+    
     cursor.execute('''
-        INSERT INTO pdf_files (filename, file_path, file_size)
-        VALUES (?, ?, ?)
-    ''', (filename, filepath, file_size))
+        INSERT INTO pdf_files (original_filename, stored_filename, file_path, file_size)
+        VALUES (?, ?, ?, ?)
+    ''', (original_filename, stored_filename, filepath, file_size))
     
     conn.commit()
     conn.close()
