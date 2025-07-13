@@ -208,3 +208,7 @@ __marimo__/
 
 # Project-specific files
 development-plan.md
+
+# PDF upload directory - ignore all files but keep directory
+static/pdfs/*
+!static/pdfs/.gitkeep
