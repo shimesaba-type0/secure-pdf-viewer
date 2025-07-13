@@ -4,7 +4,6 @@ class PDFViewer {
         this.pdfDoc = null;
         this.currentPage = 1;
         this.totalPages = 0;
-        this.scale = 1.0;
         this.canvas = null;
         this.ctx = null;
         this.currentFileName = '';
@@ -20,9 +19,6 @@ class PDFViewer {
         this.nextPageBtn = document.getElementById('nextPage');
         this.pageInput = document.getElementById('pageInput');
         this.pageCount = document.getElementById('pageCount');
-        this.zoomOutBtn = document.getElementById('zoomOut');
-        this.zoomInBtn = document.getElementById('zoomIn');
-        this.zoomSelect = document.getElementById('zoomSelect');
         this.fullscreenBtn = document.getElementById('fullscreenBtn');
         
         // Container
@@ -31,7 +27,13 @@ class PDFViewer {
         
         // Fullscreen state
         this.isFullscreen = false;
-        this.previousZoomValue = null;
+        
+        // Navigation overlay buttons
+        this.navPrevBtn = null;
+        this.navNextBtn = null;
+        
+        // Resize handling
+        this.resizeTimeout = null;
     }
     
     bindEvents() {
@@ -40,16 +42,32 @@ class PDFViewer {
         this.nextPageBtn?.addEventListener('click', () => this.nextPage());
         this.pageInput?.addEventListener('change', (e) => this.goToPage(parseInt(e.target.value)));
         
-        // Zoom controls
-        this.zoomOutBtn?.addEventListener('click', () => this.zoomOut());
-        this.zoomInBtn?.addEventListener('click', () => this.zoomIn());
-        this.zoomSelect?.addEventListener('change', (e) => this.setZoom(e.target.value));
-        
         // Fullscreen control
         this.fullscreenBtn?.addEventListener('click', () => this.toggleFullscreen());
         
+        // Mobile fullscreen exit - double tap
+        let lastTap = 0;
+        this.pdfContainer?.addEventListener('touchend', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            if (tapLength < 500 && tapLength > 0 && this.isFullscreen) {
+                // Double tap detected in fullscreen mode
+                e.preventDefault();
+                this.exitFullscreen();
+            }
+            lastTap = currentTime;
+        });
+        
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+        
+        // Window resize handling for responsive design
+        window.addEventListener('resize', () => this.handleResize());
+        
+        // Orientation change handling for mobile
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => this.handleResize(), 300); // Delay for orientation change completion
+        });
         
         // Fullscreen change events
         document.addEventListener('fullscreenchange', () => this.handleFullscreenChange());
@@ -84,6 +102,12 @@ class PDFViewer {
             this.updateUI();
             this.enableControls();
             
+            // Show navigation help
+            this.showNavigationHelp();
+            
+            // Ensure container has proper dimensions before rendering
+            await this.waitForContainerReady();
+            
             // Render first page
             await this.renderPage(1);
             
@@ -99,20 +123,58 @@ class PDFViewer {
             // Get page
             const page = await this.pdfDoc.getPage(pageNum);
             
-            // Calculate scale
+            // Calculate scale - always 1.0 (100%) for default display
             const viewport = page.getViewport({ scale: 1.0 });
-            let scale = this.scale;
+            let scale;
             
-            if (this.zoomSelect.value === 'fit' || this.isFullscreen) {
-                const containerWidth = this.pdfContainer.clientWidth - 40; // padding
-                const containerHeight = this.pdfContainer.clientHeight - 40; // padding
+            if (this.isFullscreen) {
+                // For fullscreen: fit to screen with proper centering
+                const isMobile = window.innerWidth <= 768;
+                const containerWidth = this.pdfContainer.clientWidth;
+                const containerHeight = this.pdfContainer.clientHeight;
                 
-                // Calculate scale to fit both width and height
-                const scaleX = containerWidth / viewport.width;
-                const scaleY = containerHeight / viewport.height;
-                scale = Math.min(scaleX, scaleY); // Use smaller scale to fit completely
+                if (isMobile) {
+                    // Mobile fullscreen: center PDF with black bars
+                    const isPortrait = window.innerHeight > window.innerWidth;
+                    
+                    if (isPortrait) {
+                        // Portrait: fit width, allow height to overflow (black bars top/bottom)
+                        const availableWidth = containerWidth * 0.95; // 95% of screen width
+                        scale = availableWidth / viewport.width;
+                        
+                        // Ensure it doesn't get too large vertically
+                        const maxHeight = containerHeight * 0.9;
+                        if (scale * viewport.height > maxHeight) {
+                            scale = maxHeight / viewport.height;
+                        }
+                    } else {
+                        // Landscape: fit height, allow width to overflow (black bars left/right) 
+                        const availableHeight = containerHeight * 0.9; // 90% of screen height
+                        scale = availableHeight / viewport.height;
+                        
+                        // Ensure it doesn't get too wide
+                        const maxWidth = containerWidth * 0.95;
+                        if (scale * viewport.width > maxWidth) {
+                            scale = maxWidth / viewport.width;
+                        }
+                    }
+                    
+                    // Minimum scale for readability
+                    scale = Math.max(scale, 0.4);
+                } else {
+                    // Desktop fullscreen: fit to screen
+                    const paddingX = 40;
+                    const paddingY = 40;
+                    const availableWidth = containerWidth - paddingX;
+                    const availableHeight = containerHeight - paddingY;
+                    
+                    const scaleX = availableWidth / viewport.width;
+                    const scaleY = availableHeight / viewport.height;
+                    scale = Math.min(scaleX, scaleY);
+                }
             } else {
-                scale = parseFloat(this.zoomSelect.value) || 1.0;
+                // Default display: always 100%
+                scale = 1.0;
             }
             
             const scaledViewport = page.getViewport({ scale: scale });
@@ -127,13 +189,34 @@ class PDFViewer {
                 canvasContainer.className = 'pdf-canvas-container';
                 canvasContainer.appendChild(this.canvas);
                 
+                // Add navigation overlay buttons
+                const prevBtn = document.createElement('button');
+                prevBtn.className = 'pdf-nav-overlay pdf-nav-prev';
+                prevBtn.innerHTML = '◀';
+                prevBtn.addEventListener('click', () => this.previousPage());
+                
+                const nextBtn = document.createElement('button');
+                nextBtn.className = 'pdf-nav-overlay pdf-nav-next';
+                nextBtn.innerHTML = '▶';
+                nextBtn.addEventListener('click', () => this.nextPage());
+                
+                canvasContainer.appendChild(prevBtn);
+                canvasContainer.appendChild(nextBtn);
+                
+                // Store references for updating state
+                this.navPrevBtn = prevBtn;
+                this.navNextBtn = nextBtn;
+                
                 this.pdfContainer.innerHTML = '';
                 this.pdfContainer.appendChild(canvasContainer);
             }
             
-            // Set canvas dimensions
-            this.canvas.height = scaledViewport.height;
-            this.canvas.width = scaledViewport.width;
+            // Set canvas dimensions explicitly
+            this.canvas.height = Math.floor(scaledViewport.height);
+            this.canvas.width = Math.floor(scaledViewport.width);
+            
+            // Clear any previous content
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
             
             // Render page
             const renderContext = {
@@ -143,8 +226,11 @@ class PDFViewer {
             
             await page.render(renderContext).promise;
             
+            // Add watermark overlay
+            this.addWatermark(this.ctx, scaledViewport.width, scaledViewport.height);
+            
             this.currentPage = pageNum;
-            this.scale = scale;
+            // Don't store scale to avoid accumulation
             this.updatePageInfo();
             
         } catch (error) {
@@ -163,15 +249,20 @@ class PDFViewer {
         this.pageInput.value = this.currentPage;
         this.prevPageBtn.disabled = this.currentPage <= 1;
         this.nextPageBtn.disabled = this.currentPage >= this.totalPages;
+        
+        // Update navigation overlay buttons
+        if (this.navPrevBtn) {
+            this.navPrevBtn.classList.toggle('disabled', this.currentPage <= 1);
+        }
+        if (this.navNextBtn) {
+            this.navNextBtn.classList.toggle('disabled', this.currentPage >= this.totalPages);
+        }
     }
     
     enableControls() {
         this.prevPageBtn.disabled = false;
         this.nextPageBtn.disabled = false;
         this.pageInput.disabled = false;
-        this.zoomOutBtn.disabled = false;
-        this.zoomInBtn.disabled = false;
-        this.zoomSelect.disabled = false;
         this.fullscreenBtn.disabled = false;
     }
     
@@ -179,9 +270,6 @@ class PDFViewer {
         this.prevPageBtn.disabled = true;
         this.nextPageBtn.disabled = true;
         this.pageInput.disabled = true;
-        this.zoomOutBtn.disabled = true;
-        this.zoomInBtn.disabled = true;
-        this.zoomSelect.disabled = true;
         this.fullscreenBtn.disabled = true;
     }
     
@@ -205,25 +293,6 @@ class PDFViewer {
         }
     }
     
-    async zoomIn() {
-        const currentZoom = parseFloat(this.zoomSelect.value) || 1.0;
-        const newZoom = Math.min(currentZoom + 0.25, 3.0);
-        this.zoomSelect.value = newZoom;
-        await this.setZoom(newZoom);
-    }
-    
-    async zoomOut() {
-        const currentZoom = parseFloat(this.zoomSelect.value) || 1.0;
-        const newZoom = Math.max(currentZoom - 0.25, 0.25);
-        this.zoomSelect.value = newZoom;
-        await this.setZoom(newZoom);
-    }
-    
-    async setZoom(zoomValue) {
-        if (this.pdfDoc && this.currentPage) {
-            await this.renderPage(this.currentPage);
-        }
-    }
     
     handleKeyboard(e) {
         if (!this.pdfDoc) return;
@@ -246,15 +315,6 @@ class PDFViewer {
             case 'End':
                 e.preventDefault();
                 this.goToPage(this.totalPages);
-                break;
-            case '+':
-            case '=':
-                e.preventDefault();
-                this.zoomIn();
-                break;
-            case '-':
-                e.preventDefault();
-                this.zoomOut();
                 break;
             case 'f':
             case 'F':
@@ -316,9 +376,6 @@ class PDFViewer {
         this.updateFullscreenButton();
         this.showFullscreenHint();
         
-        // Store current zoom setting and switch to fit mode for fullscreen
-        this.previousZoomValue = this.zoomSelect.value;
-        this.zoomSelect.value = 'fit';
         
         // Re-render current page to fit new size
         if (this.pdfDoc && this.currentPage) {
@@ -353,12 +410,6 @@ class PDFViewer {
         this.updateFullscreenButton();
         this.hideFullscreenHint();
         
-        // Restore previous zoom setting
-        if (this.previousZoomValue) {
-            this.zoomSelect.value = this.previousZoomValue;
-            this.previousZoomValue = null;
-        }
-        
         // Re-render current page to fit new size
         if (this.pdfDoc && this.currentPage) {
             setTimeout(() => {
@@ -379,10 +430,6 @@ class PDFViewer {
             this.isFullscreen = true;
             this.updateFullscreenButton();
             this.showFullscreenHint();
-            
-            // Store current zoom setting and switch to fit mode for fullscreen
-            this.previousZoomValue = this.zoomSelect.value;
-            this.zoomSelect.value = 'fit';
             
             // Re-render current page
             if (this.pdfDoc && this.currentPage) {
@@ -405,15 +452,23 @@ class PDFViewer {
         
         const hint = document.createElement('div');
         hint.className = 'fullscreen-exit-hint';
-        hint.textContent = 'ESC または F キーで全画面終了';
+        
+        // Different hint text for mobile vs desktop
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile) {
+            hint.textContent = 'ダブルタップで全画面終了';
+        } else {
+            hint.textContent = 'ESC または F キーで全画面終了';
+        }
+        
         hint.id = 'fullscreenHint';
         
         this.pdfViewerPanel.appendChild(hint);
         
-        // Auto-hide after 3 seconds
+        // Auto-hide after 4 seconds on mobile, 3 seconds on desktop
         setTimeout(() => {
             this.hideFullscreenHint();
-        }, 3000);
+        }, isMobile ? 4000 : 3000);
     }
     
     hideFullscreenHint() {
@@ -421,6 +476,109 @@ class PDFViewer {
         if (hint) {
             hint.remove();
         }
+    }
+    
+    showNavigationHelp() {
+        const helpElement = document.getElementById('pdfNavigationHelp');
+        if (helpElement) {
+            helpElement.style.display = 'block';
+        }
+    }
+    
+    hideNavigationHelp() {
+        const helpElement = document.getElementById('pdfNavigationHelp');
+        if (helpElement) {
+            helpElement.style.display = 'none';
+        }
+    }
+    
+    handleResize() {
+        // Re-render current page when window is resized for responsive layout
+        if (this.pdfDoc && this.currentPage) {
+            // Debounce resize events
+            clearTimeout(this.resizeTimeout);
+            this.resizeTimeout = setTimeout(() => {
+                this.renderPage(this.currentPage);
+            }, 250);
+        }
+    }
+    
+    async waitForContainerReady() {
+        // Wait for container to have proper dimensions
+        return new Promise((resolve) => {
+            const checkContainer = () => {
+                if (this.pdfContainer.clientWidth > 0 && this.pdfContainer.clientHeight > 0) {
+                    resolve();
+                } else {
+                    setTimeout(checkContainer, 10);
+                }
+            };
+            checkContainer();
+        });
+    }
+    
+    addWatermark(ctx, canvasWidth, canvasHeight) {
+        // Save current context state
+        ctx.save();
+        
+        // Watermark settings - 4 pieces of information as per specification
+        const author = 'PTA執行部'; // 著作者
+        const viewerEmail = 'yamada.taro@example.com'; // 閲覧者
+        
+        // Session ID should be consistent during the session, not change per page
+        if (!this.sessionId) {
+            this.sessionId = 'SID-' + Math.random().toString(36).substr(2, 8).toUpperCase();
+        }
+        const sessionId = this.sessionId;
+        const currentDateTime = new Date().toLocaleString('ja-JP', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        }).replace(/\//g, '/');
+        
+        // Calculate responsive font size based on canvas size
+        const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.018;
+        const fontSize = Math.max(10, Math.min(20, baseFontSize));
+        
+        // Watermark style - top-right corner
+        ctx.globalAlpha = 0.4; // More visible
+        ctx.fillStyle = '#FF0000'; // Red color for better visibility
+        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        
+        // Position in top-right corner
+        const padding = 15;
+        const lineHeight = fontSize + 3;
+        let yPosition = padding;
+        
+        // Display 4 pieces of information vertically
+        ctx.fillText(`著作者: ${author}`, canvasWidth - padding, yPosition);
+        yPosition += lineHeight;
+        
+        ctx.font = `${fontSize * 0.85}px Arial, sans-serif`;
+        ctx.fillText(`閲覧者: ${viewerEmail}`, canvasWidth - padding, yPosition);
+        yPosition += lineHeight;
+        
+        ctx.fillText(`日時: ${currentDateTime}`, canvasWidth - padding, yPosition);
+        yPosition += lineHeight;
+        
+        ctx.fillText(`SID: ${sessionId}`, canvasWidth - padding, yPosition);
+        
+        // Add page number watermark at bottom center
+        if (this.currentPage && this.totalPages) {
+            ctx.globalAlpha = 0.3;
+            ctx.fillStyle = '#666666';
+            ctx.font = `${fontSize * 0.7}px Arial, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`ページ ${this.currentPage}/${this.totalPages}`, canvasWidth / 2, canvasHeight - 10);
+        }
+        
+        // Restore context state
+        ctx.restore();
     }
 }
 
