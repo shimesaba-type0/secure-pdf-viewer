@@ -8,18 +8,7 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    <header class="header">
-        <div class="container">
-            <h1 class="logo">Secure PDF Viewer</h1>
-            {% if session.authenticated %}
-            <nav class="nav">
-                <a href="{{ url_for('index') }}" class="nav-link">閲覧画面</a>
-                <a href="{{ url_for('admin') }}" class="nav-link">管理画面</a>
-                <a href="{{ url_for('logout') }}" class="nav-link logout">ログアウト</a>
-            </nav>
-            {% endif %}
-        </div>
-    </header>
+    {% include 'includes/header.html' %}
 
     <main class="main">
         <div class="container">
@@ -35,11 +24,7 @@
         </div>
     </main>
 
-    <footer class="footer">
-        <div class="container">
-            <p>&copy; 2025 Secure PDF Viewer</p>
-        </div>
-    </footer>
+    {% include 'includes/footer.html' %}
 
     {% block extra_js %}{% endblock %}
 </body>
