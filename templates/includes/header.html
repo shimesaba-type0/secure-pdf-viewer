@@ -1,0 +1,12 @@
+<header class="header">
+    <div class="container">
+        <h1 class="logo">Secure PDF Viewer</h1>
+        {% if session.authenticated %}
+        <nav class="nav">
+            <a href="{{ url_for('index') }}" class="nav-link">閲覧画面</a>
+            <a href="{{ url_for('admin') }}" class="nav-link">管理画面</a>
+            <a href="{{ url_for('logout') }}" class="nav-link logout">ログアウト</a>
+        </nav>
+        {% endif %}
+    </div>
+</header>
