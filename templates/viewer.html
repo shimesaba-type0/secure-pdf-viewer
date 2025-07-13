@@ -5,54 +5,8 @@
 {% block extra_css %}
 <style>
     .viewer-layout {
-        display: grid;
-        grid-template-columns: 300px 1fr;
-        gap: 1rem;
+        display: block;
         height: calc(100vh - 180px);
-    }
-    
-    .pdf-list-panel {
-        background: white;
-        border-radius: 8px;
-        padding: 1rem;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        overflow-y: auto;
-    }
-    
-    .pdf-list-panel h3 {
-        margin-bottom: 1rem;
-        color: #2c3e50;
-        font-size: 1.1rem;
-    }
-    
-    .pdf-item {
-        padding: 0.75rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        margin-bottom: 0.5rem;
-        cursor: pointer;
-        transition: all 0.3s;
-    }
-    
-    .pdf-item:hover {
-        background-color: #f8f9fa;
-        border-color: #3498db;
-    }
-    
-    .pdf-item.active {
-        background-color: #e3f2fd;
-        border-color: #2196f3;
-    }
-    
-    .pdf-item-name {
-        font-weight: bold;
-        margin-bottom: 0.25rem;
-        font-size: 0.9rem;
-    }
-    
-    .pdf-item-info {
-        font-size: 0.8rem;
-        color: #666;
     }
     
     .pdf-viewer-panel {
@@ -149,15 +103,6 @@
     }
     
     @media (max-width: 768px) {
-        .viewer-layout {
-            grid-template-columns: 1fr;
-            grid-template-rows: auto 1fr;
-        }
-        
-        .pdf-list-panel {
-            max-height: 200px;
-        }
-        
         .pdf-controls {
             flex-direction: column;
             align-items: stretch;
@@ -189,26 +134,6 @@
     <h2>PDF閲覧画面</h2>
     
     <div class="viewer-layout">
-        <!-- PDF File List Panel -->
-        <div class="pdf-list-panel">
-            <h3>📄 PDFファイル一覧</h3>
-            <div id="pdfFileList">
-                {% if pdf_files %}
-                    {% for file in pdf_files %}
-                    <div class="pdf-item" data-file-id="{{ file.id }}" data-file-path="{{ file.path }}">
-                        <div class="pdf-item-name">{{ file.name }}</div>
-                        <div class="pdf-item-info">{{ file.size }} | {{ file.upload_date }}</div>
-                    </div>
-                    {% endfor %}
-                {% else %}
-                    <div class="pdf-placeholder">
-                        <p>アップロードされたPDFファイルがありません</p>
-                        <p><a href="{{ url_for('admin') }}">管理画面</a>からPDFファイルをアップロードしてください</p>
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-        
         <!-- PDF Viewer Panel -->
         <div class="pdf-viewer-panel">
             <div class="pdf-controls">
@@ -239,9 +164,16 @@
             </div>
             
             <div class="pdf-container" id="pdfContainer">
+                {% if published_pdf %}
                 <div class="no-pdf-selected">
-                    📄 左側のリストからPDFファイルを選択してください
+                    📄 公開資料を読み込み中...
                 </div>
+                {% else %}
+                <div class="no-pdf-selected">
+                    📄 現在公開中の資料はありません<br>
+                    <small>管理者が資料を公開するまでお待ちください</small>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

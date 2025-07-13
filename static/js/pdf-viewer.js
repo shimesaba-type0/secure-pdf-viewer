@@ -14,9 +14,6 @@ class PDFViewer {
     }
     
     initializeElements() {
-        // File list
-        this.fileList = document.getElementById('pdfFileList');
-        
         // Controls
         this.currentFileNameSpan = document.getElementById('currentFileName');
         this.prevPageBtn = document.getElementById('prevPage');
@@ -32,16 +29,6 @@ class PDFViewer {
     }
     
     bindEvents() {
-        // File selection
-        if (this.fileList) {
-            this.fileList.addEventListener('click', (e) => {
-                const pdfItem = e.target.closest('.pdf-item');
-                if (pdfItem) {
-                    this.selectFile(pdfItem);
-                }
-            });
-        }
-        
         // Page navigation
         this.prevPageBtn?.addEventListener('click', () => this.previousPage());
         this.nextPageBtn?.addEventListener('click', () => this.nextPage());
@@ -56,20 +43,9 @@ class PDFViewer {
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
     }
     
-    async selectFile(pdfItem) {
-        // Remove active class from all items
-        document.querySelectorAll('.pdf-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        
-        // Add active class to selected item
-        pdfItem.classList.add('active');
-        
-        const filePath = pdfItem.dataset.filePath;
-        const fileName = pdfItem.querySelector('.pdf-item-name').textContent;
-        
+    async loadPublishedPDF(publishedPdf) {
         try {
-            await this.loadPDF(filePath, fileName);
+            await this.loadPDF(publishedPdf.path, publishedPdf.name);
         } catch (error) {
             console.error('PDF loading failed:', error);
             this.showError('PDFファイルの読み込みに失敗しました: ' + error.message);
@@ -280,13 +256,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (publishedPdfData) {
         const publishedPdf = JSON.parse(publishedPdfData.textContent);
         if (publishedPdf) {
-            // Find the PDF item and select it
-            const pdfItem = document.querySelector(`[data-file-id="${publishedPdf.id}"]`);
-            if (pdfItem) {
-                setTimeout(() => {
-                    viewer.selectFile(pdfItem);
-                }, 100); // Small delay to ensure everything is initialized
-            }
+            setTimeout(() => {
+                viewer.loadPublishedPDF(publishedPdf);
+            }, 100); // Small delay to ensure everything is initialized
         }
     }
 });
