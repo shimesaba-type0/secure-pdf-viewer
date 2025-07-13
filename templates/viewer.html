@@ -4,53 +4,246 @@
 
 {% block extra_css %}
 <style>
-    .pdf-container {
-        width: 100%;
-        height: 80vh;
+    .viewer-layout {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 1rem;
+        height: calc(100vh - 180px);
+    }
+    
+    .pdf-list-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        overflow-y: auto;
+    }
+    
+    .pdf-list-panel h3 {
+        margin-bottom: 1rem;
+        color: #2c3e50;
+        font-size: 1.1rem;
+    }
+    
+    .pdf-item {
+        padding: 0.75rem;
         border: 1px solid #ddd;
         border-radius: 4px;
+        margin-bottom: 0.5rem;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+    
+    .pdf-item:hover {
         background-color: #f8f9fa;
+        border-color: #3498db;
+    }
+    
+    .pdf-item.active {
+        background-color: #e3f2fd;
+        border-color: #2196f3;
+    }
+    
+    .pdf-item-name {
+        font-weight: bold;
+        margin-bottom: 0.25rem;
+        font-size: 0.9rem;
+    }
+    
+    .pdf-item-info {
+        font-size: 0.8rem;
+        color: #666;
+    }
+    
+    .pdf-viewer-panel {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .pdf-controls {
+        padding: 1rem;
+        border-bottom: 1px solid #eee;
         display: flex;
         align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .pdf-controls-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .pdf-controls-right {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .page-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .page-input {
+        width: 60px;
+        text-align: center;
+        padding: 0.25rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    
+    .zoom-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .zoom-select {
+        padding: 0.25rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    
+    .pdf-container {
+        flex: 1;
+        overflow: auto;
+        padding: 1rem;
+        background-color: #525659;
+        display: flex;
         justify-content: center;
-        position: relative;
+        align-items: flex-start;
+    }
+    
+    .pdf-canvas-container {
+        background: white;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        margin: 1rem;
+    }
+    
+    #pdfCanvas {
+        display: block;
+        max-width: 100%;
+        height: auto;
     }
     
     .pdf-placeholder {
         text-align: center;
         color: #666;
+        padding: 2rem;
     }
     
-    .session-info {
-        background-color: #e9ecef;
-        padding: 1rem;
-        border-radius: 4px;
-        margin-bottom: 1rem;
+    .no-pdf-selected {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #7f8c8d;
+        font-size: 1.1rem;
+    }
+    
+    @media (max-width: 768px) {
+        .viewer-layout {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto 1fr;
+        }
+        
+        .pdf-list-panel {
+            max-height: 200px;
+        }
+        
+        .pdf-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        
+        .pdf-controls-left,
+        .pdf-controls-right {
+            justify-content: center;
+        }
     }
 </style>
 {% endblock %}
 
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+<script src="{{ url_for('static', filename='js/pdf-viewer.js') }}"></script>
+{% endblock %}
+
 {% block content %}
+<!-- Hidden data for JavaScript -->
+{% if published_pdf %}
+<script id="publishedPdfData" type="application/json">{{ published_pdf | tojson }}</script>
+{% endif %}
+
 <div class="viewer-container">
     <h2>PDF閲覧画面</h2>
     
-    <div class="session-info">
-        <p><strong>ログイン時刻:</strong> {{ session.login_time }}</p>
-        <p><strong>セッション状態:</strong> 認証済み</p>
-    </div>
-    
-    <div class="pdf-container">
-        <div class="pdf-placeholder">
-            <h3>PDF表示エリア</h3>
-            <p>PDF.jsライブラリを使用してPDFファイルが表示されます</p>
-            <p>現在は開発中のため、プレースホルダーを表示しています</p>
+    <div class="viewer-layout">
+        <!-- PDF File List Panel -->
+        <div class="pdf-list-panel">
+            <h3>📄 PDFファイル一覧</h3>
+            <div id="pdfFileList">
+                {% if pdf_files %}
+                    {% for file in pdf_files %}
+                    <div class="pdf-item" data-file-id="{{ file.id }}" data-file-path="{{ file.path }}">
+                        <div class="pdf-item-name">{{ file.name }}</div>
+                        <div class="pdf-item-info">{{ file.size }} | {{ file.upload_date }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="pdf-placeholder">
+                        <p>アップロードされたPDFファイルがありません</p>
+                        <p><a href="{{ url_for('admin') }}">管理画面</a>からPDFファイルをアップロードしてください</p>
+                    </div>
+                {% endif %}
+            </div>
         </div>
-    </div>
-    
-    <div class="controls">
-        <button class="btn btn-secondary" disabled>前のページ</button>
-        <span class="page-info">1 / 1</span>
-        <button class="btn btn-secondary" disabled>次のページ</button>
+        
+        <!-- PDF Viewer Panel -->
+        <div class="pdf-viewer-panel">
+            <div class="pdf-controls">
+                <div class="pdf-controls-left">
+                    <span id="currentFileName">ファイルを選択してください</span>
+                </div>
+                <div class="pdf-controls-right">
+                    <div class="page-controls">
+                        <button class="btn btn-sm btn-secondary" id="prevPage" disabled>◀</button>
+                        <input type="number" id="pageInput" class="page-input" value="1" min="1" disabled>
+                        <span id="pageCount">/ 0</span>
+                        <button class="btn btn-sm btn-secondary" id="nextPage" disabled>▶</button>
+                    </div>
+                    <div class="zoom-controls">
+                        <button class="btn btn-sm btn-secondary" id="zoomOut" disabled>－</button>
+                        <select id="zoomSelect" class="zoom-select" disabled>
+                            <option value="0.5">50%</option>
+                            <option value="0.75">75%</option>
+                            <option value="1" selected>100%</option>
+                            <option value="1.25">125%</option>
+                            <option value="1.5">150%</option>
+                            <option value="2">200%</option>
+                            <option value="fit">画面に合わせる</option>
+                        </select>
+                        <button class="btn btn-sm btn-secondary" id="zoomIn" disabled>＋</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="pdf-container" id="pdfContainer">
+                <div class="no-pdf-selected">
+                    📄 左側のリストからPDFファイルを選択してください
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

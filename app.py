@@ -17,7 +17,14 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 def index():
     if not session.get('authenticated'):
         return redirect(url_for('login'))
-    return render_template('viewer.html')
+    
+    # Get list of uploaded PDF files for viewer
+    pdf_files = get_pdf_files()
+    
+    # Get published PDF for auto-load
+    published_pdf = get_published_pdf()
+    
+    return render_template('viewer.html', pdf_files=pdf_files, published_pdf=published_pdf)
 
 @app.route('/auth/login', methods=['GET', 'POST'])
 def login():
@@ -115,6 +122,59 @@ def delete_pdf(pdf_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/admin/publish-pdf/<int:pdf_id>', methods=['POST'])
+def publish_pdf(pdf_id):
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # Check if PDF exists
+        pdf_info = cursor.execute(
+            'SELECT id FROM pdf_files WHERE id = ?', (pdf_id,)
+        ).fetchone()
+        
+        if not pdf_info:
+            return jsonify({'error': 'ファイルが見つかりません'}), 404
+        
+        # Unpublish all other PDFs (only one can be published at a time)
+        cursor.execute('UPDATE pdf_files SET is_published = FALSE')
+        
+        # Publish the selected PDF
+        cursor.execute(
+            'UPDATE pdf_files SET is_published = TRUE WHERE id = ?', (pdf_id,)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/unpublish-pdf/<int:pdf_id>', methods=['POST'])
+def unpublish_pdf(pdf_id):
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # Unpublish the PDF
+        cursor.execute(
+            'UPDATE pdf_files SET is_published = FALSE WHERE id = ?', (pdf_id,)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'pdf'
 
@@ -125,7 +185,7 @@ def get_pdf_files():
         cursor = conn.cursor()
         
         files = cursor.execute('''
-            SELECT id, original_filename, stored_filename, file_path, file_size, upload_date 
+            SELECT id, original_filename, stored_filename, file_path, file_size, upload_date, is_published
             FROM pdf_files 
             ORDER BY upload_date DESC
         ''').fetchall()
@@ -140,7 +200,8 @@ def get_pdf_files():
                 'stored_name': file['stored_filename'],
                 'path': file['file_path'],
                 'size': format_file_size(file['file_size']),
-                'upload_date': file['upload_date']
+                'upload_date': file['upload_date'],
+                'is_published': bool(file['is_published']) if file['is_published'] is not None else False
             })
         
         return result
@@ -160,6 +221,7 @@ def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
             stored_filename TEXT NOT NULL,
             file_path TEXT NOT NULL,
             file_size INTEGER,
+            is_published BOOLEAN DEFAULT FALSE,
             upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -171,10 +233,11 @@ def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
         try:
             cursor.execute("ALTER TABLE pdf_files ADD COLUMN original_filename TEXT")
             cursor.execute("ALTER TABLE pdf_files ADD COLUMN stored_filename TEXT")
+            cursor.execute("ALTER TABLE pdf_files ADD COLUMN is_published BOOLEAN DEFAULT FALSE")
             # Update existing records
             cursor.execute('''
                 UPDATE pdf_files 
-                SET original_filename = filename, stored_filename = filename 
+                SET original_filename = filename, stored_filename = filename, is_published = FALSE
                 WHERE original_filename IS NULL
             ''')
         except sqlite3.OperationalError:
@@ -205,6 +268,36 @@ def format_file_size(size_bytes):
         i += 1
     
     return f"{size:.1f} {size_names[i]}"
+
+def get_published_pdf():
+    """Get the currently published PDF file"""
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        published_file = cursor.execute('''
+            SELECT id, original_filename, stored_filename, file_path, file_size, upload_date
+            FROM pdf_files 
+            WHERE is_published = TRUE
+            LIMIT 1
+        ''').fetchone()
+        
+        conn.close()
+        
+        if published_file:
+            return {
+                'id': published_file['id'],
+                'name': published_file['original_filename'],
+                'stored_name': published_file['stored_filename'],
+                'path': published_file['file_path'],
+                'size': format_file_size(published_file['file_size']),
+                'upload_date': published_file['upload_date']
+            }
+        return None
+    except Exception as e:
+        print(f"Error getting published PDF: {e}")
+        return None
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -105,3 +105,47 @@ function deletePDF(fileId) {
         });
     }
 }
+
+function publishPDF(fileId) {
+    if (confirm('このPDFファイルを公開対象に設定しますか？\n※他の公開中ファイルは自動的に停止されます')) {
+        fetch(`/admin/publish-pdf/${fileId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload(); // Refresh page to update file list
+            } else {
+                alert('公開設定に失敗しました: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('公開設定に失敗しました: ' + error);
+        });
+    }
+}
+
+function unpublishPDF(fileId) {
+    if (confirm('このPDFファイルの公開を停止しますか？')) {
+        fetch(`/admin/unpublish-pdf/${fileId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload(); // Refresh page to update file list
+            } else {
+                alert('公開停止に失敗しました: ' + data.error);
+            }
+        })
+        .catch(error => {
+            alert('公開停止に失敗しました: ' + error);
+        });
+    }
+}

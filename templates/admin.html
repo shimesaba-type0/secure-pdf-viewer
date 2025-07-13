@@ -74,9 +74,17 @@
                                 <span class="file-name">{{ file.name }}</span>
                                 <span class="file-size">{{ file.size }}</span>
                                 <span class="file-date">{{ file.upload_date }}</span>
+                                {% if file.is_published %}
+                                <span class="published-badge">📋 公開中</span>
+                                {% endif %}
                             </div>
                             <div class="file-actions">
                                 <button class="btn btn-info btn-sm" onclick="previewPDF('{{ file.path }}')">プレビュー</button>
+                                {% if file.is_published %}
+                                <button class="btn btn-warning btn-sm" onclick="unpublishPDF('{{ file.id }}')">公開停止</button>
+                                {% else %}
+                                <button class="btn btn-success btn-sm" onclick="publishPDF('{{ file.id }}')">公開設定</button>
+                                {% endif %}
                                 <button class="btn btn-danger btn-sm" onclick="deletePDF('{{ file.id }}')">削除</button>
                             </div>
                         </div>
