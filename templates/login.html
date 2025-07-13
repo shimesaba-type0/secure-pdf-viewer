@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+
+{% block title %}ログイン - PTA PDF閲覧システム{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <h2>事前共有パスワード入力</h2>
+        
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" class="login-form">
+            <div class="form-group">
+                <label for="password">パスワード:</label>
+                <input type="password" id="password" name="password" required class="form-control">
+            </div>
+            
+            <button type="submit" class="btn btn-primary">ログイン</button>
+        </form>
+        
+        <div class="login-info">
+            <p>デモ用パスワード: demo123</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

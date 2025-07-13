@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+
+{% block title %}管理画面 - PTA PDF閲覧システム{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h2>管理者ダッシュボード</h2>
+    
+    <div class="dashboard-grid">
+        <div class="card">
+            <h3>アクセス状況</h3>
+            <div class="stat">
+                <span class="stat-number">1</span>
+                <span class="stat-label">現在のアクセス数</span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>システム状態</h3>
+            <div class="status-indicator status-active">
+                <span>運用中</span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>公開期間</h3>
+            <p>開始: 未設定</p>
+            <p>終了: 未設定</p>
+        </div>
+        
+        <div class="card">
+            <h3>クイックアクション</h3>
+            <button class="btn btn-warning" disabled>緊急停止</button>
+            <button class="btn btn-info" disabled>設定変更</button>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>最近のアクセスログ</h3>
+        <div class="log-container">
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>時刻</th>
+                        <th>IPアドレス</th>
+                        <th>アクション</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>{{ session.login_time }}</td>
+                        <td>127.0.0.1</td>
+                        <td>ログイン</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
