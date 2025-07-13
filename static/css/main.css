@@ -321,6 +321,142 @@ body {
     font-weight: bold;
 }
 
+/* PDFアップロード */
+.btn-success {
+    background-color: #27ae60;
+}
+
+.btn-success:hover {
+    background-color: #229954;
+}
+
+.btn-danger {
+    background-color: #e74c3c;
+}
+
+.btn-danger:hover {
+    background-color: #c0392b;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.pdf-upload-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+.upload-container {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.upload-container h4 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+}
+
+.upload-area {
+    border: 2px dashed #bdc3c7;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    transition: border-color 0.3s;
+    margin-bottom: 1rem;
+}
+
+.upload-area:hover, .upload-area.drag-over {
+    border-color: #3498db;
+    background-color: #f8f9fa;
+}
+
+.upload-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.upload-icon {
+    font-size: 3rem;
+}
+
+.upload-info {
+    padding: 1rem;
+    background-color: #e8f4f8;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.upload-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+}
+
+.pdf-list {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pdf-list h4 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+}
+
+.file-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.file-item:last-child {
+    border-bottom: none;
+}
+
+.file-info {
+    flex: 1;
+}
+
+.file-name {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 0.25rem;
+}
+
+.file-size, .file-date {
+    font-size: 0.875rem;
+    color: #7f8c8d;
+    margin-right: 1rem;
+}
+
+.file-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.no-files {
+    text-align: center;
+    color: #7f8c8d;
+    font-style: italic;
+    padding: 2rem;
+}
+
 /* レスポンシブ対応 */
 @media (max-width: 768px) {
     .header .container {
@@ -335,6 +471,21 @@ body {
     
     .dashboard-grid {
         grid-template-columns: 1fr;
+    }
+    
+    .pdf-upload-section {
+        grid-template-columns: 1fr;
+    }
+    
+    .file-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    
+    .file-actions {
+        align-self: stretch;
+        justify-content: center;
     }
     
     .container {

@@ -2,6 +2,10 @@
 
 {% block title %}管理画面 - Secure PDF Viewer{% endblock %}
 
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}
+
 {% block content %}
 <div class="admin-container">
     <h2>管理者ダッシュボード</h2>
@@ -32,6 +36,56 @@
             <h3>クイックアクション</h3>
             <button class="btn btn-warning" disabled>緊急停止</button>
             <button class="btn btn-info" disabled>設定変更</button>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>PDFファイル管理</h3>
+        <div class="pdf-upload-section">
+            <div class="upload-container">
+                <h4>PDFファイルアップロード</h4>
+                <form action="/admin/upload-pdf" method="post" enctype="multipart/form-data" class="upload-form">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <div class="upload-icon">📁</div>
+                            <p>PDFファイルをドラッグ&ドロップまたはクリックして選択</p>
+                            <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" style="display: none;">
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('pdfFile').click()">ファイルを選択</button>
+                        </div>
+                    </div>
+                    <div class="upload-info" id="uploadInfo" style="display: none;">
+                        <p>選択されたファイル: <span id="fileName"></span></p>
+                        <p>ファイルサイズ: <span id="fileSize"></span></p>
+                    </div>
+                    <div class="upload-actions">
+                        <button type="submit" class="btn btn-success" id="uploadBtn" disabled>アップロード</button>
+                        <button type="button" class="btn btn-secondary" id="clearBtn" onclick="clearSelection()" disabled>クリア</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="pdf-list">
+                <h4>アップロード済みPDFファイル</h4>
+                <div class="file-list">
+                    {% if pdf_files %}
+                        {% for file in pdf_files %}
+                        <div class="file-item">
+                            <div class="file-info">
+                                <span class="file-name">{{ file.name }}</span>
+                                <span class="file-size">{{ file.size }}</span>
+                                <span class="file-date">{{ file.upload_date }}</span>
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-info btn-sm" onclick="previewPDF('{{ file.path }}')">プレビュー</button>
+                                <button class="btn btn-danger btn-sm" onclick="deletePDF('{{ file.id }}')">削除</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="no-files">アップロードされたPDFファイルはありません</p>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </div>
     
