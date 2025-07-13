@@ -102,6 +102,39 @@
         font-size: 1.1rem;
     }
     
+    /* 全画面表示スタイル */
+    .pdf-viewer-panel.fullscreen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: 9999;
+        background: white;
+    }
+    
+    .pdf-viewer-panel.fullscreen .pdf-container {
+        background-color: #2c3e50;
+    }
+    
+    .fullscreen-exit-hint {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        z-index: 10000;
+        opacity: 0.8;
+        transition: opacity 0.3s;
+    }
+    
+    .fullscreen-exit-hint:hover {
+        opacity: 1;
+    }
+    
     @media (max-width: 768px) {
         .pdf-controls {
             flex-direction: column;
@@ -159,6 +192,7 @@
                             <option value="fit">画面に合わせる</option>
                         </select>
                         <button class="btn btn-sm btn-secondary" id="zoomIn" disabled>＋</button>
+                        <button class="btn btn-sm btn-info" id="fullscreenBtn" disabled>全画面表示</button>
                     </div>
                 </div>
             </div>

@@ -23,9 +23,15 @@ class PDFViewer {
         this.zoomOutBtn = document.getElementById('zoomOut');
         this.zoomInBtn = document.getElementById('zoomIn');
         this.zoomSelect = document.getElementById('zoomSelect');
+        this.fullscreenBtn = document.getElementById('fullscreenBtn');
         
         // Container
         this.pdfContainer = document.getElementById('pdfContainer');
+        this.pdfViewerPanel = document.querySelector('.pdf-viewer-panel');
+        
+        // Fullscreen state
+        this.isFullscreen = false;
+        this.previousZoomValue = null;
     }
     
     bindEvents() {
@@ -39,8 +45,17 @@ class PDFViewer {
         this.zoomInBtn?.addEventListener('click', () => this.zoomIn());
         this.zoomSelect?.addEventListener('change', (e) => this.setZoom(e.target.value));
         
+        // Fullscreen control
+        this.fullscreenBtn?.addEventListener('click', () => this.toggleFullscreen());
+        
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+        
+        // Fullscreen change events
+        document.addEventListener('fullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('webkitfullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('mozfullscreenchange', () => this.handleFullscreenChange());
+        document.addEventListener('MSFullscreenChange', () => this.handleFullscreenChange());
     }
     
     async loadPublishedPDF(publishedPdf) {
@@ -88,9 +103,14 @@ class PDFViewer {
             const viewport = page.getViewport({ scale: 1.0 });
             let scale = this.scale;
             
-            if (this.zoomSelect.value === 'fit') {
+            if (this.zoomSelect.value === 'fit' || this.isFullscreen) {
                 const containerWidth = this.pdfContainer.clientWidth - 40; // padding
-                scale = containerWidth / viewport.width;
+                const containerHeight = this.pdfContainer.clientHeight - 40; // padding
+                
+                // Calculate scale to fit both width and height
+                const scaleX = containerWidth / viewport.width;
+                const scaleY = containerHeight / viewport.height;
+                scale = Math.min(scaleX, scaleY); // Use smaller scale to fit completely
             } else {
                 scale = parseFloat(this.zoomSelect.value) || 1.0;
             }
@@ -152,6 +172,7 @@ class PDFViewer {
         this.zoomOutBtn.disabled = false;
         this.zoomInBtn.disabled = false;
         this.zoomSelect.disabled = false;
+        this.fullscreenBtn.disabled = false;
     }
     
     disableControls() {
@@ -161,6 +182,7 @@ class PDFViewer {
         this.zoomOutBtn.disabled = true;
         this.zoomInBtn.disabled = true;
         this.zoomSelect.disabled = true;
+        this.fullscreenBtn.disabled = true;
     }
     
     async previousPage() {
@@ -234,6 +256,19 @@ class PDFViewer {
                 e.preventDefault();
                 this.zoomOut();
                 break;
+            case 'f':
+            case 'F':
+                if (this.pdfDoc) {
+                    e.preventDefault();
+                    this.toggleFullscreen();
+                }
+                break;
+            case 'Escape':
+                if (this.isFullscreen) {
+                    e.preventDefault();
+                    this.exitFullscreen();
+                }
+                break;
         }
     }
     
@@ -244,6 +279,148 @@ class PDFViewer {
     showError(message) {
         this.pdfContainer.innerHTML = `<div class="no-pdf-selected">❌ ${message}</div>`;
         this.disableControls();
+    }
+    
+    toggleFullscreen() {
+        if (this.isFullscreen) {
+            this.exitFullscreen();
+        } else {
+            this.enterFullscreen();
+        }
+    }
+    
+    async enterFullscreen() {
+        try {
+            // Try to use browser's fullscreen API first
+            if (this.pdfViewerPanel.requestFullscreen) {
+                await this.pdfViewerPanel.requestFullscreen();
+            } else if (this.pdfViewerPanel.webkitRequestFullscreen) {
+                await this.pdfViewerPanel.webkitRequestFullscreen();
+            } else if (this.pdfViewerPanel.mozRequestFullScreen) {
+                await this.pdfViewerPanel.mozRequestFullScreen();
+            } else if (this.pdfViewerPanel.msRequestFullscreen) {
+                await this.pdfViewerPanel.msRequestFullscreen();
+            } else {
+                // Fallback to CSS fullscreen
+                this.enterCSSFullscreen();
+            }
+        } catch (error) {
+            // If browser fullscreen fails, use CSS fullscreen
+            this.enterCSSFullscreen();
+        }
+    }
+    
+    enterCSSFullscreen() {
+        this.pdfViewerPanel.classList.add('fullscreen');
+        this.isFullscreen = true;
+        this.updateFullscreenButton();
+        this.showFullscreenHint();
+        
+        // Store current zoom setting and switch to fit mode for fullscreen
+        this.previousZoomValue = this.zoomSelect.value;
+        this.zoomSelect.value = 'fit';
+        
+        // Re-render current page to fit new size
+        if (this.pdfDoc && this.currentPage) {
+            setTimeout(() => {
+                this.renderPage(this.currentPage);
+            }, 100);
+        }
+    }
+    
+    exitFullscreen() {
+        if (document.fullscreenElement || document.webkitFullscreenElement || 
+            document.mozFullScreenElement || document.msFullscreenElement) {
+            // Exit browser fullscreen
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        } else {
+            // Exit CSS fullscreen
+            this.exitCSSFullscreen();
+        }
+    }
+    
+    exitCSSFullscreen() {
+        this.pdfViewerPanel.classList.remove('fullscreen');
+        this.isFullscreen = false;
+        this.updateFullscreenButton();
+        this.hideFullscreenHint();
+        
+        // Restore previous zoom setting
+        if (this.previousZoomValue) {
+            this.zoomSelect.value = this.previousZoomValue;
+            this.previousZoomValue = null;
+        }
+        
+        // Re-render current page to fit new size
+        if (this.pdfDoc && this.currentPage) {
+            setTimeout(() => {
+                this.renderPage(this.currentPage);
+            }, 100);
+        }
+    }
+    
+    handleFullscreenChange() {
+        const isInFullscreen = !!(document.fullscreenElement || document.webkitFullscreenElement || 
+                                  document.mozFullScreenElement || document.msFullscreenElement);
+        
+        if (!isInFullscreen && this.isFullscreen) {
+            // Exited browser fullscreen
+            this.exitCSSFullscreen();
+        } else if (isInFullscreen && !this.isFullscreen) {
+            // Entered browser fullscreen
+            this.isFullscreen = true;
+            this.updateFullscreenButton();
+            this.showFullscreenHint();
+            
+            // Store current zoom setting and switch to fit mode for fullscreen
+            this.previousZoomValue = this.zoomSelect.value;
+            this.zoomSelect.value = 'fit';
+            
+            // Re-render current page
+            if (this.pdfDoc && this.currentPage) {
+                setTimeout(() => {
+                    this.renderPage(this.currentPage);
+                }, 100);
+            }
+        }
+    }
+    
+    updateFullscreenButton() {
+        if (this.fullscreenBtn) {
+            this.fullscreenBtn.textContent = this.isFullscreen ? '全画面終了' : '全画面表示';
+        }
+    }
+    
+    showFullscreenHint() {
+        // Remove existing hint
+        this.hideFullscreenHint();
+        
+        const hint = document.createElement('div');
+        hint.className = 'fullscreen-exit-hint';
+        hint.textContent = 'ESC または F キーで全画面終了';
+        hint.id = 'fullscreenHint';
+        
+        this.pdfViewerPanel.appendChild(hint);
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            this.hideFullscreenHint();
+        }, 3000);
+    }
+    
+    hideFullscreenHint() {
+        const hint = document.getElementById('fullscreenHint');
+        if (hint) {
+            hint.remove();
+        }
     }
 }
 
