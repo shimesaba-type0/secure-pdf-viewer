@@ -1,431 +1,418 @@
-# Secure PDF Viewer
+# PTA PDF閲覧システム 仕様書
 
-セキュアなPDF閲覧システム - 限定公開・期間制限・認証機能付き
+## 1. システム概要
 
-## 概要
+PTA資料の限定公開・閲覧システム。特定の人のみが指定期間内にPDF資料を閲覧可能。
 
-特定のユーザーのみが指定期間内にPDF資料を安全に閲覧できるシステムです。企業の機密資料、教育機関の試験問題、医療文書、法的文書など、セキュアな文書配布が必要な場面で活用できます。
+### 対象ユーザー
+- 閲覧権限者：約30人
+- 想定同時アクセス：10人程度
+- 想定端末数：45?90台（複数端末利用考慮）
 
-## 主な機能
+## 2. アーキテクチャ
 
-### ?? セキュリティ機能
-- **二段階認証**: 事前共有パスワード + OTP（メール認証）
-- **セッション管理**: 72時間の期限付きセッション
-- **地理的制限**: 日本国内からのみアクセス許可
-- **レート制限**: 認証失敗時の自動IP制限
-- **ウォーターマーク**: 閲覧者情報の透かし表示
-
-### ?? PDF機能
-- **PDF.js表示**: ブラウザ内での安全なPDF表示
-- **印刷・ダウンロード制限**: 右クリック・印刷機能の無効化
-- **直接アクセス防止**: 署名付きURLによる保護
-
-### ?? 管理機能
-- **リアルタイム監視**: アクセス数・端末数の即時確認
-- **詳細ログ**: IP、UA、滞在時間の記録
-- **緊急対応**: 即座の公開停止・IP制限解除
-- **期間管理**: 公開開始・終了時刻の設定
-
-## 対象ユーザー
-
-- **閲覧権限者**: 約30人（**参考値**）
-- **想定同時アクセス**: 10人程度
-- **想定端末数**: 45?90台（複数端末利用考慮）
-
-?? **重要**: 上記の数値は参考値です。実際の対応可能ユーザー数は**ホストするサーバーのスペック**（CPU、メモリ、ネットワーク帯域）により大きく変わります。本番運用前に**十分な負荷テストを実施**し、ご利用環境に適した構成を検証してください。
-
-## 技術スタック
-
-- **Backend**: Flask (Python 3.12)
-- **Database**: SQLite3
-- **PDF表示**: PDF.js
-- **Mail**: SMTP (さくらメール等)
-- **Infrastructure**: Docker + **Cloudflare（必須）**
-- **Development**: Claude Code + VS Code Dev Container
-
-## 依存関係
-
-### ?? Cloudflare（必須）
-このアプリケーションは以下のCloudflare機能に依存しており、**Cloudflare契約が必要**です：
-
-- **SSL/TLS暗号化**: Cloudflareが証明書を管理・提供
-- **DDoS攻撃防御**: Cloudflareのセキュリティ層で保護
-- **地理的制限**: 日本国内のみアクセス許可（Cloudflare Security Rules）
-- **CDNキャッシュ**: 静的ファイルの高速配信
-- **DNS管理**: ドメイン名とIPアドレスの紐付け
-
-### ?? Cloudflareなしでの制限事項
-Cloudflareを使用しない場合、以下の機能が利用できません：
-- 地理的アクセス制限
-- DDoS攻撃からの保護
-- 自動SSL証明書
-- CDNによる高速化
-
-## クイックスタート
-
-### 1. リポジトリのクローン
-```bash
-git clone https://github.com/your-username/secure-pdf-viewer.git
-cd secure-pdf-viewer
+### インフラ構成
+```
+インターネット → Cloudflare → localhost（あなたのホスト）
 ```
 
-### 2. 環境設定
-```bash
-# 環境変数ファイルの作成
-cp .env.example .env
+| コンポーネント | 役割 | 技術 |
+|---------------|------|------|
+| **Cloudflare** | DNS、CDN、DDoS対策、地理的制限 | DNS Proxy, Security Rules |
+| **localhost** | メインアプリケーション（モノシリック） | Flask |
+| **さくらメール** | OTP送信 | SMTP (port 465) |
+| **データベース** | ユーザー認証、ログ管理 | SQLite3 |
 
-# シークレットキーの自動生成
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-sed -i "s/your-secret-key-here/$SECRET_KEY/" .env
+## 3. 機能要件
 
-# .envファイルを編集（メール設定等）
-nano .env
-```
+### 3.1 認証機能
+1. **事前共有パスワード認証**
+   - 全ユーザー共通パスワード
+   - 管理画面で変更可能
 
-### 3. Docker環境での起動
-```bash
-# コンテナのビルドと起動
-docker-compose up --build -d
+### 3.2 セッション管理
+- **セッション有効期限**: 72時間（3日間）
+- **自動延長**: なし（シンプルな実装）
+- **強制ログアウト条件**:
+  - 事前共有パスワード変更時
+  - 管理者による全ユーザー強制ログアウト実行時
+  - 異常なアクセスパターン検知時
 
-# ログの確認
-docker-compose logs -f app
+**72時間設定の理由:**
+- PTA資料の典型的利用パターン（月曜配布→木曜議論→金曜決定）に適合
+- ユーザーフレンドリー（週2-3回のログインで済む）
+- セキュリティ確保（3日で自動切断、緊急時即座対応可能）
+- 実装がシンプル（自動延長ロジック不要）
 
-# アクセス確認
-curl http://0.0.0.0:5000/
-```
+### 3.2 アクセス制限
+1. **地理的制限**
+   - 日本国内からのみアクセス許可
+   - 海外IPを自動拒否
 
-### 4. 開発環境（VS Code Dev Container）
-```bash
-# VS Codeで開く
-code .
+2. **レート制限**
+   - 10分間で5回認証失敗 → 30分間IP制限
+   - 管理画面で制限解除可能
 
-# Command Palette (Ctrl+Shift+P) で実行:
-# "Remote-Containers: Reopen in Container"
+3. **公開期間制限**
+   - 開始日時・終了日時設定
+   - 期間外は自動アクセス拒否
 
-# Claude Codeで開発開始
-claude --dangerously-skip-permissions
-```
+### 3.3 PDF閲覧機能
+1. **PDF表示**
+   - PDF.js による埋め込み表示
+   - 印刷・ダウンロード無効化
+   - 右クリック無効化
 
-## 設定
+2. **ウォーターマーク仕様**
+   - **配置**: 各ページ右上（上から20px、右から20px）
+   - **フォントサイズ**: 10px
+   - **フォント**: Courier New（等幅フォント）
+   - **透明度**: 0.3（控えめで文書の可読性を確保）
+   - **背景**: 半透明白背景（rgba(255, 255, 255, 0.8)）
+   - **境界線**: 1px 薄いグレー境界線
+   - **角丸**: 4px border-radius
+   - **パディング**: 4px（上下） × 8px（左右）
+   
+   **表示内容（4行構成）:**
+   ```
+   著作者: [著作者名]
+   閲覧者: [ユーザーメールアドレス]
+   日時: YYYY-MM-DD HH:mm:ss
+   SID: [セッションID]
+   ```
+   
+   **動的要素:**
+   - 著作者名: 設定で指定された著作者名（例：「PTA執行部」「資料作成者」等）
+   - 閲覧者メールアドレス: 認証時のメールアドレス
+   - 日時: リアルタイムの閲覧時刻（YYYY-MM-DD HH:mm:ss形式）
+   - セッションID: 一意のセッション識別子
 
-### 環境変数（.env）
-```bash
-# Flask設定
-FLASK_SECRET_KEY=生成された64文字のキー
-FLASK_ENV=development
+3. **セキュリティ**
+   - 署名付きURL（期限付き）
+   - 直接URLアクセス防止
 
-# メール設定
-MAIL_SERVER=your-mail-server.com
-MAIL_PORT=465
-MAIL_USERNAME=your-email@example.com
-MAIL_PASSWORD=your-email-password
+### 3.4 管理機能
+1. **アクセス解析**
+   - リアルタイムアクセス数表示
+   - 詳細ログ（IP、UA、メールアドレス、滞在時間）
+   - アクセス端末数監視（100台超過時警告）
 
-# 管理者設定
-ADMIN_EMAIL=admin@example.com
+2. **設定管理**
+   - 事前共有パスワード変更
+   - 公開期間変更
+   - IP制限解除
+   - 緊急公開停止
 
-# システム設定
-CLOUDFLARE_DOMAIN=your-domain.com
-```
+3. **通知機能**
+   - 異常アクセス時メール通知
+   - アクセス数閾値超過通知
 
-### シークレットキーの生成方法（Linux）
-```bash
-# Python使用（推奨）
-python3 -c "import secrets; print(secrets.token_hex(32))"
+## 4. 非機能要件
 
-# OpenSSL使用
-openssl rand -hex 32
-```
+### 4.1 セキュリティ
+- SSL/TLS暗号化（Cloudflare管理）
+- メールアドレスハッシュ化保存
+- セッション管理（Flask-Session）
+- CSRF対策
+- ウォーターマークによる著作権保護・不正利用追跡
 
-## 開発
+### 4.2 パフォーマンス
+- 静的ファイルCDNキャッシュ（Cloudflare）
+- PDF初回読み込み後キャッシュ
+- 同時30ユーザー対応
 
-### ローカル開発環境
-```bash
-# 仮想環境の作成
-python3 -m venv venv
-source venv/bin/activate
+### 4.3 可用性
+- DDoS攻撃防御（Cloudflare）
+- 自動バックアップ（SQLiteファイル）
 
-# 依存関係のインストール
-pip install -r requirements.txt
+## 5. エンドポイント設計
 
-# 開発サーバーの起動
-export FLASK_ENV=development
-export FLASK_DEBUG=1
-python app.py
-```
+### メインコンテンツ
+- `GET /` - PDF閲覧画面（認証必須、未認証時は /auth/login へリダイレクト）
 
-### Claude Codeでの開発
-```bash
-# 機能実装の例
-claude "Implement Flask basic authentication with shared password"
-claude "Create PDF viewer with PDF.js integration"
-claude "Add OTP email authentication system"
-```
-
-## アーキテクチャ
-
-```
-インターネット → Cloudflare（必須） → nginx（リバースプロキシ） → localhost:5000（Docker）
-```
-
-| コンポーネント | 役割 | 技術 | 依存度 |
-|---------------|------|------|--------|
-| **Cloudflare** | DNS、CDN、DDoS対策、地理的制限 | DNS Proxy, Security Rules | **必須** |
-| **nginx** | リバースプロキシ、SSL終端、静的ファイル配信 | HTTP Server/Proxy | **推奨** |
-| **Docker** | アプリケーション実行環境 | Flask + gunicorn | 必須 |
-| **SQLite3** | ユーザー認証、ログ管理 | データベース | 必須 |
-| **SMTP** | OTP送信 | メール配信 | 必須 |
-
-### 推奨構成の理由
-- **nginx**: 静的ファイル配信の高速化、SSL終端処理
-- **Cloudflare**: 外部脅威からの保護、地理的制限
-- **Docker**: アプリケーションの分離、デプロイの簡素化
-
-### Cloudflare設定要件
-- **ドメイン契約**: 独自ドメインが必要
-- **プランレベル**: Free プラン以上（Security Rules使用のため）
-- **DNS設定**: A レコードでサーバーIPを指定
-- **SSL設定**: "Full (strict)" モード推奨
-
-## API エンドポイント
-
-### 認証系
-- `GET /auth/login` - 事前共有パスワード入力
-- `POST /auth/login` - パスワード確認
-- `GET /auth/send-otp` - OTP送信画面
+### 認証系（/auth/）
+- `GET /auth/login` - 事前共有パスワード入力画面
+- `POST /auth/login` - 事前共有パスワード確認
+- `GET /auth/send-otp` - メールアドレス入力画面
 - `POST /auth/send-otp` - OTP送信処理
 - `GET /auth/verify-otp` - OTP入力画面
 - `POST /auth/verify-otp` - OTP確認・認証完了
+- `POST /auth/logout` - ログアウト
 
-### 管理者系
-- `GET /admin` - 管理者ダッシュボード
-- `GET /admin/analytics` - アクセス統計
-- `POST /admin/settings` - 設定変更
+### 管理者系（/admin/）
+- `GET /admin` - 管理者ダッシュボード（管理者権限必須）
+- `GET /admin/settings` - 設定変更画面（事前共有パスワード、公開期間等）
+- `POST /admin/settings` - 設定変更処理
+- `GET /admin/analytics` - アクセス統計・分析画面
+- `GET /admin/managers` - 管理者一覧表示
+- `POST /admin/managers/add` - 管理者追加（メールアドレス入力）
+- `POST /admin/managers/remove` - 管理者削除
+- `POST /admin/unblock-ip` - IP制限解除
+- `POST /admin/unpublish` - 緊急公開停止
 - `POST /admin/force-logout-all` - 全ユーザー強制ログアウト
+- `POST /admin/upload-pdf` - PDFファイルアップロード
 
 ### PDF配信
-- `GET /` - PDF閲覧画面（認証必須）
-- `GET /static/pdfs/<filename>` - PDFファイル配信
+- `GET /static/pdfs/<filename>` - PDFファイル配信（セッション認証必須）
 
-## セキュリティ機能
+**セキュリティ方式:**
+- セッション認証による直接アクセス防止
+- 非認証ユーザーは自動的に /auth/login へリダイレクト
+- PDF.js による埋め込み表示（印刷・ダウンロード制御）
 
-### 認証
-- 事前共有パスワード（管理画面で変更可能）
-- OTPメール認証（10分間有効）
-- セッション管理（72時間有効期限）
+## 6. データベース設計
 
-### アクセス制限
-- 地理的制限（日本国内のみ）
-- レート制限（10分間で5回失敗 → 30分間IP制限）
-- 公開期間制限（開始・終了日時設定）
+### テーブル構成
+```sql
+-- アクセスログ（基本的なアクセス記録）
+CREATE TABLE access_logs (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT,
+    email_hash TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    access_time TIMESTAMP,
+    endpoint TEXT,
+    method TEXT,
+    status_code INTEGER
+);
 
-### PDF保護
-- PDF.js埋め込み表示
-- 印刷・ダウンロード無効化
-- 右クリック無効化
-- ウォーターマーク表示
-- 署名付きURL
+-- イベントログ（詳細なユーザー行動記録）
+CREATE TABLE event_logs (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT,
+    email_hash TEXT,
+    event_type TEXT,  -- 'pdf_open', 'inactive_timeout', 'reactivated', 'page_scroll', 'tab_switch'
+    event_data JSON,  -- 詳細データ（ページ番号、スクロール位置等）
+    timestamp INTEGER,
+    ip_address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-## 本番デプロイ
+-- 認証失敗ログ
+CREATE TABLE auth_failures (
+    id INTEGER PRIMARY KEY,
+    ip_address TEXT,
+    attempt_time TIMESTAMP,
+    failure_type TEXT,
+    email_attempted TEXT
+);
 
-### 前提条件
-- **Cloudflareアカウント**: 必須（無料プランでも可）
-- **独自ドメイン**: Cloudflareで管理するドメインが必要
-- **Ubuntu Server**: 22.04 LTS以上推奨
-- **十分なサーバースペック**: 想定ユーザー数に応じた負荷テスト必須
+-- IP制限
+CREATE TABLE ip_blocks (
+    ip_address TEXT PRIMARY KEY,
+    blocked_until TIMESTAMP,
+    reason TEXT
+);
 
-### 1. Cloudflare設定（必須手順）
-```bash
-# 1. Cloudflareでドメインを追加
-# 2. ネームサーバーをCloudflareに変更
-# 3. DNS設定
-A レコード: your-domain.com → サーバーのIPアドレス
+-- システム設定テーブル
+CREATE TABLE settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT,
+    value_type TEXT DEFAULT 'string',  -- 'string', 'integer', 'boolean', 'datetime', 'json'
+    description TEXT,
+    category TEXT DEFAULT 'general',   -- 'auth', 'publish', 'system', 'mail', 'security'
+    is_sensitive BOOLEAN DEFAULT FALSE, -- パスワード等の機密情報フラグ
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT  -- 更新者（管理者メールアドレス）
+);
 
-# 4. SSL/TLS設定
-暗号化モード: "Full (strict)"
+-- 初期データ
+INSERT INTO settings (key, value, value_type, description, category, is_sensitive) VALUES
+('shared_password', 'default_password_123', 'string', '事前共有パスワード', 'auth', TRUE),
+('publish_start', NULL, 'datetime', '公開開始日時', 'publish', FALSE),
+('publish_end', NULL, 'datetime', '公開終了日時', 'publish', FALSE),
+('system_status', 'active', 'string', 'システム状態（active/unpublished）', 'system', FALSE),
+('session_timeout', '259200', 'integer', 'セッション有効期限（秒）', 'auth', FALSE),
+('max_login_attempts', '5', 'integer', '最大ログイン試行回数', 'security', FALSE),
+('lockout_duration', '1800', 'integer', 'ロックアウト時間（秒）', 'security', FALSE),
+('force_logout_after', '0', 'integer', '強制ログアウト実行時刻', 'system', FALSE),
+('mail_otp_expiry', '600', 'integer', 'OTP有効期限（秒）', 'mail', FALSE),
+('analytics_retention_days', '90', 'integer', 'ログ保持期間（日）', 'system', FALSE),
+('author_name', 'PTA執行部', 'string', 'ウォーターマーク表示用著作者名', 'watermark', FALSE);
 
-# 5. セキュリティルール（地理的制限）
-国: 日本のみ許可
-アクション: 許可
+-- 設定変更履歴テーブル
+CREATE TABLE settings_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    setting_key TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    changed_by TEXT NOT NULL,  -- 変更者メールアドレス
+    change_reason TEXT,        -- 変更理由
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address TEXT
+);
 
-# 6. その他のセキュリティ設定
-ブラウザ整合性チェック: 有効
-チャレンジ通過: 有効
+-- システム設定のインデックス
+CREATE INDEX idx_settings_key ON settings(key);
+CREATE INDEX idx_settings_category ON settings(category);
+CREATE INDEX idx_settings_history_key ON settings_history(setting_key);
+CREATE INDEX idx_settings_history_changed_at ON settings_history(changed_at);
+
+-- 管理者権限
+CREATE TABLE admin_users (
+    id INTEGER PRIMARY KEY,
+    email TEXT UNIQUE,
+    added_by TEXT,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- セッション統計（集計用）
+CREATE TABLE session_stats (
+    session_id TEXT PRIMARY KEY,
+    email_hash TEXT,
+    start_time INTEGER,
+    end_time INTEGER,
+    total_active_time INTEGER,
+    total_inactive_time INTEGER,
+    page_views INTEGER,
+    reactivation_count INTEGER,
+    ip_address TEXT,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-### 2. nginx設定（推奨）
-```bash
-# nginxのインストール
-sudo apt update
-sudo apt install nginx
+## 7. ディレクトリ構成
 
-# 設定ファイルの作成
-sudo nano /etc/nginx/sites-available/secure-pdf-viewer
+```
+pta-pdf-viewer/
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── app.py                 # メインアプリケーション
+├── config.py              # 設定管理
+├── auth/
+│   ├── __init__.py
+│   ├── password.py        # パスワード認証
+│   ├── otp.py            # OTP機能
+│   └── session.py        # セッション管理
+├── mail/
+│   ├── __init__.py
+│   └── sender.py         # メール送信
+├── database/
+│   ├── __init__.py
+│   ├── models.py         # データベースモデル
+│   └── migrations.py     # マイグレーション
+├── static/
+│   ├── css/
+│   ├── js/
+│   │   └── watermark.js  # ウォーターマーク生成・管理
+│   └── pdfs/             # PDFファイル格納
+├── templates/
+│   ├── index.html        # 認証画面
+│   ├── viewer.html       # PDF閲覧画面
+│   ├── admin.html        # 管理画面
+│   └── layout.html       # 共通レイアウト
+├── instance/
+│   └── database.db       # SQLiteファイル
+└── logs/                 # アプリケーションログ
 ```
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    # HTTPからHTTPSにリダイレクト
-    return 301 https://$host$request_uri;
+## 8. 開発・デプロイ方針
+
+### コンテナ化
+- **Docker Compose** 使用
+- 開発環境と本番環境の統一
+- ポータビリティ確保
+
+### バージョン管理
+- **Git** 管理
+- ブランチ戦略：main（本番）、develop（開発）
+- PDFファイルは .gitignore 対象
+
+### デプロイ
+```bash
+# 初回セットアップ
+git clone <repository>
+cd pta-pdf-viewer
+cp .env.example .env    # 環境変数設定
+docker-compose up -d
+
+# PDF更新
+docker-compose exec app python manage.py upload-pdf <file>
+```
+
+## 9. 環境変数
+
+```bash
+# .env ファイル
+FLASK_SECRET_KEY=<ランダム文字列>
+MAIL_SERVER=mail.sakura.ne.jp
+MAIL_PORT=465
+MAIL_USERNAME=<さくらメールアカウント>
+MAIL_PASSWORD=<さくらメールパスワード>
+ADMIN_EMAIL=<管理者メールアドレス>
+CLOUDFLARE_DOMAIN=<ドメイン名>
+
+# 注意: 事前共有パスワードはデータベースで管理（環境変数使用しない）
+```
+
+## 10. 開発フェーズ
+
+### Phase 1: 基本機能（1-2週間）
+1. Flask アプリケーション基盤
+2. 事前共有パスワード認証
+3. PDF.js によるPDF表示
+4. 基本的なログ機能
+
+### Phase 2: 認証強化（1週間）
+5. OTP機能実装
+6. セッション管理
+7. 簡単な管理画面
+
+### Phase 3: セキュリティ・運用（1週間）
+8. IP制限・レート制限
+9. **ウォーターマーク実装**（パターン1仕様）
+10. 詳細分析・通知機能
+
+### Phase 4: 本番運用準備
+11. Docker化
+12. Cloudflare設定
+13. 監視・バックアップ体制
+
+## 11. 運用手順
+
+### 日常運用
+1. **PDF更新**: 管理画面またはCLIでアップロード
+2. **アクセス監視**: 管理画面でリアルタイム確認
+3. **設定変更**: 管理画面で期間・パスワード変更
+
+### 緊急対応
+1. **即時停止**: 管理画面の緊急停止ボタン
+2. **IP制限解除**: LINEで連絡受付→管理画面で解除
+3. **異常検知**: メール通知→状況確認→対応
+
+## 12. 成功指標
+
+- **セキュリティ**: 不正アクセス0件
+- **可用性**: 99%以上のアップタイム
+- **監視**: アクセス範囲の把握（100台以下維持）
+- **運用**: 管理作業の自動化により手間を最小化
+- **著作権保護**: ウォーターマークによる適切な著作者表示と追跡機能
+
+## 13. ウォーターマーク技術仕様
+
+### フロントエンド実装
+- **ライブラリ**: PDF.js標準機能を使用
+- **レンダリング**: Canvas上でPDF描画後、DOM要素でウォーターマーク重複配置
+- **更新頻度**: ページ表示時およびページ切り替え時に動的生成
+
+### セキュリティ考慮事項
+- **改ざん防止**: JavaScript難読化、DOM操作検知
+- **スクリーンショット対応**: 透かし情報により撮影者特定可能
+- **印刷制御**: CSS media queries により印刷時も透かし表示
+
+### ログ記録
+ウォーターマーク表示時に以下の情報をevent_logsテーブルに記録：
+```json
+{
+  "event_type": "watermark_displayed",
+  "page_number": 1,
+  "watermark_content": "著作者: [著作者名], 閲覧者: user@example.com",
+  "display_time": "2025-07-13 15:30:25"
 }
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-    
-    # SSL証明書（Cloudflareから自動取得）
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-    
-    # セキュリティヘッダー
-    add_header X-Frame-Options SAMEORIGIN;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-    
-    # 静的ファイルの直接配信
-    location /static/ {
-        alias /path/to/secure-pdf-viewer/static/;
-        expires 1h;
-        add_header Cache-Control "public, immutable";
-    }
-    
-    # アプリケーションへのプロキシ
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
 ```
-
-```bash
-# 設定の有効化
-sudo ln -s /etc/nginx/sites-available/secure-pdf-viewer /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 3. アプリケーション設定
-```bash
-# 本番用docker-compose
-docker-compose -f docker-compose.prod.yml up -d
-
-# 自動起動設定
-sudo systemctl enable docker
-sudo systemctl enable nginx
-```
-
-### 4. 負荷テスト（必須）
-```bash
-# Apache Benchでの基本テスト
-ab -n 1000 -c 10 https://your-domain.com/
-
-# より詳細な負荷テスト
-# - 想定同時ユーザー数での接続テスト
-# - PDF表示の応答時間測定
-# - メモリ・CPU使用率の監視
-```
-
-### 5. 監視・バックアップ
-- SQLiteファイルの定期バックアップ
-- ログローテーション設定
-- アクセス監視アラート
-- サーバーリソース監視
-
-### 6. nginx代替案（開発環境用）
-開発環境ではnginxなしでも動作可能：
-```bash
-# 直接アクセス（本番非推奨）
-docker-compose up -d  # http://0.0.0.0:5000 でアクセス
-```
-
-## トラブルシューティング
-
-### よくある問題
-
-**1. コンテナが起動しない**
-```bash
-# ログの確認
-docker-compose logs app
-
-# ポート競合の確認
-netstat -tlnp | grep 5000
-```
-
-**2. メール送信エラー**
-```bash
-# SMTP設定の確認
-docker-compose exec app python -c "
-import smtplib
-smtp = smtplib.SMTP('mail.sakura.ne.jp', 465)
-print('Connection successful')
-"
-```
-
-**3. PDF表示エラー**
-```bash
-# PDFファイルの存在確認
-ls -la static/pdfs/
-
-# ファイル権限の確認
-chmod 644 static/pdfs/*.pdf
-```
-
-**4. Cloudflare関連の問題**
-```bash
-# DNS設定の確認
-dig your-domain.com
-
-# SSL証明書の確認
-curl -I https://your-domain.com
-
-# 地理的制限のテスト
-curl -H "CF-IPCountry: US" https://your-domain.com  # アクセス拒否を確認
-curl -H "CF-IPCountry: JP" https://your-domain.com  # アクセス許可を確認
-```
-
-**5. ローカル開発でCloudflare機能をテストできない場合**
-```bash
-# 地理的制限の代替テスト
-# IPアドレス範囲での制限をnginxで実装
-```
-
-## ライセンス
-
-MIT License
-
-## コントリビューション
-
-1. このリポジトリをフォーク
-2. フィーチャーブランチを作成 (`git checkout -b feature/amazing-feature`)
-3. 変更をコミット (`git commit -m 'Add amazing feature'`)
-4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
-5. プルリクエストを作成
-
-## サポート
-
-問題や質問がある場合は、GitHubのIssuesページをご利用ください。
-
----
-
-**?? 重要**: このシステムは機密文書の配布を目的としており、**Cloudflareの契約が前提**となっています。また、記載のユーザー数は参考値であり、**実際の処理能力はサーバースペック**（CPU、メモリ、ネットワーク）に大きく依存します。
-
-**本番運用前の必須事項**: 
-- 想定負荷での十分な負荷テスト実施
-- セキュリティ設定の適切な構成
-- 定期的なシステムアップデート
-
-**Cloudflare要件**: 
-- 独自ドメインの契約
-- Cloudflareアカウント（無料プランでも可）
-- DNS設定権限
-
-**推奨インフラ構成**:
-- nginx リバースプロキシ
-- 十分なサーバーリソース
-- 監視・バックアップ体制
 
