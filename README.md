@@ -1,8 +1,8 @@
-# PTA PDF閲覧システム 仕様書
+# セキュアPDF閲覧システム
 
 ## 1. システム概要
 
-PTA資料の限定公開・閲覧システム。特定の人のみが指定期間内にPDF資料を閲覧可能。
+セキュアなPDF資料の限定公開・閲覧システム。特定の人のみが指定期間内にPDF資料を閲覧可能。
 
 ### 対象ユーザー
 - 閲覧権限者：約30人
@@ -39,7 +39,7 @@ PTA資料の限定公開・閲覧システム。特定の人のみが指定期�
   - 異常なアクセスパターン検知時
 
 **72時間設定の理由:**
-- PTA資料の典型的利用パターン（月曜配布→木曜議論→金曜決定）に適合
+- 資料の典型的利用パターン（配布→議論→決定）に適合
 - ユーザーフレンドリー（週2-3回のログインで済む）
 - セキュリティ確保（3日で自動切断、緊急時即座対応可能）
 - 実装がシンプル（自動延長ロジック不要）
@@ -82,7 +82,7 @@ PTA資料の限定公開・閲覧システム。特定の人のみが指定期�
    ```
    
    **動的要素:**
-   - 著作者名: 設定で指定された著作者名（例：「PTA執行部」「資料作成者」等）
+   - 著作者名: 設定で指定された著作者名（例：「資料作成者」「組織名」等）
    - 閲覧者メールアドレス: 認証時のメールアドレス
    - 日時: リアルタイムの閲覧時刻（YYYY-MM-DD HH:mm:ss形式）
    - セッションID: 一意のセッション識別子
@@ -231,7 +231,7 @@ INSERT INTO settings (key, value, value_type, description, category, is_sensitiv
 ('force_logout_after', '0', 'integer', '強制ログアウト実行時刻', 'system', FALSE),
 ('mail_otp_expiry', '600', 'integer', 'OTP有効期限（秒）', 'mail', FALSE),
 ('analytics_retention_days', '90', 'integer', 'ログ保持期間（日）', 'system', FALSE),
-('author_name', 'PTA執行部', 'string', 'ウォーターマーク表示用著作者名', 'watermark', FALSE);
+('author_name', 'Default_Author', 'string', 'ウォーターマーク表示用著作者名', 'watermark', FALSE);
 
 -- 設定変更履歴テーブル
 CREATE TABLE settings_history (
@@ -278,7 +278,7 @@ CREATE TABLE session_stats (
 ## 7. ディレクトリ構成
 
 ```
-pta-pdf-viewer/
+secure-pdf-viewer/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -327,7 +327,7 @@ pta-pdf-viewer/
 ```bash
 # 初回セットアップ
 git clone <repository>
-cd pta-pdf-viewer
+cd secure-pdf-viewer
 cp .env.example .env    # 環境変数設定
 docker-compose up -d
 
@@ -411,7 +411,7 @@ CLOUDFLARE_DOMAIN=<ドメイン名>
 {
   "event_type": "watermark_displayed",
   "page_number": 1,
-  "watermark_content": "著作者: [著作者名], 閲覧者: user@example.com",
+  "watermark_content": "著作者: Default_Author, 閲覧者: user@example.com",
   "display_time": "2025-07-13 15:30:25"
 }
 ```
