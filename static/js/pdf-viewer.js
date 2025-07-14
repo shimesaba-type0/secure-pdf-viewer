@@ -707,6 +707,48 @@ class PDFViewer {
         
         ctx.fillText(`SID: ${sessionId}`, canvasWidth - padding, yPosition);
         
+        // Add diagonal SID watermark across the page
+        ctx.save();
+        
+        // Calculate true diagonal angle for proper corner-to-corner alignment
+        const diagonalAngle = Math.atan2(canvasHeight, canvasWidth);
+        
+        // Calculate diagonal length for text sizing
+        const diagonalLength = Math.sqrt(canvasWidth * canvasWidth + canvasHeight * canvasHeight);
+        
+        // Calculate font size based on diagonal length and text length
+        // Target: SID should be about 30-40% of the diagonal length
+        const targetTextWidth = diagonalLength * 0.35;
+        
+        // Estimate character width ratio (Arial font approximation)
+        const charWidthRatio = 0.6; // Average character width to font size ratio
+        const estimatedTextWidth = sessionId.length * charWidthRatio;
+        
+        // Calculate font size to fit the target width
+        let diagonalFontSize = targetTextWidth / estimatedTextWidth;
+        
+        // Apply reasonable bounds
+        diagonalFontSize = Math.max(20, Math.min(80, diagonalFontSize));
+        
+        // Move to center of canvas
+        ctx.translate(canvasWidth / 2, canvasHeight / 2);
+        
+        // Rotate to true diagonal angle (negative for counter-clockwise)
+        ctx.rotate(-diagonalAngle);
+        
+        // Set diagonal watermark style
+        ctx.globalAlpha = 0.08; // Very light so it's not too intrusive
+        ctx.fillStyle = '#000000'; // Black color
+        ctx.font = `bold ${diagonalFontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Draw the session ID diagonally
+        ctx.fillText(sessionId, 0, 0);
+        
+        // Restore context for diagonal watermark
+        ctx.restore();
+        
         // Add page number watermark at bottom center
         if (this.currentPage && this.totalPages) {
             ctx.globalAlpha = 0.3;
