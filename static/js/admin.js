@@ -156,3 +156,10 @@ function resetAuthorName() {
         authorInput.value = 'Default_Author';
     }
 }
+
+function clearPublishEndTime() {
+    const publishEndInput = document.getElementById('publishEndDateTime');
+    if (confirm('公開終了日時設定をクリアしますか？（無制限公開になります）')) {
+        publishEndInput.value = '';
+    }
+}

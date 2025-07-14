@@ -27,9 +27,42 @@
         </div>
         
         <div class="card">
-            <h3>公開期間</h3>
-            <p>開始: 未設定</p>
-            <p>終了: 未設定</p>
+            <h3>公開状況</h3>
+            
+            {% if current_published_pdf %}
+                <!-- 現在公開中 -->
+                <div style="margin-bottom: 0.5rem;">
+                    <span class="status-badge status-active">公開中</span>
+                </div>
+                {% if publish_start_formatted %}
+                <p>開始: {{ publish_start_formatted }}</p>
+                {% endif %}
+                
+                {% if publish_end_datetime_formatted %}
+                <p>予定終了: {{ publish_end_datetime_formatted }}</p>
+                <small style="color: #27ae60; font-size: 0.85em;">自動停止設定済み</small>
+                {% else %}
+                <p>終了: 未設定（無制限）</p>
+                <small style="color: #666; font-size: 0.85em;">手動停止または下記フォームで設定</small>
+                {% endif %}
+            {% else %}
+                <!-- 現在非公開 -->
+                <div style="margin-bottom: 0.5rem;">
+                    <span class="status-badge status-stopped">停止中</span>
+                </div>
+                {% if last_unpublish_formatted %}
+                <p>最終停止: {{ last_unpublish_formatted }}</p>
+                {% else %}
+                <p>まだ公開されていません</p>
+                {% endif %}
+                
+                {% if publish_end_datetime_formatted %}
+                <p>次回終了予定: {{ publish_end_datetime_formatted }}</p>
+                <small style="color: #f39c12; font-size: 0.85em;">自動停止設定済み</small>
+                {% else %}
+                <small style="color: #666; font-size: 0.85em;">下記フォームで自動停止時刻を設定可能</small>
+                {% endif %}
+            {% endif %}
         </div>
         
         <div class="card">
@@ -112,6 +145,33 @@
                     <button type="button" class="btn btn-secondary" onclick="resetAuthorName()">リセット</button>
                 </div>
             </form>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>公開終了日時設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-publish-end" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="publishEndDateTime">公開終了日時:</label>
+                    <input type="datetime-local" id="publishEndDateTime" name="publish_end_datetime" 
+                           value="{{ publish_end_datetime or '' }}" class="form-control">
+                    <small class="form-text">
+                        設定された日時に自動的に公開を停止します。空白の場合は無制限で公開されます。
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">設定</button>
+                    <button type="button" class="btn btn-secondary" 
+                            onclick="clearPublishEndTime()">クリア</button>
+                </div>
+            </form>
+            
+            {% if publish_end_datetime %}
+            <div class="current-setting">
+                <strong>現在の設定:</strong> {{ publish_end_datetime_formatted or publish_end_datetime }}
+            </div>
+            {% endif %}
         </div>
     </div>
     

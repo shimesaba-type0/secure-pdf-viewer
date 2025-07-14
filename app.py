@@ -2,9 +2,23 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import os
 import uuid
 from datetime import datetime
+import pytz
 from werkzeug.utils import secure_filename
 import sqlite3
 from database.models import get_setting, set_setting
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
+
+# JST timezone
+JST = pytz.timezone('Asia/Tokyo')
+
+def get_jst_now():
+    """現在のJST時刻を取得"""
+    return datetime.now(JST)
+
+def get_jst_datetime_string():
+    """現在のJST時刻を文字列で取得（データベース保存用）"""
+    return get_jst_now().strftime('%Y-%m-%d %H:%M:%S')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-this')
@@ -14,10 +28,114 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+# Initialize scheduler for auto-unpublish functionality
+scheduler = BackgroundScheduler()
+scheduler.start()
+atexit.register(lambda: scheduler.shutdown())
+
+def auto_unpublish_all_pdfs():
+    """指定時刻に全てのPDFの公開を停止する"""
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # 全てのPDFを非公開にする
+        cursor.execute('''
+            UPDATE pdf_files 
+            SET is_published = FALSE, unpublished_date = ? 
+            WHERE is_published = TRUE
+        ''', (get_jst_datetime_string(),))
+        
+        # publish_end設定をクリア
+        cursor.execute('''
+            UPDATE settings 
+            SET value = NULL, updated_at = CURRENT_TIMESTAMP, updated_by = 'scheduler'
+            WHERE key = 'publish_end'
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"Auto-unpublish completed at {datetime.now()}")
+        
+    except Exception as e:
+        print(f"Auto-unpublish failed: {e}")
+
+def schedule_auto_unpublish(end_datetime):
+    """公開終了日時にスケジュールを設定"""
+    # 既存のスケジュールをクリア
+    try:
+        scheduler.remove_job('auto_unpublish')
+    except:
+        pass  # ジョブが存在しない場合は無視
+    
+    # 新しいスケジュールを追加
+    scheduler.add_job(
+        func=auto_unpublish_all_pdfs,
+        trigger="date",
+        run_date=end_datetime,
+        id='auto_unpublish'
+    )
+    print(f"Scheduled auto-unpublish for {end_datetime}")
+
+def restore_scheduled_unpublish():
+    """アプリ起動時に既存の公開終了設定を復元"""
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        publish_end_str = get_setting(conn, 'publish_end', None)
+        conn.close()
+        
+        if publish_end_str:
+            publish_end_dt = datetime.fromisoformat(publish_end_str)
+            # データベースからの値がoffset-awareでない場合はJSTとして扱う
+            if publish_end_dt.tzinfo is None:
+                publish_end_dt = JST.localize(publish_end_dt)
+            
+            # 設定時刻がまだ未来の場合のみスケジュールを復元
+            if publish_end_dt > get_jst_now():
+                schedule_auto_unpublish(publish_end_dt)
+            else:
+                # 設定時刻が過去の場合は自動停止を実行
+                print("Publish end time is in the past, executing auto-unpublish now")
+                auto_unpublish_all_pdfs()
+                
+    except Exception as e:
+        print(f"Failed to restore scheduled unpublish: {e}")
+
+# アプリ起動時にスケジュールを復元
+restore_scheduled_unpublish()
+
+def check_and_handle_expired_publish():
+    """フォールバック: アクセス時に公開終了時刻をチェック"""
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        publish_end_str = get_setting(conn, 'publish_end', None)
+        conn.close()
+        
+        if publish_end_str:
+            publish_end_dt = datetime.fromisoformat(publish_end_str)
+            # データベースからの値がoffset-awareでない場合はJSTとして扱う
+            if publish_end_dt.tzinfo is None:
+                publish_end_dt = JST.localize(publish_end_dt)
+            
+            # 公開終了時刻が過去の場合は自動停止を実行
+            if publish_end_dt <= get_jst_now():
+                print(f"Detected expired publish end time: {publish_end_dt}, executing auto-unpublish")
+                auto_unpublish_all_pdfs()
+                return True  # 停止処理を実行した
+                
+    except Exception as e:
+        print(f"Failed to check expired publish: {e}")
+    
+    return False  # 停止処理は実行されなかった
+
 @app.route('/')
 def index():
     if not session.get('authenticated'):
         return redirect(url_for('login'))
+    
+    # フォールバック: 公開終了時刻をチェック
+    check_and_handle_expired_publish()
     
     # Get list of uploaded PDF files for viewer
     pdf_files = get_pdf_files()
@@ -54,15 +172,84 @@ def admin():
     if not session.get('authenticated'):
         return redirect(url_for('login'))
     
+    # フォールバック: 公開終了時刻をチェック
+    check_and_handle_expired_publish()
+    
     # Get list of uploaded PDF files
     pdf_files = get_pdf_files()
     
     # Get current author name setting
     conn = sqlite3.connect('instance/database.db')
     author_name = get_setting(conn, 'author_name', 'Default_Author')
+    
+    # Get current publish end datetime setting
+    publish_end_str = get_setting(conn, 'publish_end', None)
+    publish_end_datetime = None
+    publish_end_datetime_formatted = None
+    
+    if publish_end_str:
+        try:
+            publish_end_dt = datetime.fromisoformat(publish_end_str)
+            # データベースからの値がoffset-awareでない場合はJSTとして扱う
+            if publish_end_dt.tzinfo is None:
+                publish_end_dt = JST.localize(publish_end_dt)
+            
+            # JSTに変換してからフォーマット
+            publish_end_jst = publish_end_dt.astimezone(JST)
+            # datetime-local input format: YYYY-MM-DDTHH:MM
+            publish_end_datetime = publish_end_jst.strftime('%Y-%m-%dT%H:%M')
+            # Display format
+            publish_end_datetime_formatted = publish_end_jst.strftime('%Y年%m月%d日 %H:%M')
+        except ValueError:
+            publish_end_datetime = None
+            publish_end_datetime_formatted = None
+    
+    # Get current published PDF's publish date and recent publication info
+    current_published_pdf = None
+    publish_start_formatted = None
+    last_unpublish_formatted = None
+    
+    # 現在公開中のPDFを探す
+    for pdf in pdf_files:
+        if pdf.get('is_published'):
+            current_published_pdf = pdf
+            break
+    
+    # 現在公開中のPDFの開始日時
+    if current_published_pdf and current_published_pdf.get('published_date'):
+        try:
+            published_dt = datetime.fromisoformat(current_published_pdf['published_date'])
+            if published_dt.tzinfo is None:
+                published_dt = JST.localize(published_dt)
+            published_jst = published_dt.astimezone(JST)
+            publish_start_formatted = published_jst.strftime('%Y年%m月%d日 %H:%M')
+        except (ValueError, TypeError):
+            publish_start_formatted = None
+    
+    # 最近停止したPDFの停止日時を取得（現在公開中でない場合）
+    if not current_published_pdf:
+        for pdf in pdf_files:
+            if pdf.get('unpublished_date'):
+                try:
+                    unpublished_dt = datetime.fromisoformat(pdf['unpublished_date'])
+                    if unpublished_dt.tzinfo is None:
+                        unpublished_dt = JST.localize(unpublished_dt)
+                    unpublished_jst = unpublished_dt.astimezone(JST)
+                    last_unpublish_formatted = unpublished_jst.strftime('%Y年%m月%d日 %H:%M')
+                    break  # 最初に見つかった（最新の）停止日時を使用
+                except (ValueError, TypeError):
+                    continue
+    
     conn.close()
     
-    return render_template('admin.html', pdf_files=pdf_files, author_name=author_name)
+    return render_template('admin.html', 
+                         pdf_files=pdf_files, 
+                         author_name=author_name,
+                         publish_end_datetime=publish_end_datetime,
+                         publish_end_datetime_formatted=publish_end_datetime_formatted,
+                         publish_start_formatted=publish_start_formatted,
+                         last_unpublish_formatted=last_unpublish_formatted,
+                         current_published_pdf=current_published_pdf)
 
 @app.route('/admin/upload-pdf', methods=['POST'])
 def upload_pdf():
@@ -152,12 +339,18 @@ def publish_pdf(pdf_id):
             return jsonify({'error': 'ファイルが見つかりません'}), 404
         
         # Unpublish all other PDFs (only one can be published at a time)
-        cursor.execute('UPDATE pdf_files SET is_published = FALSE')
+        cursor.execute('''
+            UPDATE pdf_files 
+            SET is_published = FALSE, unpublished_date = ? 
+            WHERE is_published = TRUE
+        ''', (get_jst_datetime_string(),))
         
         # Publish the selected PDF
-        cursor.execute(
-            'UPDATE pdf_files SET is_published = TRUE WHERE id = ?', (pdf_id,)
-        )
+        cursor.execute('''
+            UPDATE pdf_files 
+            SET is_published = TRUE, published_date = ?, unpublished_date = NULL 
+            WHERE id = ?
+        ''', (get_jst_datetime_string(), pdf_id))
         
         conn.commit()
         conn.close()
@@ -176,9 +369,11 @@ def unpublish_pdf(pdf_id):
         cursor = conn.cursor()
         
         # Unpublish the PDF
-        cursor.execute(
-            'UPDATE pdf_files SET is_published = FALSE WHERE id = ?', (pdf_id,)
-        )
+        cursor.execute('''
+            UPDATE pdf_files 
+            SET is_published = FALSE, unpublished_date = ? 
+            WHERE id = ?
+        ''', (get_jst_datetime_string(), pdf_id))
         
         conn.commit()
         conn.close()
@@ -211,6 +406,58 @@ def update_author():
         flash(f'著作者名を "{author_name}" に更新しました')
     except Exception as e:
         flash(f'更新に失敗しました: {str(e)}')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/admin/update-publish-end', methods=['POST'])
+def update_publish_end():
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    publish_end_datetime = request.form.get('publish_end_datetime', '').strip()
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        
+        if publish_end_datetime:
+            # Convert datetime-local format to JST aware datetime
+            # datetime-localはタイムゾーン情報なしなので、JSTとして扱う
+            publish_end_naive = datetime.fromisoformat(publish_end_datetime)
+            publish_end_dt = JST.localize(publish_end_naive)
+            
+            # Validate that the datetime is in the future
+            if publish_end_dt <= get_jst_now():
+                flash('公開終了日時は現在時刻より後の時刻を設定してください')
+                return redirect(url_for('admin'))
+            
+            # Save to database as ISO format string
+            set_setting(conn, 'publish_end', publish_end_dt.isoformat(), 'admin')
+            conn.commit()
+            
+            # Schedule auto-unpublish
+            schedule_auto_unpublish(publish_end_dt)
+            
+            formatted_time = publish_end_dt.strftime('%Y年%m月%d日 %H:%M')
+            flash(f'公開終了日時を {formatted_time} に設定しました（自動停止スケジュール済み）')
+        else:
+            # Clear the setting
+            set_setting(conn, 'publish_end', None, 'admin')
+            conn.commit()
+            
+            # Remove scheduled auto-unpublish
+            try:
+                scheduler.remove_job('auto_unpublish')
+            except:
+                pass  # ジョブが存在しない場合は無視
+            
+            flash('公開終了日時設定をクリアしました（無制限公開、自動停止解除済み）')
+        
+        conn.close()
+        
+    except ValueError:
+        flash('日時の形式が正しくありません')
+    except Exception as e:
+        flash(f'設定の更新に失敗しました: {str(e)}')
     
     return redirect(url_for('admin'))
 
@@ -261,7 +508,8 @@ def get_pdf_files():
         cursor = conn.cursor()
         
         files = cursor.execute('''
-            SELECT id, original_filename, stored_filename, file_path, file_size, upload_date, is_published
+            SELECT id, original_filename, stored_filename, file_path, file_size, 
+                   upload_date, is_published, published_date, unpublished_date
             FROM pdf_files 
             ORDER BY upload_date DESC
         ''').fetchall()
@@ -270,6 +518,30 @@ def get_pdf_files():
         
         result = []
         for file in files:
+            # フォーマット済み日時を作成
+            published_formatted = None
+            unpublished_formatted = None
+            
+            if file['published_date']:
+                try:
+                    published_dt = datetime.fromisoformat(file['published_date'])
+                    if published_dt.tzinfo is None:
+                        published_dt = JST.localize(published_dt)
+                    published_jst = published_dt.astimezone(JST)
+                    published_formatted = published_jst.strftime('%Y年%m月%d日 %H:%M')
+                except (ValueError, TypeError):
+                    published_formatted = None
+            
+            if file['unpublished_date']:
+                try:
+                    unpublished_dt = datetime.fromisoformat(file['unpublished_date'])
+                    if unpublished_dt.tzinfo is None:
+                        unpublished_dt = JST.localize(unpublished_dt)
+                    unpublished_jst = unpublished_dt.astimezone(JST)
+                    unpublished_formatted = unpublished_jst.strftime('%Y年%m月%d日 %H:%M')
+                except (ValueError, TypeError):
+                    unpublished_formatted = None
+            
             result.append({
                 'id': file['id'],
                 'name': file['original_filename'],
@@ -277,7 +549,11 @@ def get_pdf_files():
                 'path': file['file_path'],
                 'size': format_file_size(file['file_size']),
                 'upload_date': file['upload_date'],
-                'is_published': bool(file['is_published']) if file['is_published'] is not None else False
+                'is_published': bool(file['is_published']) if file['is_published'] is not None else False,
+                'published_date': file['published_date'],
+                'unpublished_date': file['unpublished_date'],
+                'published_formatted': published_formatted,
+                'unpublished_formatted': unpublished_formatted
             })
         
         return result
