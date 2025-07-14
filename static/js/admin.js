@@ -149,3 +149,10 @@ function unpublishPDF(fileId) {
         });
     }
 }
+
+function resetAuthorName() {
+    const authorInput = document.getElementById('authorName');
+    if (confirm('著作者名をデフォルト値（Default_Author）にリセットしますか？')) {
+        authorInput.value = 'Default_Author';
+    }
+}

@@ -7,8 +7,12 @@ class PDFViewer {
         this.canvas = null;
         this.ctx = null;
         this.currentFileName = '';
+        this.authorName = 'Default_Author'; // デフォルト値
+        this.sessionInfo = null; // セッション情報
         
         this.initializeElements();
+        this.loadAuthorName();
+        this.loadSessionInfo();
         this.bindEvents();
     }
     
@@ -34,6 +38,41 @@ class PDFViewer {
         
         // Resize handling
         this.resizeTimeout = null;
+    }
+    
+    loadAuthorName() {
+        // Load author name from template data
+        const authorNameData = document.getElementById('authorNameData');
+        if (authorNameData) {
+            try {
+                this.authorName = JSON.parse(authorNameData.textContent) || 'Default_Author';
+            } catch (e) {
+                console.warn('Failed to load author name, using default');
+                this.authorName = 'Default_Author';
+            }
+        }
+    }
+    
+    async loadSessionInfo() {
+        // Load session info from API for watermark
+        try {
+            const response = await fetch('/api/session-info');
+            if (response.ok) {
+                this.sessionInfo = await response.json();
+            } else {
+                console.warn('Failed to load session info, using fallback');
+                this.sessionInfo = {
+                    session_id: 'SID-FALLBACK',
+                    email: 'anonymous@example.com'
+                };
+            }
+        } catch (e) {
+            console.warn('Failed to load session info:', e);
+            this.sessionInfo = {
+                session_id: 'SID-FALLBACK',
+                email: 'anonymous@example.com'
+            };
+        }
     }
     
     bindEvents() {
@@ -522,14 +561,15 @@ class PDFViewer {
         ctx.save();
         
         // Watermark settings - 4 pieces of information as per specification
-        const author = 'PTA執行部'; // 著作者
-        const viewerEmail = 'yamada.taro@example.com'; // 閲覧者
+        const author = this.authorName; // 著作者（動的に取得）
         
-        // Session ID should be consistent during the session, not change per page
-        if (!this.sessionId) {
-            this.sessionId = 'SID-' + Math.random().toString(36).substr(2, 8).toUpperCase();
-        }
-        const sessionId = this.sessionId;
+        // 閲覧者メールアドレス（動的に取得）
+        const viewerEmail = this.sessionInfo ? 
+            this.sessionInfo.email : 'loading@example.com';
+        
+        // セッションID（動的に取得）
+        const sessionId = this.sessionInfo ? 
+            this.sessionInfo.session_id : 'SID-LOADING';
         const currentDateTime = new Date().toLocaleString('ja-JP', {
             year: 'numeric',
             month: '2-digit',

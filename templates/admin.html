@@ -98,6 +98,24 @@
     </div>
     
     <div class="admin-section">
+        <h3>著作者名設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-author" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="authorName">著作者名:</label>
+                    <input type="text" id="authorName" name="author_name" value="{{ author_name or 'Default_Author' }}" 
+                           class="form-control" maxlength="100" required>
+                    <small class="form-text">PDFウォーターマークに表示される著作者名を設定します</small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">更新</button>
+                    <button type="button" class="btn btn-secondary" onclick="resetAuthorName()">リセット</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="admin-section">
         <h3>最近のアクセスログ</h3>
         <div class="log-container">
             <table class="log-table">

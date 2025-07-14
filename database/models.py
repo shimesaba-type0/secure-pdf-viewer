@@ -1,6 +1,7 @@
 """
 データベースモデル定義とテーブル作成
 """
+import sqlite3
 
 def create_tables(db):
     """全てのテーブルを作成"""
@@ -163,7 +164,7 @@ def insert_initial_data(db):
             ('force_logout_after', '0', 'integer', '強制ログアウト実行時刻', 'system', False),
             ('mail_otp_expiry', '600', 'integer', 'OTP有効期限（秒）', 'mail', False),
             ('analytics_retention_days', '90', 'integer', 'ログ保持期間（日）', 'system', False),
-            ('author_name', 'PTA執行部', 'string', 'ウォーターマーク表示用著作者名', 'watermark', False),
+            ('author_name', 'Default_Author', 'string', 'ウォーターマーク表示用著作者名', 'watermark', False),
             ('mobile_breakpoint', '480', 'integer', 'モバイル判定ブレークポイント（px）', 'responsive', False),
             ('tablet_breakpoint', '768', 'integer', 'タブレット判定ブレークポイント（px）', 'responsive', False),
             ('enable_touch_optimizations', 'true', 'boolean', 'タッチ操作最適化有効', 'responsive', False),
@@ -192,6 +193,7 @@ def insert_initial_data(db):
 
 def get_setting(db, key, default=None):
     """設定値を取得"""
+    db.row_factory = sqlite3.Row
     row = db.execute('SELECT value, value_type FROM settings WHERE key = ?', (key,)).fetchone()
     if not row:
         return default
@@ -216,6 +218,7 @@ def get_setting(db, key, default=None):
 def set_setting(db, key, value, updated_by='system'):
     """設定値を更新"""
     # 現在の値を取得（履歴用）
+    db.row_factory = sqlite3.Row
     current_row = db.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
     old_value = current_row['value'] if current_row else None
     

@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import sqlite3
+from database.models import get_setting, set_setting
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-this')
@@ -24,7 +25,12 @@ def index():
     # Get published PDF for auto-load
     published_pdf = get_published_pdf()
     
-    return render_template('viewer.html', pdf_files=pdf_files, published_pdf=published_pdf)
+    # Get current author name setting for watermark
+    conn = sqlite3.connect('instance/database.db')
+    author_name = get_setting(conn, 'author_name', 'Default_Author')
+    conn.close()
+    
+    return render_template('viewer.html', pdf_files=pdf_files, published_pdf=published_pdf, author_name=author_name)
 
 @app.route('/auth/login', methods=['GET', 'POST'])
 def login():
@@ -50,7 +56,13 @@ def admin():
     
     # Get list of uploaded PDF files
     pdf_files = get_pdf_files()
-    return render_template('admin.html', pdf_files=pdf_files)
+    
+    # Get current author name setting
+    conn = sqlite3.connect('instance/database.db')
+    author_name = get_setting(conn, 'author_name', 'Default_Author')
+    conn.close()
+    
+    return render_template('admin.html', pdf_files=pdf_files, author_name=author_name)
 
 @app.route('/admin/upload-pdf', methods=['POST'])
 def upload_pdf():
@@ -172,6 +184,70 @@ def unpublish_pdf(pdf_id):
         conn.close()
         
         return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/update-author', methods=['POST'])
+def update_author():
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    author_name = request.form.get('author_name', '').strip()
+    
+    if not author_name:
+        flash('著作者名を入力してください')
+        return redirect(url_for('admin'))
+    
+    if len(author_name) > 100:
+        flash('著作者名は100文字以内で入力してください')
+        return redirect(url_for('admin'))
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        set_setting(conn, 'author_name', author_name, 'admin')
+        conn.commit()
+        conn.close()
+        
+        flash(f'著作者名を "{author_name}" に更新しました')
+    except Exception as e:
+        flash(f'更新に失敗しました: {str(e)}')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/api/session-info')
+def get_session_info():
+    """ウォーターマーク用のセッション情報を取得"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        conn.row_factory = sqlite3.Row
+        
+        # セッション情報とメールアドレスを結合して取得
+        session_data = conn.execute('''
+            SELECT s.session_id, s.email_hash, u.email_address
+            FROM session_stats s
+            LEFT JOIN user_emails u ON s.email_hash = u.email_hash
+            ORDER BY s.start_time DESC 
+            LIMIT 1
+        ''').fetchone()
+        
+        conn.close()
+        
+        if session_data:
+            return jsonify({
+                'session_id': session_data['session_id'],
+                'email': session_data['email_address'] or 'unknown@example.com',
+                'success': True
+            })
+        else:
+            return jsonify({
+                'session_id': 'SID-FALLBACK',
+                'email': 'anonymous@example.com',
+                'success': True
+            })
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
