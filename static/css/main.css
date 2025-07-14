@@ -580,3 +580,118 @@ body {
         padding: 0.75rem;
     }
 }
+
+/* 公開終了メッセージ */
+.publication-ended-message {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    padding: 2rem;
+}
+
+.end-message-content {
+    text-align: center;
+    background: white;
+    padding: 3rem 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-width: 400px;
+    border: 2px solid #e74c3c;
+}
+
+.end-message-content h2 {
+    color: #e74c3c;
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+}
+
+.end-message-content p {
+    color: #2c3e50;
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+}
+
+.end-time {
+    color: #7f8c8d !important;
+    font-size: 0.9rem;
+    font-weight: bold;
+}
+
+.end-message-content small {
+    color: #95a5a6;
+    font-size: 0.8rem;
+    display: block;
+    margin-top: 1rem;
+    font-style: italic;
+}
+
+/* SSE通知スタイル */
+.sse-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    max-width: 400px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: slideInRight 0.3s ease-out;
+}
+
+.sse-notification.sse-info {
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    color: white;
+}
+
+.sse-notification.sse-success {
+    background: linear-gradient(135deg, #27ae60, #229954);
+    color: white;
+}
+
+.sse-notification-content {
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.sse-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+}
+
+.sse-close:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .sse-notification {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+}

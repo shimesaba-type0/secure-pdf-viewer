@@ -9,10 +9,12 @@ class PDFViewer {
         this.currentFileName = '';
         this.authorName = 'Default_Author'; // デフォルト値
         this.sessionInfo = null; // セッション情報
+        this.eventSource = null; // SSE接続
         
         this.initializeElements();
         this.loadAuthorName();
         this.loadSessionInfo();
+        this.initializeSSE();
         this.bindEvents();
     }
     
@@ -73,6 +75,104 @@ class PDFViewer {
                 email: 'anonymous@example.com'
             };
         }
+    }
+    
+    initializeSSE() {
+        // Server-Sent Events接続を初期化
+        try {
+            this.eventSource = new EventSource('/api/events');
+            
+            this.eventSource.onopen = () => {
+                console.log('SSE接続が確立されました');
+            };
+            
+            this.eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleSSEEvent(data);
+                } catch (e) {
+                    console.warn('SSEメッセージの解析に失敗:', e);
+                }
+            };
+            
+            this.eventSource.addEventListener('pdf_unpublished', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handlePDFUnpublished(data);
+                } catch (e) {
+                    console.warn('PDF停止イベントの処理に失敗:', e);
+                }
+            });
+            
+            this.eventSource.addEventListener('pdf_published', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handlePDFPublished(data);
+                } catch (e) {
+                    console.warn('PDF公開イベントの処理に失敗:', e);
+                }
+            });
+            
+            this.eventSource.onerror = (error) => {
+                console.warn('SSE接続エラー:', error);
+                // 自動再接続は EventSource が行う
+            };
+            
+        } catch (e) {
+            console.warn('SSE初期化に失敗:', e);
+        }
+    }
+    
+    handleSSEEvent(data) {
+        // 一般的なSSEイベント処理
+        if (data.event === 'connected') {
+            console.log('SSE:', data.message);
+        } else if (data.event === 'heartbeat') {
+            // ハートビートは特に何もしない
+        }
+    }
+    
+    handlePDFUnpublished(data) {
+        // PDF公開停止時の処理
+        console.log('PDF公開停止:', data.message);
+        
+        // PDFを非表示にして終了メッセージを表示
+        this.showPublicationEndedMessage(data);
+        
+        // PDFコントロールを無効化
+        this.disableControls();
+    }
+    
+    handlePDFPublished(data) {
+        // PDF公開開始時の処理
+        console.log('PDF公開開始:', data.message);
+        
+        // ページをリロードして新しいPDFを表示
+        // 既に何かが表示されている場合のみリロード
+        if (this.pdfDoc) {
+            window.location.reload();
+        }
+    }
+    
+    showPublicationEndedMessage(data) {
+        // 公開終了メッセージを表示
+        const endMessage = document.createElement('div');
+        endMessage.className = 'publication-ended-message';
+        endMessage.innerHTML = `
+            <div class="end-message-content">
+                <h2>📄 公開終了</h2>
+                <p>${data.message}</p>
+                <p class="end-time">終了時刻: ${data.timestamp}</p>
+                <small>このページを閉じてください</small>
+            </div>
+        `;
+        
+        // 既存のPDFコンテナを置き換え
+        this.pdfContainer.innerHTML = '';
+        this.pdfContainer.appendChild(endMessage);
+        
+        // ナビゲーションヘルプも非表示
+        this.hideNavigationHelp();
     }
     
     bindEvents() {

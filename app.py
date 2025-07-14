@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 import os
 import uuid
 from datetime import datetime
@@ -8,6 +8,10 @@ import sqlite3
 from database.models import get_setting, set_setting
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+import json
+import time
+import threading
+from queue import Queue
 
 # JST timezone
 JST = pytz.timezone('Asia/Tokyo')
@@ -19,6 +23,38 @@ def get_jst_now():
 def get_jst_datetime_string():
     """現在のJST時刻を文字列で取得（データベース保存用）"""
     return get_jst_now().strftime('%Y-%m-%d %H:%M:%S')
+
+# SSE用のクライアント管理
+sse_clients = set()
+sse_lock = threading.Lock()
+
+def add_sse_client(client_queue):
+    """SSEクライアントを追加"""
+    with sse_lock:
+        sse_clients.add(client_queue)
+
+def remove_sse_client(client_queue):
+    """SSEクライアントを削除"""
+    with sse_lock:
+        sse_clients.discard(client_queue)
+
+def broadcast_sse_event(event_type, data):
+    """全SSEクライアントにイベントを送信"""
+    with sse_lock:
+        dead_clients = set()
+        for client_queue in sse_clients.copy():
+            try:
+                client_queue.put({
+                    'event': event_type,
+                    'data': data,
+                    'timestamp': get_jst_datetime_string()
+                }, timeout=1)
+            except:
+                dead_clients.add(client_queue)
+        
+        # 切断されたクライアントを削除
+        for dead_client in dead_clients:
+            sse_clients.discard(dead_client)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-this')
@@ -57,6 +93,13 @@ def auto_unpublish_all_pdfs():
         conn.close()
         
         print(f"Auto-unpublish completed at {datetime.now()}")
+        
+        # SSEで全クライアントに通知
+        broadcast_sse_event('pdf_unpublished', {
+            'message': '公開が自動的に停止されました',
+            'reason': 'scheduled',
+            'timestamp': get_jst_datetime_string()
+        })
         
     except Exception as e:
         print(f"Auto-unpublish failed: {e}")
@@ -355,6 +398,13 @@ def publish_pdf(pdf_id):
         conn.commit()
         conn.close()
         
+        # SSEで全クライアントに通知（公開開始）
+        broadcast_sse_event('pdf_published', {
+            'message': 'PDFが公開されました',
+            'reason': 'manual',
+            'timestamp': get_jst_datetime_string()
+        })
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -377,6 +427,13 @@ def unpublish_pdf(pdf_id):
         
         conn.commit()
         conn.close()
+        
+        # SSEで全クライアントに通知（手動停止）
+        broadcast_sse_event('pdf_unpublished', {
+            'message': '公開が手動で停止されました',
+            'reason': 'manual',
+            'timestamp': get_jst_datetime_string()
+        })
         
         return jsonify({'success': True})
     except Exception as e:
@@ -497,6 +554,46 @@ def get_session_info():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/events')
+def sse_stream():
+    """Server-Sent Events ストリーム"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    def event_stream():
+        client_queue = Queue()
+        add_sse_client(client_queue)
+        
+        try:
+            # 接続確立時のハートビート
+            yield f"data: {json.dumps({'event': 'connected', 'message': 'SSE接続が確立されました'})}\n\n"
+            
+            while True:
+                try:
+                    # キューからイベントを取得（30秒タイムアウト）
+                    event_data = client_queue.get(timeout=30)
+                    yield f"event: {event_data['event']}\n"
+                    yield f"data: {json.dumps(event_data['data'])}\n\n"
+                except:
+                    # タイムアウト時はハートビートを送信
+                    yield f"data: {json.dumps({'event': 'heartbeat', 'timestamp': get_jst_datetime_string()})}\n\n"
+                    
+        except GeneratorExit:
+            # クライアント切断時
+            pass
+        finally:
+            remove_sse_client(client_queue)
+    
+    return Response(
+        event_stream(),
+        content_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'  # nginx用
+        }
+    )
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'pdf'

@@ -7,6 +7,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const clearBtn = document.getElementById('clearBtn');
     const fileName = document.getElementById('fileName');
     const fileSize = document.getElementById('fileSize');
+    
+    // SSE接続を初期化
+    initializeSSE();
 
     if (fileInput) {
         // File input change event
@@ -162,4 +165,80 @@ function clearPublishEndTime() {
     if (confirm('公開終了日時設定をクリアしますか？（無制限公開になります）')) {
         publishEndInput.value = '';
     }
+}
+
+function initializeSSE() {
+    // Server-Sent Events接続を初期化（管理画面用）
+    try {
+        const eventSource = new EventSource('/api/events');
+        
+        eventSource.onopen = () => {
+            console.log('管理画面: SSE接続が確立されました');
+        };
+        
+        eventSource.addEventListener('pdf_unpublished', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('管理画面: PDF公開停止:', data.message);
+                
+                // 公開状況を更新するため5秒後にページをリロード
+                setTimeout(() => {
+                    window.location.reload();
+                }, 5000);
+                
+                // 即座にフィードバックメッセージを表示
+                showSSENotification('📄 ' + data.message, 'info');
+                
+            } catch (e) {
+                console.warn('PDF停止イベントの処理に失敗:', e);
+            }
+        });
+        
+        eventSource.addEventListener('pdf_published', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('管理画面: PDF公開開始:', data.message);
+                
+                // 公開状況を更新するため3秒後にページをリロード
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+                
+                // 即座にフィードバックメッセージを表示
+                showSSENotification('📄 ' + data.message, 'success');
+                
+            } catch (e) {
+                console.warn('PDF公開イベントの処理に失敗:', e);
+            }
+        });
+        
+        eventSource.onerror = (error) => {
+            console.warn('管理画面: SSE接続エラー:', error);
+        };
+        
+    } catch (e) {
+        console.warn('管理画面: SSE初期化に失敗:', e);
+    }
+}
+
+function showSSENotification(message, type = 'info') {
+    // SSE通知用の一時的なメッセージを表示
+    const notification = document.createElement('div');
+    notification.className = `sse-notification sse-${type}`;
+    notification.innerHTML = `
+        <div class="sse-notification-content">
+            <span>${message}</span>
+            <button class="sse-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+    `;
+    
+    // ページ上部に挿入
+    document.body.insertBefore(notification, document.body.firstChild);
+    
+    // 10秒後に自動削除
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 10000);
 }
