@@ -186,12 +186,34 @@ def index():
     # Get published PDF for auto-load
     published_pdf = get_published_pdf()
     
-    # Get current author name setting for watermark
+    # Get current author name setting for watermark and publish end time
     conn = sqlite3.connect('instance/database.db')
     author_name = get_setting(conn, 'author_name', 'Default_Author')
+    
+    # Get publish end datetime setting
+    publish_end_str = get_setting(conn, 'publish_end', None)
+    publish_end_datetime_formatted = None
+    
+    if publish_end_str:
+        try:
+            publish_end_dt = datetime.fromisoformat(publish_end_str)
+            # Handle timezone if not present
+            if publish_end_dt.tzinfo is None:
+                publish_end_dt = JST.localize(publish_end_dt)
+            
+            # Convert to JST and format for display
+            publish_end_jst = publish_end_dt.astimezone(JST)
+            publish_end_datetime_formatted = publish_end_jst.strftime('%Y年%m月%d日 %H:%M')
+        except ValueError:
+            publish_end_datetime_formatted = None
+    
     conn.close()
     
-    return render_template('viewer.html', pdf_files=pdf_files, published_pdf=published_pdf, author_name=author_name)
+    return render_template('viewer.html', 
+                         pdf_files=pdf_files, 
+                         published_pdf=published_pdf, 
+                         author_name=author_name,
+                         publish_end_datetime_formatted=publish_end_datetime_formatted)
 
 @app.route('/auth/login', methods=['GET', 'POST'])
 def login():

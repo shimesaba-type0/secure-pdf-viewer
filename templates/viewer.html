@@ -30,8 +30,18 @@
     
     .pdf-controls-left {
         display: flex;
-        align-items: center;
-        gap: 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .publish-end-notice {
+        margin-top: 0.25rem;
+    }
+    
+    .publish-end-notice small {
+        color: #6c757d;
+        font-size: 0.85rem;
     }
     
     .pdf-controls-right {
@@ -188,6 +198,7 @@
         font-size: 1.1rem;
     }
     
+    
     /* 全画面表示スタイル */
     .pdf-viewer-panel.fullscreen {
         position: fixed;
@@ -300,6 +311,15 @@
             text-align: center;
             font-size: 0.9rem;
             font-weight: bold;
+            align-items: center;
+        }
+        
+        .publish-end-notice {
+            margin-top: 0.15rem;
+        }
+        
+        .publish-end-notice small {
+            font-size: 0.8rem;
         }
         
         .pdf-controls-right {
@@ -382,6 +402,15 @@
         .pdf-controls-left {
             font-size: 0.8rem;
             padding: 0.25rem;
+            align-items: center;
+        }
+        
+        .publish-end-notice {
+            margin-top: 0.1rem;
+        }
+        
+        .publish-end-notice small {
+            font-size: 0.75rem;
         }
         
         .pdf-controls-right {
@@ -482,6 +511,11 @@
             <div class="pdf-controls">
                 <div class="pdf-controls-left">
                     <span id="currentFileName">ファイルを選択してください</span>
+                    {% if publish_end_datetime_formatted %}
+                    <div class="publish-end-notice">
+                        <small class="text-muted">公開終了予定: {{ publish_end_datetime_formatted }}</small>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="pdf-controls-right">
                     <div class="page-controls">
