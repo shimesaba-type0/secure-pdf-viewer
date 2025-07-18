@@ -10,6 +10,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // SSE接続を初期化
     initializeSSE();
+    
+    // パスフレーズ管理機能を初期化
+    initializePassphraseManagement();
+    
+    // パスワード表示/非表示ボタンを初期化
+    setTimeout(() => {
+        console.log('Initializing password toggle after timeout');
+        initializePasswordToggle();
+    }, 100);
 
     if (fileInput) {
         // File input change event
@@ -241,4 +250,185 @@ function showSSENotification(message, type = 'info') {
             notification.remove();
         }
     }, 10000);
+}
+
+// パスフレーズ管理機能
+function initializePassphraseManagement() {
+    const newPassphraseInput = document.getElementById('newPassphrase');
+    const confirmPassphraseInput = document.getElementById('confirmPassphrase');
+    const updatePassphraseBtn = document.getElementById('updatePassphraseBtn');
+    const passphraseCharCounter = document.getElementById('passphraseCharCounter');
+    
+    if (!newPassphraseInput || !confirmPassphraseInput) {
+        return; // 管理画面にパスフレーズ設定がない場合
+    }
+    
+    // リアルタイム文字数カウンターとバリデーション
+    function updatePassphraseValidation() {
+        const newValue = newPassphraseInput.value;
+        const confirmValue = confirmPassphraseInput.value;
+        const length = newValue.length;
+        
+        // 文字数カウンター更新
+        if (passphraseCharCounter) {
+            passphraseCharCounter.textContent = `${length} / 128 文字`;
+            passphraseCharCounter.classList.remove('warning', 'error', 'success');
+            
+            if (length === 0) {
+                passphraseCharCounter.classList.add('');
+            } else if (length < 32) {
+                passphraseCharCounter.classList.add('warning');
+            } else if (length > 128) {
+                passphraseCharCounter.classList.add('error');
+            } else {
+                passphraseCharCounter.classList.add('success');
+            }
+        }
+        
+        // バリデーション
+        const isValidLength = length >= 32 && length <= 128;
+        const isValidChars = /^[0-9a-zA-Z_-]+$/.test(newValue);
+        const isMatching = newValue === confirmValue && confirmValue.length > 0;
+        const isValid = isValidLength && isValidChars && isMatching && length > 0;
+        
+        // 送信ボタンの有効/無効
+        updatePassphraseBtn.disabled = !isValid;
+        
+        // エラーメッセージの表示
+        let errorMessage = '';
+        if (length > 0) {
+            if (!isValidLength) {
+                errorMessage = length < 32 ? 'パスフレーズは32文字以上である必要があります' : 
+                              length > 128 ? 'パスフレーズは128文字以下である必要があります' : '';
+            } else if (!isValidChars) {
+                errorMessage = '使用可能な文字は英数字・アンダースコア・ハイフンのみです';
+            } else if (confirmValue.length > 0 && !isMatching) {
+                errorMessage = 'パスフレーズが一致しません';
+            }
+        }
+        
+        // エラーメッセージの表示/非表示
+        let errorDiv = document.querySelector('.passphrase-validation-error');
+        if (errorMessage) {
+            if (!errorDiv) {
+                errorDiv = document.createElement('div');
+                errorDiv.className = 'passphrase-validation-error alert alert-error';
+                errorDiv.style.fontSize = '0.8rem';
+                errorDiv.style.marginTop = '0.5rem';
+                // 入力コンテナの外（親要素の後）に追加
+                const confirmContainer = confirmPassphraseInput.parentNode;
+                const formGroup = confirmContainer.parentNode;
+                formGroup.appendChild(errorDiv);
+            }
+            errorDiv.textContent = errorMessage;
+        } else if (errorDiv) {
+            errorDiv.remove();
+        }
+    }
+    
+    // イベントリスナーを追加
+    newPassphraseInput.addEventListener('input', updatePassphraseValidation);
+    confirmPassphraseInput.addEventListener('input', updatePassphraseValidation);
+    
+    // 初期化
+    updatePassphraseValidation();
+}
+
+function clearPassphraseForm() {
+    const newPassphraseInput = document.getElementById('newPassphrase');
+    const confirmPassphraseInput = document.getElementById('confirmPassphrase');
+    
+    if (confirm('パスフレーズフォームをクリアしますか？')) {
+        newPassphraseInput.value = '';
+        confirmPassphraseInput.value = '';
+        
+        // エラーメッセージを削除
+        const errorDiv = document.querySelector('.passphrase-validation-error');
+        if (errorDiv) {
+            errorDiv.remove();
+        }
+        
+        // バリデーション状態を更新
+        if (window.initializePassphraseManagement) {
+            const event = new Event('input');
+            newPassphraseInput.dispatchEvent(event);
+        }
+    }
+}
+
+// グローバル関数（インライン onclick用）
+function togglePasswordVisibility(inputId, button) {
+    console.log('togglePasswordVisibility called with:', inputId, button);
+    
+    const inputField = document.getElementById(inputId);
+    const toggleText = button.querySelector('.toggle-text');
+    
+    if (inputField && toggleText) {
+        if (inputField.type === 'password') {
+            inputField.type = 'text';
+            toggleText.textContent = '隠す';
+            button.setAttribute('aria-label', 'パスフレーズを隠す');
+            console.log('Changed to text for', inputId);
+        } else {
+            inputField.type = 'password';
+            toggleText.textContent = '表示';
+            button.setAttribute('aria-label', 'パスフレーズを表示');
+            console.log('Changed to password for', inputId);
+        }
+    } else {
+        console.log('Elements not found:', inputField, toggleText);
+    }
+}
+
+// パスワード表示/非表示機能
+function initializePasswordToggle() {
+    console.log('initializePasswordToggle called');
+    
+    const toggleButtons = [
+        {
+            btnId: 'toggleNewPassphrase',
+            inputId: 'newPassphrase'
+        },
+        {
+            btnId: 'toggleConfirmPassphrase',
+            inputId: 'confirmPassphrase'
+        }
+    ];
+    
+    toggleButtons.forEach(({ btnId, inputId }) => {
+        const toggleBtn = document.getElementById(btnId);
+        const inputField = document.getElementById(inputId);
+        
+        console.log(`Looking for button: ${btnId}, input: ${inputId}`);
+        console.log(`Button found: ${!!toggleBtn}, Input found: ${!!inputField}`);
+        
+        if (toggleBtn && inputField) {
+            console.log(`Setting up event listener for ${btnId}`);
+            
+            toggleBtn.addEventListener('click', function(event) {
+                event.preventDefault();
+                console.log(`Toggle button clicked for ${inputId}`);
+                
+                const toggleText = toggleBtn.querySelector('.toggle-text');
+                console.log(`Toggle text element:`, toggleText);
+                
+                if (inputField.type === 'password') {
+                    inputField.type = 'text';
+                    if (toggleText) toggleText.textContent = '隠す';
+                    toggleBtn.setAttribute('aria-label', 'パスフレーズを隠す');
+                    console.log(`Changed to text type for ${inputId}`);
+                } else {
+                    inputField.type = 'password';
+                    if (toggleText) toggleText.textContent = '表示';
+                    toggleBtn.setAttribute('aria-label', 'パスフレーズを表示');
+                    console.log(`Changed to password type for ${inputId}`);
+                }
+            });
+            
+            // 初期状態のアクセシビリティ属性
+            toggleBtn.setAttribute('aria-label', 'パスフレーズを表示');
+        } else {
+            console.log(`Missing elements - Button: ${!!toggleBtn}, Input: ${!!inputField}`);
+        }
+    });
 }

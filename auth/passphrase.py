@@ -158,7 +158,7 @@ class PassphraseManager:
             self.db.rollback()
             return False, f"パスフレーズの設定中にエラーが発生しました: {str(e)}"
     
-    def verify_passphrase(self, passphrase: str) -> Tuple[bool, str]:
+    def verify_passphrase(self, passphrase: str) -> bool:
         """
         パスフレーズを検証
         
@@ -166,7 +166,7 @@ class PassphraseManager:
             passphrase: 検証するパスフレーズ
             
         Returns:
-            Tuple[bool, str]: (検証結果, メッセージ)
+            bool: 検証結果
         """
         try:
             # データベースから取得
@@ -177,7 +177,7 @@ class PassphraseManager:
             ).fetchone()
             
             if not row:
-                return False, "パスフレーズが設定されていません"
+                return False
             
             stored_value = row['value']
             
@@ -185,21 +185,28 @@ class PassphraseManager:
             if ':' in stored_value:
                 stored_hash, salt = stored_value.split(':', 1)
                 # ハッシュ値で検証
-                is_valid = PassphraseHasher.verify_passphrase(passphrase, stored_hash, salt)
-                
-                if is_valid:
-                    return True, "認証成功"
-                else:
-                    return False, "認証失敗"
+                return PassphraseHasher.verify_passphrase(passphrase, stored_hash, salt)
             else:
                 # 古い形式（平文）の場合
-                if stored_value == passphrase:
-                    return True, "認証成功（古い形式）"
-                else:
-                    return False, "認証失敗"
+                return stored_value == passphrase
                 
         except Exception as e:
-            return False, f"認証中にエラーが発生しました: {str(e)}"
+            return False
+    
+    def update_passphrase(self, passphrase: str, updated_by: str = 'admin'):
+        """
+        パスフレーズを更新（set_passphraseのエイリアス）
+        
+        Args:
+            passphrase: 更新するパスフレーズ
+            updated_by: 更新者
+            
+        Raises:
+            ValueError: パスフレーズが無効な場合
+        """
+        success, message = self.set_passphrase(passphrase, updated_by)
+        if not success:
+            raise ValueError(message)
     
     def get_passphrase_info(self) -> dict:
         """

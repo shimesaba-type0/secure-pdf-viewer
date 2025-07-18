@@ -131,6 +131,60 @@
     </div>
     
     <div class="admin-section">
+        <h3>事前共有パスフレーズ設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-passphrase" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="newPassphrase">新しいパスフレーズ:</label>
+                    <div class="password-input-container">
+                        <input type="password" id="newPassphrase" name="new_passphrase" 
+                               class="form-control" 
+                               minlength="32" maxlength="128" 
+                               pattern="[0-9a-zA-Z_-]+" 
+                               title="32-128文字、英数字・アンダースコア・ハイフンのみ使用可能"
+                               placeholder="32文字以上128文字以下のパスフレーズを入力">
+                        <button type="button" class="password-toggle-btn" id="toggleNewPassphrase" onclick="togglePasswordVisibility('newPassphrase', this)">
+                            <span class="toggle-text">表示</span>
+                        </button>
+                    </div>
+                    <div class="char-counter" id="passphraseCharCounter">0 / 128 文字</div>
+                    <small class="form-text">
+                        パスフレーズを変更すると、全ユーザーが強制ログアウトされます。
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassphrase">パスフレーズの確認:</label>
+                    <div class="password-input-container">
+                        <input type="password" id="confirmPassphrase" name="confirm_passphrase" 
+                               class="form-control" 
+                               placeholder="同じパスフレーズをもう一度入力">
+                        <button type="button" class="password-toggle-btn" id="toggleConfirmPassphrase" onclick="togglePasswordVisibility('confirmPassphrase', this)">
+                            <span class="toggle-text">表示</span>
+                        </button>
+                    </div>
+                    <small class="form-text">確認のため、同じパスフレーズを再入力してください。</small>
+                </div>
+                <div class="passphrase-requirements">
+                    <h4>パスフレーズ要件:</h4>
+                    <ul>
+                        <li>32文字以上128文字以下</li>
+                        <li>使用可能文字: 英数字 (a-z, A-Z, 0-9)、アンダースコア (_)、ハイフン (-)</li>
+                        <li>スペースや特殊文字は使用不可</li>
+                    </ul>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-warning" id="updatePassphraseBtn" disabled>
+                        パスフレーズを更新
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="clearPassphraseForm()">
+                        クリア
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="admin-section">
         <h3>著作者名設定</h3>
         <div class="settings-container">
             <form action="/admin/update-author" method="post" class="settings-form">

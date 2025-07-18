@@ -145,6 +145,16 @@ def create_indexes(db):
         db.execute(index_sql)
 
 
+def generate_initial_passphrase():
+    """初期パスフレーズを安全に生成"""
+    import secrets
+    import string
+    
+    # 32文字の安全なランダムパスフレーズを生成
+    chars = string.ascii_letters + string.digits + '_-'
+    return ''.join(secrets.choice(chars) for _ in range(32))
+
+
 def insert_initial_data(db):
     """初期データの挿入"""
     
@@ -152,9 +162,14 @@ def insert_initial_data(db):
     existing_settings = db.execute('SELECT COUNT(*) as count FROM settings').fetchone()
     
     if existing_settings['count'] == 0:
+        # 初期パスフレーズを生成
+        initial_passphrase = generate_initial_passphrase()
+        print(f"初期パスフレーズが生成されました: {initial_passphrase}")
+        print("このパスフレーズを安全に保存し、初回ログイン後に変更してください。")
+        
         # 初期設定データ
         initial_settings = [
-            ('shared_passphrase', 'default_passphrase_32chars_minimum_length_example', 'string', '事前共有パスフレーズ（32-128文字、0-9a-zA-Z_-のみ）', 'auth', True),
+            ('shared_passphrase', initial_passphrase, 'string', '事前共有パスフレーズ（32-128文字、0-9a-zA-Z_-のみ）', 'auth', True),
             ('publish_start', None, 'datetime', '公開開始日時', 'publish', False),
             ('publish_end', None, 'datetime', '公開終了日時', 'publish', False),
             ('system_status', 'active', 'string', 'システム状態（active/unpublished）', 'system', False),

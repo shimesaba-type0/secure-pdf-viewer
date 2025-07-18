@@ -6,6 +6,7 @@ import pytz
 from werkzeug.utils import secure_filename
 import sqlite3
 from database.models import get_setting, set_setting
+from auth.passphrase import PassphraseManager
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import json
@@ -219,12 +220,24 @@ def index():
 def login():
     if request.method == 'POST':
         password = request.form.get('password')
-        if password == 'demo123':
-            session['authenticated'] = True
-            session['login_time'] = datetime.now().isoformat()
-            return redirect(url_for('index'))
-        else:
-            return render_template('login.html', error='パスワードが正しくありません')
+        
+        # パスフレーズ認証を実行
+        conn = sqlite3.connect('instance/database.db')
+        passphrase_manager = PassphraseManager(conn)
+        
+        try:
+            if passphrase_manager.verify_passphrase(password):
+                session['authenticated'] = True
+                session['login_time'] = datetime.now().isoformat()
+                conn.close()
+                return redirect(url_for('index'))
+            else:
+                conn.close()
+                return render_template('login.html', error='パスフレーズが正しくありません')
+        except Exception as e:
+            conn.close()
+            return render_template('login.html', error='認証エラーが発生しました')
+    
     return render_template('login.html')
 
 @app.route('/auth/logout')
@@ -460,6 +473,43 @@ def unpublish_pdf(pdf_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/update-passphrase', methods=['POST'])
+def update_passphrase():
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    new_passphrase = request.form.get('new_passphrase', '').strip()
+    confirm_passphrase = request.form.get('confirm_passphrase', '').strip()
+    
+    if not new_passphrase:
+        flash('新しいパスフレーズを入力してください')
+        return redirect(url_for('admin'))
+    
+    if new_passphrase != confirm_passphrase:
+        flash('パスフレーズが一致しません')
+        return redirect(url_for('admin'))
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        passphrase_manager = PassphraseManager(conn)
+        
+        # パスフレーズを更新
+        passphrase_manager.update_passphrase(new_passphrase)
+        conn.commit()
+        conn.close()
+        
+        # 全ユーザーを強制ログアウト
+        session.clear()
+        flash('パスフレーズが更新されました。再度ログインしてください。')
+        return redirect(url_for('login'))
+        
+    except ValueError as e:
+        flash(f'パスフレーズの更新に失敗しました: {str(e)}')
+    except Exception as e:
+        flash(f'システムエラーが発生しました: {str(e)}')
+    
+    return redirect(url_for('admin'))
 
 @app.route('/admin/update-author', methods=['POST'])
 def update_author():

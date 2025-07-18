@@ -169,12 +169,71 @@ body {
 }
 
 .login-info {
-    text-align: center;
+    text-align: left;
     padding: 1rem;
     background-color: #e8f4f8;
     border-radius: 4px;
     font-size: 0.9rem;
     color: #2c3e50;
+}
+
+.passphrase-requirements {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.passphrase-requirements h4 {
+    margin-bottom: 0.5rem;
+    color: #495057;
+    font-size: 0.9rem;
+}
+
+.passphrase-requirements ul {
+    margin: 0;
+    padding-left: 1.5rem;
+}
+
+.passphrase-requirements li {
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* パスフレーズ入力フィールドの改善 */
+.form-control[type="password"] {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.5px;
+}
+
+.form-control:invalid {
+    border-color: #e74c3c;
+}
+
+.form-control:valid {
+    border-color: #27ae60;
+}
+
+/* 文字数カウンター */
+.char-counter {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+    text-align: right;
+}
+
+.char-counter.warning {
+    color: #f39c12;
+}
+
+.char-counter.error {
+    color: #e74c3c;
+}
+
+.char-counter.success {
+    color: #27ae60;
 }
 
 .error-message {
@@ -694,4 +753,69 @@ body {
         left: 10px;
         max-width: none;
     }
+}
+
+/* パスワード表示ボタン（管理画面用） */
+.password-input-container {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    /* 確実に高さを固定 */
+    min-height: 38px;
+}
+
+.password-input-container .form-control {
+    padding-right: 60px;
+    /* 入力フィールドの高さを明示的に設定 */
+    height: 38px;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 10;
+    pointer-events: auto;
+    /* 確実に入力フィールドの位置に固定 */
+    height: 24px;
+    line-height: 1;
+}
+
+.password-toggle-btn:hover {
+    background-color: #f8f9fa;
+    border-color: #3498db;
+    color: #3498db;
+}
+
+.password-toggle-btn:focus {
+    outline: none;
+    box-shadow: 0 0 3px rgba(52, 152, 219, 0.3);
+}
+
+.password-toggle-btn .toggle-text {
+    font-weight: 500;
+}
+
+/* パスフレーズ検証エラーメッセージ */
+.passphrase-validation-error {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    /* エラーメッセージが入力コンテナに影響しないように */
+    position: static;
+    clear: both;
 }

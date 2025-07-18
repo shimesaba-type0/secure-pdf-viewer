@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import os
 from unittest.mock import patch, MagicMock
-from passphrase import PassphraseValidator, PassphraseHasher, PassphraseManager
+from auth.passphrase import PassphraseValidator, PassphraseHasher, PassphraseManager
 
 
 class TestPassphraseValidator(unittest.TestCase):
