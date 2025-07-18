@@ -26,15 +26,17 @@
 ## 3. 機能要件
 
 ### 3.1 認証機能
-1. **事前共有パスワード認証**
-   - 全ユーザー共通パスワード
+1. **事前共有パスフレーズ認証**
+   - 全ユーザー共通パスフレーズ
+   - 長さ: 32文字以上128文字以下
+   - 許可文字: ASCII文字 (0-9, a-z, A-Z, _, -)
    - 管理画面で変更可能
 
 ### 3.2 セッション管理
 - **セッション有効期限**: 72時間（3日間）
 - **自動延長**: なし（シンプルな実装）
 - **強制ログアウト条件**:
-  - 事前共有パスワード変更時
+  - 事前共有パスフレーズ変更時
   - 管理者による全ユーザー強制ログアウト実行時
   - 異常なアクセスパターン検知時
 
@@ -98,7 +100,7 @@
    - アクセス端末数監視（100台超過時警告）
 
 2. **設定管理**
-   - 事前共有パスワード変更
+   - 事前共有パスフレーズ変更
    - 公開期間変更
    - IP制限解除
    - 緊急公開停止
@@ -131,8 +133,8 @@
 - `GET /` - PDF閲覧画面（認証必須、未認証時は /auth/login へリダイレクト）
 
 ### 認証系（/auth/）
-- `GET /auth/login` - 事前共有パスワード入力画面
-- `POST /auth/login` - 事前共有パスワード確認
+- `GET /auth/login` - 事前共有パスフレーズ入力画面
+- `POST /auth/login` - 事前共有パスフレーズ確認
 - `GET /auth/send-otp` - メールアドレス入力画面
 - `POST /auth/send-otp` - OTP送信処理
 - `GET /auth/verify-otp` - OTP入力画面
@@ -141,7 +143,7 @@
 
 ### 管理者系（/admin/）
 - `GET /admin` - 管理者ダッシュボード（管理者権限必須）
-- `GET /admin/settings` - 設定変更画面（事前共有パスワード、公開期間等）
+- `GET /admin/settings` - 設定変更画面（事前共有パスフレーズ、公開期間等）
 - `POST /admin/settings` - 設定変更処理
 - `GET /admin/analytics` - アクセス統計・分析画面
 - `GET /admin/managers` - 管理者一覧表示
@@ -221,7 +223,7 @@ CREATE TABLE settings (
 
 -- 初期データ
 INSERT INTO settings (key, value, value_type, description, category, is_sensitive) VALUES
-('shared_password', 'default_password_123', 'string', '事前共有パスワード', 'auth', TRUE),
+('shared_passphrase', 'default_passphrase_32chars_minimum_length_example', 'string', '事前共有パスフレーズ（32-128文字、0-9a-zA-Z_-のみ）', 'auth', TRUE),
 ('publish_start', NULL, 'datetime', '公開開始日時', 'publish', FALSE),
 ('publish_end', NULL, 'datetime', '公開終了日時', 'publish', FALSE),
 ('system_status', 'active', 'string', 'システム状態（active/unpublished）', 'system', FALSE),
@@ -286,7 +288,7 @@ secure-pdf-viewer/
 ├── config.py              # 設定管理
 ├── auth/
 │   ├── __init__.py
-│   ├── password.py        # パスワード認証
+│   ├── passphrase.py      # パスフレーズ認証
 │   ├── otp.py            # OTP機能
 │   └── session.py        # セッション管理
 ├── mail/
@@ -347,14 +349,14 @@ MAIL_PASSWORD=<さくらメールパスワード>
 ADMIN_EMAIL=<管理者メールアドレス>
 CLOUDFLARE_DOMAIN=<ドメイン名>
 
-# 注意: 事前共有パスワードはデータベースで管理（環境変数使用しない）
+# 注意: 事前共有パスフレーズはデータベースで管理（環境変数使用しない）
 ```
 
 ## 10. 開発フェーズ
 
 ### Phase 1: 基本機能（1-2週間）
 1. Flask アプリケーション基盤
-2. 事前共有パスワード認証
+2. 事前共有パスフレーズ認証
 3. PDF.js によるPDF表示
 4. 基本的なログ機能
 
@@ -378,7 +380,7 @@ CLOUDFLARE_DOMAIN=<ドメイン名>
 ### 日常運用
 1. **PDF更新**: 管理画面またはCLIでアップロード
 2. **アクセス監視**: 管理画面でリアルタイム確認
-3. **設定変更**: 管理画面で期間・パスワード変更
+3. **設定変更**: 管理画面で期間・パスフレーズ変更
 
 ### 緊急対応
 1. **即時停止**: 管理画面の緊急停止ボタン
