@@ -154,7 +154,7 @@ def insert_initial_data(db):
     if existing_settings['count'] == 0:
         # 初期設定データ
         initial_settings = [
-            ('shared_password', 'demo123', 'string', '事前共有パスワード', 'auth', True),
+            ('shared_passphrase', 'default_passphrase_32chars_minimum_length_example', 'string', '事前共有パスフレーズ（32-128文字、0-9a-zA-Z_-のみ）', 'auth', True),
             ('publish_start', None, 'datetime', '公開開始日時', 'publish', False),
             ('publish_end', None, 'datetime', '公開終了日時', 'publish', False),
             ('system_status', 'active', 'string', 'システム状態（active/unpublished）', 'system', False),
