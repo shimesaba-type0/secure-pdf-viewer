@@ -227,10 +227,10 @@ def login():
         
         try:
             if passphrase_manager.verify_passphrase(password):
-                session['authenticated'] = True
+                session['passphrase_verified'] = True
                 session['login_time'] = datetime.now().isoformat()
                 conn.close()
-                return redirect(url_for('index'))
+                return redirect(url_for('email_input'))
             else:
                 conn.close()
                 return render_template('login.html', error='パスフレーズが正しくありません')
@@ -239,6 +239,175 @@ def login():
             return render_template('login.html', error='認証エラーが発生しました')
     
     return render_template('login.html')
+
+@app.route('/auth/email', methods=['GET', 'POST'])
+def email_input():
+    # パスフレーズ認証が完了しているかチェック
+    if not session.get('passphrase_verified'):
+        return redirect(url_for('login'))
+    
+    # 既に完全認証済みの場合はメイン画面へ
+    if session.get('authenticated'):
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        
+        # バリデーション
+        if not email:
+            return render_template('email_input.html', error='メールアドレスを入力してください')
+        
+        # 簡単なメールアドレス形式チェック
+        import re
+        email_pattern = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+        if not re.match(email_pattern, email):
+            return render_template('email_input.html', error='有効なメールアドレスを入力してください', email=email)
+        
+        try:
+            # データベース接続
+            conn = sqlite3.connect('instance/database.db')
+            conn.row_factory = sqlite3.Row
+            
+            # OTP生成（6桁）
+            import secrets
+            otp_code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+            
+            # 有効期限設定（10分後）
+            import datetime
+            expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
+            
+            # 古いOTPを無効化（同じメールアドレスの未使用OTP）
+            conn.execute('''
+                UPDATE otp_tokens 
+                SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                WHERE email = ? AND used = FALSE
+            ''', (email,))
+            
+            # 新しいOTPをデータベースに保存
+            conn.execute('''
+                INSERT INTO otp_tokens (email, otp_code, session_id, ip_address, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (email, otp_code, session.get('session_id', ''), request.remote_addr, expires_at.isoformat()))
+            
+            conn.commit()
+            
+            # メール送信
+            from mail.email_service import EmailService
+            email_service = EmailService()
+            
+            if email_service.send_otp_email(email, otp_code):
+                # セッションにメールアドレスを保存
+                session['email'] = email
+                conn.close()
+                return redirect(url_for('verify_otp'))
+            else:
+                conn.close()
+                return render_template('email_input.html', 
+                                     error='メール送信に失敗しました。しばらく時間をおいて再試行してください。', 
+                                     email=email)
+                                     
+        except Exception as e:
+            if 'conn' in locals():
+                conn.close()
+            return render_template('email_input.html', 
+                                 error='システムエラーが発生しました。しばらく時間をおいて再試行してください。', 
+                                 email=email)
+    
+    return render_template('email_input.html')
+
+@app.route('/auth/verify-otp', methods=['GET', 'POST'])
+def verify_otp():
+    # パスフレーズ認証とメールアドレスが設定されているかチェック
+    if not session.get('passphrase_verified') or not session.get('email'):
+        return redirect(url_for('login'))
+    
+    # 既に完全認証済みの場合はメイン画面へ
+    if session.get('authenticated'):
+        return redirect(url_for('index'))
+    
+    email = session.get('email')
+    
+    if request.method == 'POST':
+        otp_code = request.form.get('otp_code', '').strip()
+        
+        # バリデーション
+        if not otp_code:
+            return render_template('verify_otp.html', email=email, error='OTPコードを入力してください')
+        
+        if len(otp_code) != 6 or not otp_code.isdigit():
+            return render_template('verify_otp.html', email=email, error='6桁の数字を入力してください')
+        
+        try:
+            # データベース接続
+            conn = sqlite3.connect('instance/database.db')
+            conn.row_factory = sqlite3.Row
+            
+            # 有効なOTPを検索
+            otp_record = conn.execute('''
+                SELECT id, otp_code, expires_at, used 
+                FROM otp_tokens 
+                WHERE email = ? AND otp_code = ? AND used = FALSE
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (email, otp_code)).fetchone()
+            
+            if not otp_record:
+                conn.close()
+                return render_template('verify_otp.html', email=email, 
+                                     error='無効なOTPコードです。正しいコードを入力してください。')
+            
+            # 有効期限チェック
+            import datetime
+            expires_at = datetime.datetime.fromisoformat(otp_record['expires_at'])
+            now = datetime.datetime.now()
+            
+            if now > expires_at:
+                # 期限切れOTPを無効化
+                conn.execute('''
+                    UPDATE otp_tokens 
+                    SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                    WHERE id = ?
+                ''', (otp_record['id'],))
+                conn.commit()
+                conn.close()
+                return render_template('verify_otp.html', email=email, 
+                                     error='OTPコードの有効期限が切れています。再送信してください。')
+            
+            # OTPを使用済みにマーク
+            conn.execute('''
+                UPDATE otp_tokens 
+                SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            ''', (otp_record['id'],))
+            conn.commit()
+            
+            # 認証完了
+            session['authenticated'] = True
+            session['email'] = email
+            session['auth_completed_at'] = datetime.datetime.now().isoformat()
+            
+            # セッション統計を更新
+            session_id = session.get('session_id', str(uuid.uuid4()))
+            session['session_id'] = session_id
+            
+            conn.execute('''
+                INSERT OR REPLACE INTO session_stats 
+                (session_id, email_hash, start_time, ip_address, device_type, last_updated)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (session_id, hash(email), int(now.timestamp()), request.remote_addr, 'web'))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect(url_for('index'))
+            
+        except Exception as e:
+            if 'conn' in locals():
+                conn.close()
+            return render_template('verify_otp.html', email=email, 
+                                 error='システムエラーが発生しました。しばらく時間をおいて再試行してください。')
+    
+    return render_template('verify_otp.html', email=email)
 
 @app.route('/auth/logout')
 def logout():

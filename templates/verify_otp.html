@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+
+{% block title %}OTP認証 - Secure PDF Viewer{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/verify_otp.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <h2>OTP認証</h2>
+        
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        {% if success %}
+            <div class="success-message">{{ success }}</div>
+        {% endif %}
+        
+        
+        <div class="email-info">
+            <p>📧 <strong>{{ email }}</strong> 宛にOTPコードを送信しました</p>
+            <p class="time-info">⏰ コードは<span id="remaining-time">10分間</span>有効です</p>
+        </div>
+        
+        <form method="POST" class="otp-form">
+            <div class="form-group">
+                <label for="otp_code">6桁のOTPコードを入力:</label>
+                <input type="text" 
+                       id="otp_code" 
+                       name="otp_code" 
+                       inputmode="numeric" 
+                       pattern="[0-9]{6}" 
+                       maxlength="6" 
+                       placeholder="123456"
+                       class="otp-input"
+                       autocomplete="one-time-code"
+                       required>
+            </div>
+            
+            <div class="button-group">
+                <button type="submit" class="btn btn-primary" id="verify-btn">認証</button>
+                <button type="button" class="btn btn-secondary" id="resend-btn">再送信</button>
+            </div>
+        </form>
+        
+        <div class="otp-help">
+            <div class="info-box">
+                <h4>📱 メールが届かない場合</h4>
+                <ul>
+                    <li>迷惑メールフォルダをご確認ください</li>
+                    <li>メール受信に数分かかる場合があります</li>
+                    <li>「再送信」ボタンで新しいコードを取得できます</li>
+                </ul>
+            </div>
+            
+            <div class="info-box warning">
+                <h4>⚠️ セキュリティについて</h4>
+                <ul>
+                    <li>OTPコードは他人と共有しないでください</li>
+                    <li>有効期限内にご入力ください</li>
+                    <li>複数回間違えるとロックされる場合があります</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="back-link">
+            <a href="{{ url_for('email_input') }}" class="link-secondary">← メールアドレスを変更する</a>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/verify-otp.js') }}"></script>
+{% endblock %}
