@@ -119,6 +119,21 @@ def create_tables(db):
         )
     ''')
     
+    # OTPトークンテーブル
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS otp_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            otp_code TEXT NOT NULL,
+            session_id TEXT,
+            ip_address TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            used BOOLEAN DEFAULT FALSE,
+            used_at TIMESTAMP NULL
+        )
+    ''')
+    
     # インデックス作成
     create_indexes(db)
 
@@ -139,6 +154,9 @@ def create_indexes(db):
         'CREATE INDEX IF NOT EXISTS idx_settings_history_changed_at ON settings_history(changed_at)',
         'CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email)',
         'CREATE INDEX IF NOT EXISTS idx_session_stats_start_time ON session_stats(start_time)',
+        'CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON otp_tokens(email)',
+        'CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON otp_tokens(expires_at)',
+        'CREATE INDEX IF NOT EXISTS idx_otp_tokens_used ON otp_tokens(used)',
     ]
     
     for index_sql in indexes:
