@@ -377,6 +377,143 @@ class TestAuthenticationSecurity(unittest.TestCase):
         self.assertEqual(response2.status_code, 302)  # 未認証
 
 
+class TestSessionExpiration(unittest.TestCase):
+    """セッション有効期限のテスト"""
+    
+    def setUp(self):
+        """テスト前の準備"""
+        self.db_fd, self.db_path = tempfile.mkstemp()
+        app.config['TESTING'] = True
+        app.config['WTF_CSRF_ENABLED'] = False
+        app.config['SECRET_KEY'] = 'test-secret-key'
+        
+        # 元のsqlite3.connectを保存
+        self.original_sqlite_connect = sqlite3.connect
+        
+        with self.original_sqlite_connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            create_tables(conn)
+            insert_initial_data(conn)
+        
+        # アプリケーションのデータベースパスをテスト用に変更
+        self.patcher = patch('app.sqlite3.connect')
+        self.mock_connect = self.patcher.start()
+        self.mock_connect.side_effect = lambda *args: self.mock_db_connection()
+        
+        self.client = app.test_client()
+        self.app_context = app.app_context()
+        self.app_context.push()
+    
+    def tearDown(self):
+        """テスト後のクリーンアップ"""
+        self.patcher.stop()
+        self.app_context.pop()
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+    
+    def mock_db_connection(self):
+        """データベース接続をテスト用に置き換える"""
+        conn = self.original_sqlite_connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+    
+    def test_session_expiration_check(self):
+        """セッション有効期限チェック機能のテスト"""
+        import app
+        
+        # 各テストケース用にリクエストコンテキストとセッションを作成
+        
+        # テストケース1: 認証していないセッション
+        with app.app.test_request_context():
+            from flask import session
+            session.clear()
+            self.assertTrue(app.is_session_expired())
+        
+        # テストケース2: 認証済みだが期限切れのセッション
+        old_time = datetime.datetime.now() - datetime.timedelta(hours=73)  # 73時間前
+        with app.app.test_request_context():
+            from flask import session
+            session['authenticated'] = True
+            session['auth_completed_at'] = old_time.isoformat()
+            self.assertTrue(app.is_session_expired())
+        
+        # テストケース3: 有効なセッション
+        valid_time = datetime.datetime.now() - datetime.timedelta(hours=1)  # 1時間前
+        with app.app.test_request_context():
+            from flask import session
+            session['authenticated'] = True
+            session['auth_completed_at'] = valid_time.isoformat()
+            self.assertFalse(app.is_session_expired())
+    
+    def test_expired_session_redirect(self):
+        """期限切れセッションでのリダイレクトテスト"""
+        # 期限切れセッションを設定
+        old_time = datetime.datetime.now() - datetime.timedelta(hours=73)
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['auth_completed_at'] = old_time.isoformat()
+        
+        # メインページにアクセス
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 302)  # リダイレクト
+        self.assertIn('/auth/login', response.location)
+    
+    def test_expired_session_api_response(self):
+        """期限切れセッションでのAPI応答テスト"""
+        # 期限切れセッションを設定
+        old_time = datetime.datetime.now() - datetime.timedelta(hours=73)
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['auth_completed_at'] = old_time.isoformat()
+        
+        # APIエンドポイントにアクセス
+        response = self.client.get('/api/session-info')
+        self.assertEqual(response.status_code, 401)
+        data = response.get_json()
+        self.assertEqual(data['error'], 'Session expired')
+    
+    def test_valid_session_access(self):
+        """有効セッションでの正常アクセステスト"""
+        # 有効なセッションを設定
+        valid_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['auth_completed_at'] = valid_time.isoformat()
+            sess['email'] = 'test@example.com'
+            sess['session_id'] = 'test-session-id'
+        
+        # APIエンドポイントにアクセス
+        response = self.client.get('/api/session-info')
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['email'], 'test@example.com')
+    
+    @patch('app.get_setting')
+    def test_custom_session_timeout(self, mock_get_setting):
+        """カスタムセッション有効期限設定のテスト"""
+        # カスタム有効期限を設定（2時間 = 7200秒）
+        mock_get_setting.return_value = 7200
+        
+        import app
+        
+        # 3時間前のセッション（カスタム設定では期限切れ）
+        old_time = datetime.datetime.now() - datetime.timedelta(hours=3)
+        with app.app.test_request_context():
+            from flask import session
+            session['authenticated'] = True
+            session['auth_completed_at'] = old_time.isoformat()
+            self.assertTrue(app.is_session_expired())
+        
+        # 1時間前のセッション（カスタム設定では有効）
+        valid_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+        with app.app.test_request_context():
+            from flask import session
+            session['authenticated'] = True
+            session['auth_completed_at'] = valid_time.isoformat()
+            self.assertFalse(app.is_session_expired())
+
+
 if __name__ == '__main__':
     # テストスイートの実行
     unittest.main(verbosity=2)

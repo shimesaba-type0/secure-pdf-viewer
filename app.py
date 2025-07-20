@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, Response
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from werkzeug.utils import secure_filename
 import sqlite3
@@ -16,6 +16,95 @@ from queue import Queue
 
 # JST timezone
 JST = pytz.timezone('Asia/Tokyo')
+
+def is_session_expired():
+    """
+    セッションが有効期限切れかどうかをチェックする
+    Returns:
+        bool: True if expired, False if valid
+    """
+    if not session.get('authenticated'):
+        return True
+    
+    auth_time_str = session.get('auth_completed_at')
+    if not auth_time_str:
+        return True
+    
+    try:
+        # ISO形式の日時文字列をパース
+        auth_time = datetime.fromisoformat(auth_time_str)
+        now = datetime.now()
+        
+        # 72時間（259200秒）の有効期限をチェック
+        try:
+            session_timeout = get_setting('session_timeout', 259200)  # デフォルト72時間
+        except:
+            session_timeout = 259200  # エラー時のフォールバック
+        time_diff = (now - auth_time).total_seconds()
+        
+        return time_diff > session_timeout
+    except (ValueError, TypeError):
+        # 日時パースエラーの場合は期限切れとみなす
+        return True
+
+def clear_expired_session():
+    """
+    期限切れセッションをクリアする
+    """
+    session.clear()
+    flash('セッションの有効期限が切れました。再度ログインしてください。', 'warning')
+
+def require_valid_session():
+    """
+    有効なセッションを要求するデコレーター用の関数
+    """
+    if is_session_expired():
+        clear_expired_session()
+        return redirect(url_for('login'))
+    return None
+
+def cleanup_expired_sessions():
+    """
+    期限切れセッションの定期クリーンアップ処理
+    """
+    try:
+        import sqlite3
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # 72時間以上古いセッション統計データを削除
+        try:
+            session_timeout = get_setting('session_timeout', 259200)  # デフォルト72時間
+        except:
+            session_timeout = 259200  # エラー時のフォールバック
+        cutoff_time = datetime.now() - timedelta(seconds=session_timeout)
+        cutoff_timestamp = int(cutoff_time.timestamp())
+        
+        # 古いセッション統計を削除
+        cursor.execute('''
+            DELETE FROM session_stats 
+            WHERE start_time < ?
+        ''', (cutoff_timestamp,))
+        
+        deleted_sessions = cursor.rowcount
+        
+        # 古いOTPトークンも一緒にクリーンアップ（24時間以上古いもの）
+        old_otp_cutoff = datetime.now() - timedelta(hours=24)
+        cursor.execute('''
+            DELETE FROM otp_tokens 
+            WHERE created_at < ?
+        ''', (old_otp_cutoff.isoformat(),))
+        
+        deleted_otps = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        if deleted_sessions > 0 or deleted_otps > 0:
+            print(f"Session cleanup: Removed {deleted_sessions} expired sessions and {deleted_otps} old OTP tokens")
+            
+    except Exception as e:
+        print(f"Session cleanup error: {e}")
 
 def get_jst_now():
     """現在のJST時刻を取得"""
@@ -69,6 +158,15 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 scheduler = BackgroundScheduler()
 scheduler.start()
 atexit.register(lambda: scheduler.shutdown())
+
+# セッションクリーンアップを毎時間実行するようにスケジュール
+scheduler.add_job(
+    func=cleanup_expired_sessions,
+    trigger="interval",
+    hours=1,
+    id='session_cleanup',
+    replace_existing=True
+)
 
 def auto_unpublish_all_pdfs():
     """指定時刻に全てのPDFの公開を停止する"""
@@ -175,6 +273,11 @@ def check_and_handle_expired_publish():
 
 @app.route('/')
 def index():
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
     if not session.get('authenticated'):
         return redirect(url_for('login'))
     
@@ -468,6 +571,11 @@ def logout():
 
 @app.route('/admin')
 def admin():
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
     if not session.get('authenticated'):
         return redirect(url_for('login'))
     
@@ -814,6 +922,10 @@ def update_publish_end():
 @app.route('/api/session-info')
 def get_session_info():
     """ウォーターマーク用のセッション情報を取得"""
+    # セッション有効期限チェック
+    if is_session_expired():
+        return jsonify({'error': 'Session expired'}), 401
+    
     if not session.get('authenticated'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -834,6 +946,10 @@ def get_session_info():
 @app.route('/api/events')
 def sse_stream():
     """Server-Sent Events ストリーム"""
+    # セッション有効期限チェック
+    if is_session_expired():
+        return jsonify({'error': 'Session expired'}), 401
+    
     if not session.get('authenticated'):
         return jsonify({'error': 'Unauthorized'}), 401
 
