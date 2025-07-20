@@ -13,6 +13,16 @@
 }
 
 .time-info {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    padding: 0.75rem;
+    background-color: #fff8e1;
+    border-radius: 0.5rem;
+    border-left: 4px solid #ffa726;
+}
+
+.time-info p {
+    margin: 0;
     font-size: 0.9rem;
     color: #666;
 }
@@ -57,15 +67,20 @@
 }
 
 .otp-help {
+    margin-top: 2rem;
     margin-bottom: 2rem;
+    padding: 1.5rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #fafafa;
 }
 
 .info-box {
-    margin-bottom: 1.5rem;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    background-color: #f8f9fa;
-    border-left: 4px solid #007bff;
+    margin-bottom: 0;
+    padding: 0;
+    border-radius: 0;
+    background-color: transparent;
+    border: none;
 }
 
 .info-box.warning {
@@ -74,20 +89,22 @@
 }
 
 .info-box h4 {
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 1rem 0;
     font-size: 1rem;
-    color: #333;
+    color: #555;
+    font-weight: 600;
 }
 
 .info-box ul {
-    margin: 0.5rem 0 0 0;
+    margin: 0;
     padding-left: 1.2rem;
 }
 
 .info-box li {
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.5rem;
     font-size: 0.9rem;
-    line-height: 1.4;
+    line-height: 1.5;
+    color: #666;
 }
 
 .back-link {

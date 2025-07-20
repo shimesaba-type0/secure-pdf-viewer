@@ -2,14 +2,14 @@
 
 {% block title %}OTP認証 - Secure PDF Viewer{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/verify_otp.css') }}">
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/verify_otp.css') }}?v=4">
 {% endblock %}
 
 {% block content %}
 <div class="login-container">
     <div class="login-card">
-        <h2>OTP認証</h2>
+        <h2>ワンタイムパスワード認証</h2>
         
         {% if error %}
             <div class="error-message">{{ error }}</div>
@@ -21,13 +21,17 @@
         
         
         <div class="email-info">
-            <p>📧 <strong>{{ email }}</strong> 宛にOTPコードを送信しました</p>
-            <p class="time-info">⏰ コードは<span id="remaining-time">10分間</span>有効です</p>
+            <p><strong>{{ email }}</strong></p>
+            <p>宛に認証コードを送信しました</p>
+        </div>
+        
+        <div class="time-info">
+            <p>コードは10分間有効です</p>
         </div>
         
         <form method="POST" class="otp-form">
             <div class="form-group">
-                <label for="otp_code">6桁のOTPコードを入力:</label>
+                <label for="otp_code">6桁の認証コードを入力:</label>
                 <input type="text" 
                        id="otp_code" 
                        name="otp_code" 
@@ -48,7 +52,7 @@
         
         <div class="otp-help">
             <div class="info-box">
-                <h4>📱 メールが届かない場合</h4>
+                <h4>メールが届かない場合</h4>
                 <ul>
                     <li>迷惑メールフォルダをご確認ください</li>
                     <li>メール受信に数分かかる場合があります</li>
@@ -56,14 +60,6 @@
                 </ul>
             </div>
             
-            <div class="info-box warning">
-                <h4>⚠️ セキュリティについて</h4>
-                <ul>
-                    <li>OTPコードは他人と共有しないでください</li>
-                    <li>有効期限内にご入力ください</li>
-                    <li>複数回間違えるとロックされる場合があります</li>
-                </ul>
-            </div>
         </div>
         
         <div class="back-link">

@@ -49,9 +49,70 @@ document.addEventListener('DOMContentLoaded', function() {
         this.disabled = true;
         this.textContent = '送信中...';
         
-        // メールアドレス入力画面に戻る
-        window.location.href = '/auth/email';
+        // AJAX で再送信リクエスト
+        fetch('/auth/resend-otp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 成功メッセージを表示
+                showMessage(data.message, 'success');
+                // ボタンを30秒間無効化（スパム防止）
+                let countdown = 30;
+                const originalText = '再送信';
+                const updateButton = () => {
+                    if (countdown > 0) {
+                        this.textContent = `再送信 (${countdown}s)`;
+                        countdown--;
+                        setTimeout(updateButton, 1000);
+                    } else {
+                        this.disabled = false;
+                        this.textContent = originalText;
+                    }
+                };
+                updateButton();
+            } else {
+                // エラーメッセージを表示
+                showMessage(data.error, 'error');
+                this.disabled = false;
+                this.textContent = '再送信';
+            }
+        })
+        .catch(error => {
+            showMessage('通信エラーが発生しました', 'error');
+            this.disabled = false;
+            this.textContent = '再送信';
+        });
     });
+    
+    // メッセージ表示用の関数
+    function showMessage(message, type) {
+        // 既存のメッセージを削除
+        const existingMessage = document.querySelector('.temp-message');
+        if (existingMessage) {
+            existingMessage.remove();
+        }
+        
+        // 新しいメッセージを作成
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `temp-message ${type === 'success' ? 'success-message' : 'error-message'}`;
+        messageDiv.textContent = message;
+        
+        // フォームの前に挿入
+        const form = document.querySelector('.otp-form');
+        form.parentNode.insertBefore(messageDiv, form);
+        
+        // 5秒後に自動削除
+        setTimeout(() => {
+            if (messageDiv.parentNode) {
+                messageDiv.remove();
+            }
+        }, 5000);
+    }
     
     // 自動フォーカス
     otpInput.focus();

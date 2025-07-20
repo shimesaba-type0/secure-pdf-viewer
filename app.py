@@ -409,6 +409,58 @@ def verify_otp():
     
     return render_template('verify_otp.html', email=email)
 
+@app.route('/auth/resend-otp', methods=['POST'])
+def resend_otp():
+    # パスフレーズ認証とメールアドレスが設定されているかチェック
+    if not session.get('passphrase_verified') or not session.get('email'):
+        return {'success': False, 'error': '認証セッションが無効です'}, 400
+    
+    email = session.get('email')
+    
+    try:
+        # データベース接続
+        conn = sqlite3.connect('instance/database.db')
+        conn.row_factory = sqlite3.Row
+        
+        # OTP生成（6桁）
+        import secrets
+        otp_code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+        
+        # 有効期限設定（10分後）
+        import datetime
+        expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
+        
+        # 古いOTPを無効化（同じメールアドレスの未使用OTP）
+        conn.execute('''
+            UPDATE otp_tokens 
+            SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+            WHERE email = ? AND used = FALSE
+        ''', (email,))
+        
+        # 新しいOTPをデータベースに保存
+        conn.execute('''
+            INSERT INTO otp_tokens (email, otp_code, session_id, ip_address, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (email, otp_code, session.get('session_id', ''), request.remote_addr, expires_at.isoformat()))
+        
+        conn.commit()
+        
+        # メール送信
+        from mail.email_service import EmailService
+        email_service = EmailService()
+        
+        if email_service.send_otp_email(email, otp_code):
+            conn.close()
+            return {'success': True, 'message': '認証コードを再送信しました'}
+        else:
+            conn.close()
+            return {'success': False, 'error': 'メール送信に失敗しました'}, 500
+                                 
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return {'success': False, 'error': 'システムエラーが発生しました'}, 500
+
 @app.route('/auth/logout')
 def logout():
     session.clear()
