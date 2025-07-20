@@ -10,11 +10,13 @@ class PDFViewer {
         this.authorName = 'Default_Author'; // デフォルト値
         this.sessionInfo = null; // セッション情報
         this.eventSource = null; // SSE接続
+        this.watermarkUpdateInterval = null; // ウォーターマーク更新タイマー
         
         this.initializeElements();
         this.loadAuthorName();
         this.loadSessionInfo();
         this.initializeSSE();
+        this.initializeWatermarkUpdates();
         this.bindEvents();
     }
     
@@ -173,6 +175,22 @@ class PDFViewer {
         
         // ナビゲーションヘルプも非表示
         this.hideNavigationHelp();
+    }
+    
+    initializeWatermarkUpdates() {
+        // ウォーターマークの時刻を1分ごとに更新
+        this.watermarkUpdateInterval = setInterval(() => {
+            if (this.pdfDoc && this.currentPage && this.canvas) {
+                this.updateWatermarkOnly();
+            }
+        }, 60000); // 1分ごと
+    }
+    
+    updateWatermarkOnly() {
+        // 現在のページを再レンダリングしてウォーターマークを更新
+        if (this.pdfDoc && this.currentPage) {
+            this.renderPage(this.currentPage);
+        }
     }
     
     bindEvents() {
@@ -675,37 +693,48 @@ class PDFViewer {
             month: '2-digit',
             day: '2-digit',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            second: '2-digit'
         }).replace(/\//g, '/');
         
-        // Calculate responsive font size based on canvas size
-        const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.018;
-        const fontSize = Math.max(10, Math.min(20, baseFontSize));
+        // Calculate responsive font size based on canvas size - improved sizing
+        const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.015;
+        const fontSize = Math.max(10, Math.min(14, baseFontSize));
         
-        // Watermark style - top-right corner
-        ctx.globalAlpha = 0.4; // More visible
-        ctx.fillStyle = '#FF0000'; // Red color for better visibility
-        ctx.font = `bold ${fontSize}px Arial, sans-serif`;
+        // Watermark style - right top corner with improved visibility
+        ctx.globalAlpha = 0.3; // Improved readability
+        ctx.fillStyle = '#000000'; // Black for better contrast
+        ctx.font = `${fontSize}px 'Courier New', monospace`; // Courier New as specified
         ctx.textAlign = 'right';
         ctx.textBaseline = 'top';
         
-        // Position in top-right corner
-        const padding = 15;
-        const lineHeight = fontSize + 3;
+        // Position in top-right corner as specified (20px from edges)
+        const padding = 20;
+        const lineHeight = fontSize + 2;
         let yPosition = padding;
         
-        // Display 4 pieces of information vertically
+        // Semi-transparent background for better readability
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        const maxTextWidth = Math.max(
+            ctx.measureText(`著作者: ${author}`).width,
+            ctx.measureText(`閲覧者: ${viewerEmail}`).width,
+            ctx.measureText(`日時: ${currentDateTime}`).width
+        );
+        ctx.fillRect(canvasWidth - maxTextWidth - padding - 10, padding - 5, 
+                    maxTextWidth + 20, lineHeight * 3 + 10);
+        
+        // Display 3 pieces of information vertically as specified
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#000000';
+        
         ctx.fillText(`著作者: ${author}`, canvasWidth - padding, yPosition);
         yPosition += lineHeight;
         
-        ctx.font = `${fontSize * 0.85}px Arial, sans-serif`;
         ctx.fillText(`閲覧者: ${viewerEmail}`, canvasWidth - padding, yPosition);
         yPosition += lineHeight;
         
         ctx.fillText(`日時: ${currentDateTime}`, canvasWidth - padding, yPosition);
-        yPosition += lineHeight;
-        
-        ctx.fillText(`SID: ${sessionId}`, canvasWidth - padding, yPosition);
         
         // Add diagonal SID watermark across the page
         ctx.save();

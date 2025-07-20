@@ -818,32 +818,15 @@ def get_session_info():
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
-        conn = sqlite3.connect('instance/database.db')
-        conn.row_factory = sqlite3.Row
+        # セッションから直接メールアドレスとセッションIDを取得
+        email = session.get('email', 'unknown@example.com')
+        session_id = session.get('session_id', 'SID-FALLBACK')
         
-        # セッション情報とメールアドレスを結合して取得
-        session_data = conn.execute('''
-            SELECT s.session_id, s.email_hash, u.email_address
-            FROM session_stats s
-            LEFT JOIN user_emails u ON s.email_hash = u.email_hash
-            ORDER BY s.start_time DESC 
-            LIMIT 1
-        ''').fetchone()
-        
-        conn.close()
-        
-        if session_data:
-            return jsonify({
-                'session_id': session_data['session_id'],
-                'email': session_data['email_address'] or 'unknown@example.com',
-                'success': True
-            })
-        else:
-            return jsonify({
-                'session_id': 'SID-FALLBACK',
-                'email': 'anonymous@example.com',
-                'success': True
-            })
+        return jsonify({
+            'session_id': session_id,
+            'email': email,
+            'success': True
+        })
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
