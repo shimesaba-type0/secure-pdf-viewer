@@ -36,9 +36,10 @@
 - **セッション有効期限**: 72時間（3日間）
 - **自動延長**: なし（シンプルな実装）
 - **強制ログアウト条件**:
-  - 事前共有パスフレーズ変更時
-  - 管理者による全ユーザー強制ログアウト実行時
+  - 設定時刻での定時全セッション無効化（管理画面で時刻設定可能）
+  - 管理者による手動全ユーザー強制ログアウト実行時
   - 異常なアクセスパターン検知時
+- **パスフレーズ変更時の動作**: 管理者セッションは継続、変更完了メッセージ表示
 
 **72時間設定の理由:**
 - 資料の典型的利用パターン（配布→議論→決定）に適合
@@ -127,6 +128,8 @@
    - 公開期間変更
    - IP制限解除
    - 緊急公開停止
+   - 全セッション無効化実行時刻設定（時:分形式）
+   - 手動全ユーザー強制ログアウト
 
 3. **通知機能**
    - 異常アクセス時メール通知
@@ -180,7 +183,8 @@
 - `POST /admin/managers/remove` - 管理者削除
 - `POST /admin/unblock-ip` - IP制限解除
 - `POST /admin/unpublish` - 緊急公開停止
-- `POST /admin/force-logout-all` - 全ユーザー強制ログアウト
+- `POST /admin/force-logout-all` - 手動全ユーザー強制ログアウト
+- `POST /admin/update-force-logout-time` - 定時全セッション無効化時刻設定
 - `POST /admin/upload-pdf` - PDFファイルアップロード
 
 ### PDF配信
@@ -263,7 +267,7 @@ INSERT INTO settings (key, value, value_type, description, category, is_sensitiv
 ('session_timeout', '259200', 'integer', 'セッション有効期限（秒）', 'auth', FALSE),
 ('max_login_attempts', '5', 'integer', '最大ログイン試行回数', 'security', FALSE),
 ('lockout_duration', '1800', 'integer', 'ロックアウト時間（秒）', 'security', FALSE),
-('force_logout_after', '0', 'integer', '強制ログアウト実行時刻', 'system', FALSE),
+('force_logout_time', '02:00', 'string', '定時全セッション無効化実行時刻（HH:MM形式）', 'system', FALSE),
 ('mail_otp_expiry', '600', 'integer', 'OTP有効期限（秒）', 'mail', FALSE),
 ('analytics_retention_days', '90', 'integer', 'ログ保持期間（日）', 'system', FALSE),
 ('author_name', 'Default_Author', 'string', 'ウォーターマーク表示用著作者名', 'watermark', FALSE),
