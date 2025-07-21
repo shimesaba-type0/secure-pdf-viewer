@@ -151,6 +151,16 @@ class SSEManager {
      * セッション無効化の統一処理（全ページ共通）
      */
     handleSessionInvalidated(data) {
+        // クライアント側セッションストレージをクリア
+        if (data.clear_session) {
+            console.log('SSE Manager: クライアント側セッションストレージをクリア中...');
+            // sessionStorageとlocalStorageをクリア
+            if (typeof(Storage) !== "undefined") {
+                sessionStorage.clear();
+                localStorage.clear();
+            }
+        }
+        
         // 視覚的フィードバック
         this.showSessionInvalidatedNotification(data.message);
         

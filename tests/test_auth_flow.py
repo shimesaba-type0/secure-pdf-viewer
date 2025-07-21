@@ -1,5 +1,6 @@
 """
 認証フロー統合テストコード
+セキュリティ脆弱性（2段階認証バイパス）のテストを含む
 """
 import unittest
 import sqlite3
@@ -512,6 +513,110 @@ class TestSessionExpiration(unittest.TestCase):
             session['authenticated'] = True
             session['auth_completed_at'] = valid_time.isoformat()
             self.assertFalse(app.is_session_expired())
+    
+    @patch('mail.email_service.EmailService')
+    def test_two_factor_auth_bypass_prevention(self, mock_email_service):
+        """2段階認証バイパス脆弱性の防止テスト"""
+        mock_email_service.return_value.send_otp_email.return_value = True
+        
+        # 1. 正常な2段階認証フローでセッションを確立
+        # パスフレーズ認証
+        response = self.client.post('/auth/login', data={'password': 'correct-passphrase'})
+        self.assertEqual(response.status_code, 302)
+        
+        # メール認証
+        response = self.client.post('/auth/email', data={'email': 'test@example.com'})
+        self.assertEqual(response.status_code, 302)
+        
+        # OTP認証完了
+        response = self.client.post('/auth/verify-otp', data={'otp_code': '123456'})
+        self.assertEqual(response.status_code, 302)
+        
+        # セッションが確立されていることを確認
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        
+        # 2. 全セッション無効化を実行
+        import app
+        with app.app.test_request_context():
+            app.invalidate_all_sessions()
+        
+        # 3. セッション無効化後、パスフレーズ認証のみでコンテンツアクセスを試行
+        response = self.client.post('/auth/login', data={'password': 'correct-passphrase'})
+        self.assertEqual(response.status_code, 302)
+        
+        # パスフレーズ認証後、メイン画面に直接アクセスを試行（これは失敗すべき）
+        response = self.client.get('/')
+        # セッション整合性チェックによりログイン画面にリダイレクトされるべき
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/auth/login', response.location)
+    
+    def test_session_integrity_check_missing_database_record(self):
+        """データベース記録がない場合のセッション整合性チェック"""
+        import app
+        
+        # Flaskセッションに認証情報を設定するが、データベースには記録しない
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['passphrase_verified'] = True
+            sess['email'] = 'test@example.com'
+            sess['session_id'] = 'nonexistent-session-id'
+            sess['auth_completed_at'] = datetime.datetime.now().isoformat()
+        
+        # セッション整合性チェックは失敗すべき
+        with app.app.test_request_context():
+            from flask import session
+            session.update({
+                'authenticated': True,
+                'passphrase_verified': True,
+                'email': 'test@example.com',
+                'session_id': 'nonexistent-session-id',
+                'auth_completed_at': datetime.datetime.now().isoformat()
+            })
+            self.assertFalse(app.check_session_integrity())
+    
+    def test_session_integrity_check_time_mismatch(self):
+        """認証時刻不整合の場合のセッション整合性チェック"""
+        import app
+        
+        # データベースに正常なセッション記録を作成
+        with self.original_sqlite_connect(self.db_path) as conn:
+            conn.execute('''
+                INSERT INTO session_stats (session_id, email_hash, start_time, ip_address, device_type)
+                VALUES (?, ?, ?, ?, ?)
+            ''', ('test-session-id', '973dfe463ec85785',  # get_consistent_hash('test@example.com')の結果 
+                  int(datetime.datetime.now().timestamp()), '127.0.0.1', 'web'))
+            conn.commit()
+        
+        # Flaskセッションには大幅に異なる認証時刻を設定
+        with app.app.test_request_context():
+            from flask import session
+            wrong_time = datetime.datetime.now() - datetime.timedelta(hours=1)
+            session.update({
+                'authenticated': True,
+                'passphrase_verified': True,
+                'email': 'test@example.com',
+                'session_id': 'test-session-id',
+                'auth_completed_at': wrong_time.isoformat()
+            })
+            
+            # 時刻不整合によりセッション整合性チェックは失敗すべき
+            self.assertFalse(app.check_session_integrity())
+    
+    def test_auth_flow_with_integrity_check(self):
+        """認証フロー中の整合性チェック機能テスト"""
+        # 不正なセッション状態でメール認証画面にアクセス
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['passphrase_verified'] = True
+            sess['email'] = 'test@example.com'
+            sess['session_id'] = 'fake-session-id'
+            sess['auth_completed_at'] = datetime.datetime.now().isoformat()
+        
+        # 整合性チェックにより /auth/email はログイン画面にリダイレクトすべき
+        response = self.client.get('/auth/email')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/auth/login', response.location)
 
 
 if __name__ == '__main__':

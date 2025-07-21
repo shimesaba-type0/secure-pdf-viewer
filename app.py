@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytz
 from werkzeug.utils import secure_filename
 import sqlite3
+import hashlib
 from database.models import get_setting, set_setting
 from auth.passphrase import PassphraseManager
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,6 +17,12 @@ from queue import Queue, Empty
 
 # JST timezone
 JST = pytz.timezone('Asia/Tokyo')
+
+def get_consistent_hash(text):
+    """
+    一貫したハッシュ値を生成する関数
+    """
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
 
 def is_session_expired():
     """
@@ -54,6 +61,72 @@ def clear_expired_session():
     session.clear()
     flash('セッションの有効期限が切れました。再度ログインしてください。', 'warning')
 
+def check_session_integrity():
+    """
+    セッションの整合性をチェックする
+    Returns:
+        bool: True if valid, False if invalid
+    """
+    if not session.get('authenticated'):
+        print("DEBUG: Session integrity check failed - not authenticated")
+        return False
+    
+    # 両方の認証ステップが完了しているかチェック
+    if not session.get('passphrase_verified') or not session.get('email'):
+        print(f"DEBUG: Session integrity check failed - passphrase_verified: {session.get('passphrase_verified')}, email: {session.get('email')}")
+        return False
+    
+    session_id = session.get('session_id')
+    if not session_id:
+        print("DEBUG: Session integrity check failed - no session_id")
+        return False
+    
+    # データベースのセッション統計と照合
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # セッションIDがデータベースに存在するかチェック
+        cursor.execute('SELECT start_time, email_hash FROM session_stats WHERE session_id = ?', (session_id,))
+        db_session = cursor.fetchone()
+        
+        conn.close()
+        
+        if not db_session:
+            # データベースにセッション記録がない場合は無効
+            print(f"DEBUG: Session integrity check failed - no database record for session_id: {session_id}")
+            return False
+        
+        # 認証完了時刻とデータベース記録の整合性チェック
+        auth_time_str = session.get('auth_completed_at')
+        if auth_time_str:
+            try:
+                auth_time = datetime.fromisoformat(auth_time_str)
+                db_start_time = datetime.fromtimestamp(db_session[0])
+                
+                # 時刻の差が5分以上の場合は異常とみなす
+                time_diff = abs((auth_time - db_start_time).total_seconds())
+                if time_diff > 300:  # 5分
+                    print(f"DEBUG: Session integrity check failed - time mismatch: {time_diff} seconds")
+                    return False
+            except (ValueError, TypeError) as e:
+                print(f"DEBUG: Session integrity check failed - time parsing error: {e}")
+                return False
+        
+        # メールアドレスのハッシュ値をチェック
+        email = session.get('email')
+        if email:
+            expected_hash = get_consistent_hash(email)
+            if expected_hash != db_session[1]:
+                print(f"DEBUG: Session integrity check failed - email hash mismatch: expected {expected_hash}, got {db_session[1]}")
+                return False
+        
+        print("DEBUG: Session integrity check passed")
+        return True
+    except Exception as e:
+        print(f"DEBUG: Session integrity check failed - exception: {e}")
+        return False
+
 def require_valid_session():
     """
     有効なセッションを要求するデコレーター用の関数
@@ -61,6 +134,13 @@ def require_valid_session():
     if is_session_expired():
         clear_expired_session()
         return redirect(url_for('login'))
+    
+    # セッション整合性チェック
+    if not check_session_integrity():
+        session.clear()
+        flash('セッションの整合性に問題があります。再度ログインしてください。', 'warning')
+        return redirect(url_for('login'))
+    
     return None
 
 def invalidate_all_sessions():
@@ -70,6 +150,9 @@ def invalidate_all_sessions():
         dict: 実行結果の詳細情報
     """
     print(f"*** SCHEDULED SESSION INVALIDATION EXECUTED AT {get_jst_datetime_string()} ***")
+    deleted_sessions = 0
+    deleted_otps = 0
+    
     try:
         import sqlite3
         conn = sqlite3.connect('instance/database.db')
@@ -92,34 +175,47 @@ def invalidate_all_sessions():
         conn.commit()
         conn.close()
         
+        print(f"Database cleanup completed: Removed {deleted_sessions} sessions and {deleted_otps} OTP tokens")
+        
+    except Exception as e:
+        error_msg = f"データベースクリーンアップエラー: {e}"
+        print(error_msg)
+    
+    # リクエストコンテキスト内でのみFlaskセッションをクリア
+    try:
+        from flask import has_request_context
+        if has_request_context():
+            session.clear()
+            print("Flask session cleared (in request context)")
+        else:
+            print("Flask session clear skipped (not in request context)")
+    except Exception as e:
+        print(f"Flask session clear error: {e}")
+    
+    # SSE通知は必ず送信（データベースエラーがあっても）
+    try:
         # 全クライアントにセッション無効化を通知
         broadcast_sse_event('session_invalidated', {
             'message': '予定された時刻になったため、システムからログアウトされました。再度ログインしてください。',
             'deleted_sessions': deleted_sessions,
             'deleted_otps': deleted_otps,
-            'redirect_url': '/auth/login'
+            'redirect_url': '/auth/login',
+            'clear_session': True  # クライアント側でもセッションストレージをクリア
         })
-        
-        result = {
-            'success': True,
-            'deleted_sessions': deleted_sessions,
-            'deleted_otps': deleted_otps,
-            'timestamp': get_jst_datetime_string(),
-            'message': f'全セッション無効化完了: {deleted_sessions}セッション、{deleted_otps}OTPトークンを削除'
-        }
-        
-        print(f"Manual session invalidation: Removed {deleted_sessions} sessions and {deleted_otps} OTP tokens")
-        return result
-        
+        print(f"SSE session invalidation notification sent to clients")
     except Exception as e:
-        error_msg = f"全セッション無効化エラー: {e}"
-        print(error_msg)
-        return {
-            'success': False,
-            'error': str(e),
-            'timestamp': get_jst_datetime_string(),
-            'message': error_msg
-        }
+        print(f"SSE notification error: {e}")
+    
+    result = {
+        'success': True,
+        'deleted_sessions': deleted_sessions,
+        'deleted_otps': deleted_otps,
+        'timestamp': get_jst_datetime_string(),
+        'message': f'全セッション無効化完了: {deleted_sessions}セッション、{deleted_otps}OTPトークンを削除'
+    }
+    
+    print(f"Session invalidation completed: {result['message']}")
+    return result
 
 def cleanup_expired_sessions():
     """
@@ -436,8 +532,11 @@ def login():
         
         try:
             if passphrase_manager.verify_passphrase(password):
+                # パスフレーズ認証成功時に古いセッション情報を完全にクリア
+                session.clear()
                 session['passphrase_verified'] = True
                 session['login_time'] = datetime.now().isoformat()
+                print(f"DEBUG: login - passphrase verified, session cleared and reset")
                 conn.close()
                 return redirect(url_for('email_input'))
             else:
@@ -455,9 +554,20 @@ def email_input():
     if not session.get('passphrase_verified'):
         return redirect(url_for('login'))
     
-    # 既に完全認証済みの場合はメイン画面へ
-    if session.get('authenticated'):
-        return redirect(url_for('index'))
+    # 既に完全認証済みの場合は整合性をチェック
+    # ただし、OTP認証が完了している場合のみ（session_idとauth_completed_atが存在）
+    if session.get('authenticated') and session.get('session_id') and session.get('auth_completed_at'):
+        print(f"DEBUG: email_input - checking session integrity for session_id: {session.get('session_id')}")
+        if check_session_integrity():
+            return redirect(url_for('index'))
+        else:
+            # 整合性に問題がある場合はセッションをクリア
+            print(f"DEBUG: email_input - clearing session due to integrity failure")
+            session.clear()
+            flash('セッションの整合性に問題があります。再度ログインしてください。', 'warning')
+            return redirect(url_for('login'))
+    else:
+        print(f"DEBUG: email_input - skipping integrity check: authenticated={session.get('authenticated')}, session_id={session.get('session_id')}, auth_completed_at={session.get('auth_completed_at')}")
     
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
@@ -530,9 +640,16 @@ def verify_otp():
     if not session.get('passphrase_verified') or not session.get('email'):
         return redirect(url_for('login'))
     
-    # 既に完全認証済みの場合はメイン画面へ
-    if session.get('authenticated'):
-        return redirect(url_for('index'))
+    # 既に完全認証済みの場合は整合性をチェック
+    # ただし、OTP認証が完了している場合のみ（session_idとauth_completed_atが存在）
+    if session.get('authenticated') and session.get('session_id') and session.get('auth_completed_at'):
+        if check_session_integrity():
+            return redirect(url_for('index'))
+        else:
+            # 整合性に問題がある場合はセッションをクリア
+            session.clear()
+            flash('セッションの整合性に問題があります。再度ログインしてください。', 'warning')
+            return redirect(url_for('login'))
     
     email = session.get('email')
     
@@ -603,7 +720,7 @@ def verify_otp():
                 INSERT OR REPLACE INTO session_stats 
                 (session_id, email_hash, start_time, ip_address, device_type, last_updated)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (session_id, hash(email), int(now.timestamp()), request.remote_addr, 'web'))
+            ''', (session_id, get_consistent_hash(email), int(now.timestamp()), request.remote_addr, 'web'))
             
             conn.commit()
             conn.close()
