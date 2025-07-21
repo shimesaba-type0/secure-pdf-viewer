@@ -755,24 +755,25 @@ body {
     }
 }
 
-/* パスワード表示ボタン（管理画面用） */
+/* パスワード表示ボタン（ログイン画面・管理画面共通） */
 .password-input-container {
     position: relative;
-    display: inline-block;
+    display: block;
     width: 100%;
     /* 確実に高さを固定 */
     min-height: 38px;
 }
 
 .password-input-container .form-control {
-    padding-right: 60px;
+    padding-right: 70px;
     /* 入力フィールドの高さを明示的に設定 */
     height: 38px;
+    box-sizing: border-box;
 }
 
 .password-toggle-btn {
     position: absolute;
-    right: 10px;
+    right: 8px;
     top: 50%;
     transform: translateY(-50%);
     background: #ffffff;
@@ -786,8 +787,12 @@ body {
     z-index: 10;
     pointer-events: auto;
     /* 確実に入力フィールドの位置に固定 */
-    height: 24px;
-    line-height: 1;
+    height: 26px;
+    line-height: 1.2;
+    min-width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .password-toggle-btn:hover {
@@ -803,6 +808,62 @@ body {
 
 .password-toggle-btn .toggle-text {
     font-weight: 500;
+    white-space: nowrap;
+}
+
+/* レスポンシブ対応: モバイル・タブレット対応 */
+@media (max-width: 768px) {
+    .password-input-container .form-control {
+        padding-right: 75px;
+        font-size: 16px; /* iOS Safari でのズーム防止 */
+    }
+    
+    .password-toggle-btn {
+        right: 6px;
+        height: 28px;
+        min-width: 45px;
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+    }
+    
+    .login-card {
+        margin: 1rem;
+        padding: 1.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .password-input-container .form-control {
+        padding-right: 80px;
+        height: 42px;
+        font-size: 16px; /* iOS Safari でのズーム防止 */
+    }
+    
+    .password-toggle-btn {
+        right: 8px;
+        height: 30px;
+        min-width: 48px;
+        font-size: 0.7rem;
+        border-width: 1.5px;
+    }
+    
+    .login-card {
+        margin: 0.5rem;
+        padding: 1rem;
+    }
+}
+
+/* iPhone Safari 特有の対応 */
+@supports (-webkit-touch-callout: none) {
+    .password-input-container .form-control {
+        -webkit-appearance: none;
+        border-radius: 6px;
+    }
+    
+    .password-toggle-btn {
+        -webkit-tap-highlight-color: transparent;
+        border-radius: 6px;
+    }
 }
 
 /* パスフレーズ検証エラーメッセージ */
