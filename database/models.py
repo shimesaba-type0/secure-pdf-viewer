@@ -249,18 +249,25 @@ def get_setting(db, key, default=None):
 
 
 def set_setting(db, key, value, updated_by='system'):
-    """設定値を更新"""
+    """設定値を更新または作成"""
     # 現在の値を取得（履歴用）
     db.row_factory = sqlite3.Row
     current_row = db.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
     old_value = current_row['value'] if current_row else None
     
-    # 設定を更新
-    db.execute('''
-        UPDATE settings 
-        SET value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
-        WHERE key = ?
-    ''', (str(value), updated_by, key))
+    if current_row:
+        # 既存設定の更新
+        db.execute('''
+            UPDATE settings 
+            SET value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+            WHERE key = ?
+        ''', (str(value), updated_by, key))
+    else:
+        # 新規設定の追加
+        db.execute('''
+            INSERT INTO settings (key, value, value_type, description, category, created_at, updated_at, updated_by)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+        ''', (key, str(value), 'string', f'動的設定: {key}', 'session', updated_by))
     
     # 履歴に記録
     db.execute('''

@@ -15,7 +15,7 @@ class PDFViewer {
         this.initializeElements();
         this.loadAuthorName();
         this.loadSessionInfo();
-        this.initializeSSE();
+        this.initializePDFViewerSSE();
         this.initializeWatermarkUpdates();
         this.bindEvents();
     }
@@ -79,58 +79,31 @@ class PDFViewer {
         }
     }
     
-    initializeSSE() {
-        // Server-Sent Events接続を初期化
-        try {
-            this.eventSource = new EventSource('/api/events');
-            
-            this.eventSource.onopen = () => {
-                console.log('SSE接続が確立されました');
-            };
-            
-            this.eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleSSEEvent(data);
-                } catch (e) {
-                    console.warn('SSEメッセージの解析に失敗:', e);
-                }
-            };
-            
-            this.eventSource.addEventListener('pdf_unpublished', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handlePDFUnpublished(data);
-                } catch (e) {
-                    console.warn('PDF停止イベントの処理に失敗:', e);
-                }
-            });
-            
-            this.eventSource.addEventListener('pdf_published', (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handlePDFPublished(data);
-                } catch (e) {
-                    console.warn('PDF公開イベントの処理に失敗:', e);
-                }
-            });
-            
-            this.eventSource.onerror = (error) => {
-                console.warn('SSE接続エラー:', error);
-                // 自動再接続は EventSource が行う
-            };
-            
-        } catch (e) {
-            console.warn('SSE初期化に失敗:', e);
+    initializePDFViewerSSE() {
+        // SSE Manager を使用して接続確立
+        if (!window.sseManager) {
+            console.error('PDF閲覧画面: SSE Manager が利用できません');
+            return;
         }
+        
+        // SSE接続を確立
+        window.sseManager.connect();
+        
+        // PDF閲覧画面固有のイベントリスナーを登録
+        window.sseManager.addPageListeners('viewer', {
+            'pdf_unpublished': (data) => this.handlePDFUnpublished(data),
+            'pdf_published': (data) => this.handlePDFPublished(data)
+        });
+        
+        console.log('PDF閲覧画面: SSE接続とリスナーを初期化しました');
     }
     
-    handleSSEEvent(data) {
-        // 一般的なSSEイベント処理
-        if (data.event === 'connected') {
-            console.log('SSE:', data.message);
-        } else if (data.event === 'heartbeat') {
-            // ハートビートは特に何もしない
+    // セッション無効化処理はSSE Managerで統一処理されるため削除
+    
+    // ページ離脱時のクリーンアップ
+    cleanup() {
+        if (window.sseManager) {
+            window.sseManager.removePageListeners('viewer');
         }
     }
     
@@ -807,4 +780,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 100); // Small delay to ensure everything is initialized
         }
     }
+    
+    // ページ離脱時のクリーンアップ
+    window.addEventListener('beforeunload', () => {
+        viewer.cleanup();
+    });
 });

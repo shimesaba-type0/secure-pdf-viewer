@@ -3,12 +3,30 @@
 {% block title %}管理画面 - Secure PDF Viewer{% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 {% endblock %}
 
 {% block content %}
 <div class="admin-container">
     <h2>管理者ダッシュボード</h2>
+    
+    {% if scheduled_invalidation_datetime_formatted %}
+    <div class="session-invalidation-banner">
+        <div class="banner-content">
+            <div class="banner-icon">⚠️</div>
+            <div class="banner-text">
+                <strong>セッション無効化予定</strong><br>
+                <span class="schedule-time">{{ scheduled_invalidation_datetime_formatted }}</span> に全セッションが自動無効化されます
+            </div>
+            <div class="banner-actions">
+                <button type="button" class="btn btn-sm btn-secondary" onclick="clearInvalidationSchedule()">
+                    解除
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <div class="dashboard-grid">
         <div class="card">
@@ -226,6 +244,62 @@
                 <strong>現在の設定:</strong> {{ publish_end_datetime_formatted or publish_end_datetime }}
             </div>
             {% endif %}
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>セッション管理</h3>
+        <div class="settings-container">
+            <div class="session-management">
+                <div class="form-group">
+                    <h4>全セッション無効化</h4>
+                    <p>現在アクティブな全てのユーザーセッションを強制的に無効化します。<br>
+                    実行後、全ユーザーは再度ログインが必要になります。</p>
+                    <button type="button" class="btn btn-danger" 
+                            onclick="invalidateAllSessions()" 
+                            id="invalidateSessionsBtn">
+                        全セッション無効化を実行
+                    </button>
+                </div>
+                
+                <div class="form-group" style="margin-top: 2rem;">
+                    <h4>設定時刻セッション無効化設定</h4>
+                    <p>指定した年月日時刻に自動的に全セッションを無効化するスケジュールを設定します。</p>
+                    <form action="/admin/schedule-session-invalidation" method="post" class="settings-form">
+                        <div class="form-group">
+                            <label for="invalidationDateTime">無効化日時:</label>
+                            <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                                <input type="datetime-local" id="invalidationDateTime" name="invalidation_datetime" 
+                                       class="form-control" value="{{ scheduled_invalidation_datetime or '' }}" 
+                                       style="flex: 1; min-width: 200px;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <label for="invalidationSeconds" style="margin: 0; font-size: 0.9rem;">秒:</label>
+                                    <select id="invalidationSeconds" name="invalidation_seconds" class="form-control" 
+                                            style="width: 80px;">
+                                        <option value="00" {% if scheduled_invalidation_seconds == '00' %}selected{% endif %}>00</option>
+                                        <option value="59" {% if scheduled_invalidation_seconds == '59' %}selected{% endif %}>59</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <small style="color: #666; font-size: 0.9em; display: block; margin-top: 0.5rem;">
+                                設定日時に一度だけ実行されます。過去の日時は設定できません。<br>
+                                秒は通常00秒で設定し、テスト時などは59秒を選択してください。
+                            </small>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">スケジュール設定</button>
+                            <button type="button" class="btn btn-secondary" 
+                                    onclick="clearInvalidationSchedule()">スケジュール解除</button>
+                        </div>
+                    </form>
+                    
+                    {% if scheduled_invalidation_datetime_formatted %}
+                    <div class="current-setting">
+                        <strong>現在の設定:</strong> {{ scheduled_invalidation_datetime_formatted }} に自動実行
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
     </div>
     

@@ -8,8 +8,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const fileName = document.getElementById('fileName');
     const fileSize = document.getElementById('fileSize');
     
-    // SSE接続を初期化
-    initializeSSE();
+    // SSE接続を初期化（新しいマネージャー使用）
+    initializeAdminSSE();
     
     // パスフレーズ管理機能を初期化
     initializePassphraseManagement();
@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Initializing password toggle after timeout');
         initializePasswordToggle();
     }, 100);
+    
 
     if (fileInput) {
         // File input change event
@@ -176,58 +177,56 @@ function clearPublishEndTime() {
     }
 }
 
-function initializeSSE() {
-    // Server-Sent Events接続を初期化（管理画面用）
-    try {
-        const eventSource = new EventSource('/api/events');
-        
-        eventSource.onopen = () => {
-            console.log('管理画面: SSE接続が確立されました');
-        };
-        
-        eventSource.addEventListener('pdf_unpublished', (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('管理画面: PDF公開停止:', data.message);
-                
-                // 公開状況を更新するため5秒後にページをリロード
-                setTimeout(() => {
-                    window.location.reload();
-                }, 5000);
-                
-                // 即座にフィードバックメッセージを表示
-                showSSENotification('📄 ' + data.message, 'info');
-                
-            } catch (e) {
-                console.warn('PDF停止イベントの処理に失敗:', e);
-            }
-        });
-        
-        eventSource.addEventListener('pdf_published', (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('管理画面: PDF公開開始:', data.message);
-                
-                // 公開状況を更新するため3秒後にページをリロード
-                setTimeout(() => {
-                    window.location.reload();
-                }, 3000);
-                
-                // 即座にフィードバックメッセージを表示
-                showSSENotification('📄 ' + data.message, 'success');
-                
-            } catch (e) {
-                console.warn('PDF公開イベントの処理に失敗:', e);
-            }
-        });
-        
-        eventSource.onerror = (error) => {
-            console.warn('管理画面: SSE接続エラー:', error);
-        };
-        
-    } catch (e) {
-        console.warn('管理画面: SSE初期化に失敗:', e);
+function initializeAdminSSE() {
+    // SSE Manager を使用して接続確立
+    if (!window.sseManager) {
+        console.error('管理画面: SSE Manager が利用できません');
+        return;
     }
+    
+    // SSE接続を確立
+    window.sseManager.connect();
+    
+    // 管理画面固有のイベントリスナーを登録
+    window.sseManager.addPageListeners('admin', {
+        'pdf_published': handlePDFPublished,
+        'pdf_unpublished': handlePDFUnpublished
+    });
+    
+    console.log('管理画面: SSE接続とリスナーを初期化しました');
+}
+
+// ページ離脱時のクリーンアップ
+window.addEventListener('beforeunload', () => {
+    if (window.sseManager) {
+        window.sseManager.removePageListeners('admin');
+    }
+});
+
+// 管理画面固有のイベントハンドラー
+
+function handlePDFPublished(data) {
+    console.log('管理画面: PDF公開開始:', data.message);
+    
+    // 即座にフィードバックメッセージを表示
+    showSSENotification('📄 ' + data.message, 'success');
+    
+    // 公開状況を更新するため3秒後にページをリロード
+    setTimeout(() => {
+        window.location.reload();
+    }, 3000);
+}
+
+function handlePDFUnpublished(data) {
+    console.log('管理画面: PDF公開停止:', data.message);
+    
+    // 即座にフィードバックメッセージを表示
+    showSSENotification('📄 ' + data.message, 'info');
+    
+    // 公開状況を更新するため5秒後にページをリロード
+    setTimeout(() => {
+        window.location.reload();
+    }, 5000);
 }
 
 function showSSENotification(message, type = 'info') {
@@ -432,3 +431,94 @@ function initializePasswordToggle() {
         }
     });
 }
+
+// セッション管理機能
+function invalidateAllSessions() {
+    if (!confirm('本当に全セッションを無効化しますか？\n全ユーザーは再度ログインが必要になります。')) {
+        return;
+    }
+    
+    const btn = document.getElementById('invalidateSessionsBtn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '実行中...';
+    
+    fetch('/admin/invalidate-all-sessions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`全セッション無効化が完了しました。\n削除されたセッション: ${data.deleted_sessions}\n削除されたOTPトークン: ${data.deleted_otps}`);
+            location.reload(); // ページをリロードして最新状態を表示
+        } else {
+            alert(`エラーが発生しました: ${data.message || data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('ネットワークエラーが発生しました。');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    });
+}
+
+function clearInvalidationSchedule() {
+    if (!confirm('設定時刻セッション無効化のスケジュールを解除しますか？')) {
+        return;
+    }
+    
+    // バナーを即座に非表示にして視覚的フィードバック
+    const banner = document.querySelector('.session-invalidation-banner');
+    if (banner) {
+        banner.style.opacity = '0.5';
+        banner.style.pointerEvents = 'none';
+    }
+    
+    fetch('/admin/clear-session-invalidation-schedule', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 成功時はバナーを完全に削除
+            if (banner) {
+                banner.style.transition = 'all 0.5s ease';
+                banner.style.transform = 'translateY(-20px)';
+                banner.style.opacity = '0';
+                setTimeout(() => {
+                    banner.remove();
+                    // フラッシュメッセージなしでページをリロード
+                    location.reload();
+                }, 500);
+            } else {
+                location.reload();
+            }
+        } else {
+            // エラー時は元に戻す
+            if (banner) {
+                banner.style.opacity = '1';
+                banner.style.pointerEvents = 'auto';
+            }
+            alert(`エラーが発生しました: ${data.message || data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        // エラー時は元に戻す
+        if (banner) {
+            banner.style.opacity = '1';
+            banner.style.pointerEvents = 'auto';
+        }
+        alert('ネットワークエラーが発生しました。');
+    });
+}
+

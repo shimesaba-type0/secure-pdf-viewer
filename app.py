@@ -12,7 +12,7 @@ import atexit
 import json
 import time
 import threading
-from queue import Queue
+from queue import Queue, Empty
 
 # JST timezone
 JST = pytz.timezone('Asia/Tokyo')
@@ -63,6 +63,64 @@ def require_valid_session():
         return redirect(url_for('login'))
     return None
 
+def invalidate_all_sessions():
+    """
+    全てのセッションを無効化する独立関数
+    Returns:
+        dict: 実行結果の詳細情報
+    """
+    print(f"*** SCHEDULED SESSION INVALIDATION EXECUTED AT {get_jst_datetime_string()} ***")
+    try:
+        import sqlite3
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # 全てのセッション統計データを削除
+        cursor.execute('SELECT COUNT(*) FROM session_stats')
+        total_sessions = cursor.fetchone()[0]
+        
+        cursor.execute('DELETE FROM session_stats')
+        deleted_sessions = cursor.rowcount
+        
+        # 全てのOTPトークンも削除
+        cursor.execute('SELECT COUNT(*) FROM otp_tokens')
+        total_otps = cursor.fetchone()[0]
+        
+        cursor.execute('DELETE FROM otp_tokens')
+        deleted_otps = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        # 全クライアントにセッション無効化を通知
+        broadcast_sse_event('session_invalidated', {
+            'message': '予定された時刻になったため、システムからログアウトされました。再度ログインしてください。',
+            'deleted_sessions': deleted_sessions,
+            'deleted_otps': deleted_otps,
+            'redirect_url': '/auth/login'
+        })
+        
+        result = {
+            'success': True,
+            'deleted_sessions': deleted_sessions,
+            'deleted_otps': deleted_otps,
+            'timestamp': get_jst_datetime_string(),
+            'message': f'全セッション無効化完了: {deleted_sessions}セッション、{deleted_otps}OTPトークンを削除'
+        }
+        
+        print(f"Manual session invalidation: Removed {deleted_sessions} sessions and {deleted_otps} OTP tokens")
+        return result
+        
+    except Exception as e:
+        error_msg = f"全セッション無効化エラー: {e}"
+        print(error_msg)
+        return {
+            'success': False,
+            'error': str(e),
+            'timestamp': get_jst_datetime_string(),
+            'message': error_msg
+        }
+
 def cleanup_expired_sessions():
     """
     期限切れセッションの定期クリーンアップ処理
@@ -106,6 +164,49 @@ def cleanup_expired_sessions():
     except Exception as e:
         print(f"Session cleanup error: {e}")
 
+def setup_session_invalidation_scheduler(datetime_str):
+    """
+    設定時刻セッション無効化のスケジューラーを設定
+    Args:
+        datetime_str (str): 日時文字列（YYYY-MM-DDTHH:MM形式）
+    """
+    try:
+        # 既存のスケジュールをクリア
+        try:
+            scheduler.remove_job('session_invalidation')
+        except:
+            pass  # ジョブが存在しない場合は無視
+        
+        # 日時文字列をdatetimeオブジェクトに変換
+        target_datetime = datetime.fromisoformat(datetime_str)
+        
+        # JSTタイムゾーンに変換
+        if target_datetime.tzinfo is None:
+            target_datetime = JST.localize(target_datetime)
+        else:
+            target_datetime = target_datetime.astimezone(JST)
+        
+        # 現在時刻（JST）と比較して過去の日時でないかチェック（5分の猶予を追加）
+        now_jst = datetime.now(JST)
+        grace_period = timedelta(minutes=5)
+        if target_datetime <= (now_jst - grace_period):
+            raise ValueError("過去の日時は設定できません")
+        
+        # 指定日時に一度だけ実行するスケジュールを追加
+        scheduler.add_job(
+            func=invalidate_all_sessions,
+            trigger="date",
+            run_date=target_datetime,
+            id='session_invalidation',
+            replace_existing=True
+        )
+        
+        print(f"Session invalidation scheduled for {target_datetime}")
+        
+    except Exception as e:
+        print(f"Failed to schedule session invalidation: {e}")
+        raise
+
 def get_jst_now():
     """現在のJST時刻を取得"""
     return datetime.now(JST)
@@ -122,14 +223,17 @@ def add_sse_client(client_queue):
     """SSEクライアントを追加"""
     with sse_lock:
         sse_clients.add(client_queue)
+        print(f"SSE client connected. Total clients: {len(sse_clients)}")
 
 def remove_sse_client(client_queue):
     """SSEクライアントを削除"""
     with sse_lock:
         sse_clients.discard(client_queue)
+        print(f"SSE client disconnected. Total clients: {len(sse_clients)}")
 
 def broadcast_sse_event(event_type, data):
     """全SSEクライアントにイベントを送信"""
+    print(f"Broadcasting SSE event '{event_type}' to {len(sse_clients)} clients")
     with sse_lock:
         dead_clients = set()
         for client_queue in sse_clients.copy():
@@ -139,7 +243,9 @@ def broadcast_sse_event(event_type, data):
                     'data': data,
                     'timestamp': get_jst_datetime_string()
                 }, timeout=1)
-            except:
+                print(f"  -> Event sent to client")
+            except Exception as e:
+                print(f"  -> Failed to send to client: {e}")
                 dead_clients.add(client_queue)
         
         # 切断されたクライアントを削除
@@ -647,7 +753,53 @@ def admin():
                 except (ValueError, TypeError):
                     continue
     
+    # Get session invalidation schedule setting
+    conn = sqlite3.connect('instance/database.db')
+    scheduled_invalidation_datetime_str = get_setting(conn, 'scheduled_invalidation_datetime', None)
     conn.close()
+    
+    scheduled_invalidation_datetime = None
+    scheduled_invalidation_datetime_formatted = None
+    scheduled_invalidation_seconds = '00'  # デフォルト秒
+    
+    if scheduled_invalidation_datetime_str:
+        try:
+            target_dt = datetime.fromisoformat(scheduled_invalidation_datetime_str)
+            
+            # JSTタイムゾーンに変換
+            if target_dt.tzinfo is None:
+                target_jst = JST.localize(target_dt)
+            else:
+                target_jst = target_dt.astimezone(JST)
+            
+            # 現在時刻（JST）と比較して過去の設定かチェック
+            now_jst = datetime.now(JST)
+            if target_jst <= now_jst:
+                # 過去の設定なので削除
+                conn_cleanup = sqlite3.connect('instance/database.db')
+                cursor_cleanup = conn_cleanup.cursor()
+                cursor_cleanup.execute("DELETE FROM settings WHERE key = ?", ('scheduled_invalidation_datetime',))
+                conn_cleanup.commit()
+                conn_cleanup.close()
+                print(f"Removed expired session invalidation schedule: {target_jst}")
+                
+                # 表示用変数をリセット
+                scheduled_invalidation_datetime = None
+                scheduled_invalidation_datetime_formatted = None
+                scheduled_invalidation_seconds = '00'
+            else:
+                # 未来の設定なので表示
+                # datetime-local input format: YYYY-MM-DDTHH:MM (秒は除く)
+                scheduled_invalidation_datetime = target_dt.strftime('%Y-%m-%dT%H:%M')
+                # 秒の値を抽出
+                scheduled_invalidation_seconds = f"{target_dt.second:02d}"
+                # Display format
+                scheduled_invalidation_datetime_formatted = target_jst.strftime('%Y年%m月%d日 %H:%M:%S')
+                
+        except ValueError:
+            scheduled_invalidation_datetime = None
+            scheduled_invalidation_datetime_formatted = None
+            scheduled_invalidation_seconds = '00'
     
     return render_template('admin.html', 
                          pdf_files=pdf_files, 
@@ -656,7 +808,10 @@ def admin():
                          publish_end_datetime_formatted=publish_end_datetime_formatted,
                          publish_start_formatted=publish_start_formatted,
                          last_unpublish_formatted=last_unpublish_formatted,
-                         current_published_pdf=current_published_pdf)
+                         current_published_pdf=current_published_pdf,
+                         scheduled_invalidation_datetime=scheduled_invalidation_datetime,
+                         scheduled_invalidation_datetime_formatted=scheduled_invalidation_datetime_formatted,
+                         scheduled_invalidation_seconds=scheduled_invalidation_seconds)
 
 @app.route('/admin/upload-pdf', methods=['POST'])
 def upload_pdf():
@@ -828,10 +983,9 @@ def update_passphrase():
         conn.commit()
         conn.close()
         
-        # 全ユーザーを強制ログアウト
-        session.clear()
-        flash('パスフレーズが更新されました。再度ログインしてください。')
-        return redirect(url_for('login'))
+        # パスフレーズ変更後もセッションを維持
+        flash('パスフレーズが更新されました。既存のセッションは維持されます。', 'success')
+        return redirect(url_for('admin'))
         
     except ValueError as e:
         flash(f'パスフレーズの更新に失敗しました: {str(e)}')
@@ -919,6 +1073,110 @@ def update_publish_end():
     
     return redirect(url_for('admin'))
 
+@app.route('/admin/invalidate-all-sessions', methods=['POST'])
+def manual_invalidate_all_sessions():
+    """手動で全セッション無効化を実行"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        result = invalidate_all_sessions()
+        if result['success']:
+            flash(result['message'], 'success')
+            return jsonify(result)
+        else:
+            flash(result['message'], 'error')
+            return jsonify(result), 500
+    except Exception as e:
+        error_msg = f'全セッション無効化の実行に失敗しました: {str(e)}'
+        flash(error_msg, 'error')
+        return jsonify({'error': error_msg}), 500
+
+@app.route('/admin/schedule-session-invalidation', methods=['POST'])
+def schedule_session_invalidation():
+    """設定時刻セッション無効化のスケジュール設定"""
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    try:
+        invalidation_datetime = request.form.get('invalidation_datetime', '').strip()
+        invalidation_seconds = request.form.get('invalidation_seconds', '00').strip()
+        
+        if invalidation_datetime:
+            # 秒を追加して完全な日時文字列を作成（YYYY-MM-DDTHH:MM:SS）
+            complete_datetime_str = f"{invalidation_datetime}:{invalidation_seconds}"
+            
+            # 日時の形式チェック（YYYY-MM-DDTHH:MM:SS）
+            target_datetime = datetime.fromisoformat(complete_datetime_str)
+            
+            # 過去の日時チェック
+            now = datetime.now()
+            if target_datetime <= now:
+                flash('過去の日時は設定できません。未来の日時を指定してください。', 'error')
+                return redirect(url_for('admin'))
+            
+            # データベースに設定を保存（秒まで含む完全な日時文字列）
+            conn = sqlite3.connect('instance/database.db')
+            set_setting(conn, 'scheduled_invalidation_datetime', complete_datetime_str, 'admin')
+            conn.commit()
+            conn.close()
+            
+            # スケジューラーを設定
+            setup_session_invalidation_scheduler(complete_datetime_str)
+            
+            # 表示用に日時をフォーマット
+            if target_datetime.tzinfo is None:
+                target_jst = JST.localize(target_datetime)
+            else:
+                target_jst = target_datetime.astimezone(JST)
+            formatted_datetime = target_jst.strftime('%Y年%m月%d日 %H:%M:%S')
+            
+            flash(f'設定時刻セッション無効化を {formatted_datetime} に設定しました', 'success')
+        else:
+            flash('無効化日時を入力してください', 'error')
+    
+    except ValueError as e:
+        if "過去の日時" in str(e):
+            flash('過去の日時は設定できません。未来の日時を指定してください。', 'error')
+        else:
+            flash('日時の形式が正しくありません（YYYY-MM-DDTHH:MM形式で入力してください）', 'error')
+    except Exception as e:
+        flash(f'スケジュール設定に失敗しました: {str(e)}', 'error')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/admin/clear-session-invalidation-schedule', methods=['POST'])
+def clear_session_invalidation_schedule():
+    """設定時刻セッション無効化のスケジュール解除"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        # データベースから設定を削除
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM settings WHERE key = ?", ('scheduled_invalidation_datetime',))
+        deleted_rows = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        print(f"Schedule cleared: deleted {deleted_rows} settings")
+        
+        # スケジューラーのジョブを削除
+        try:
+            scheduler.remove_job('session_invalidation')
+            print("Scheduler job 'session_invalidation' removed successfully")
+        except Exception as e:
+            print(f"Scheduler job removal: {e} (job may not exist)")
+        
+        flash('設定時刻セッション無効化のスケジュールを解除しました', 'success')
+        return jsonify({'success': True, 'message': 'スケジュールを解除しました'})
+    
+    except Exception as e:
+        error_msg = f'スケジュール解除に失敗しました: {str(e)}'
+        flash(error_msg, 'error')
+        return jsonify({'error': error_msg}), 500
+
 @app.route('/api/session-info')
 def get_session_info():
     """ウォーターマーク用のセッション情報を取得"""
@@ -967,15 +1225,25 @@ def sse_stream():
                     event_data = client_queue.get(timeout=30)
                     yield f"event: {event_data['event']}\n"
                     yield f"data: {json.dumps(event_data['data'])}\n\n"
-                except:
+                except Empty:
                     # タイムアウト時はハートビートを送信
                     yield f"data: {json.dumps({'event': 'heartbeat', 'timestamp': get_jst_datetime_string()})}\n\n"
+                except Exception:
+                    # その他のエラーは無視して継続
+                    break
                     
-        except GeneratorExit:
-            # クライアント切断時
+        except (GeneratorExit, ConnectionError, BrokenPipeError):
+            # クライアント切断時は静かに終了
+            pass
+        except Exception:
+            # その他のエラーも静かに終了
             pass
         finally:
-            remove_sse_client(client_queue)
+            # クライアントを確実に削除
+            try:
+                remove_sse_client(client_queue)
+            except:
+                pass
     
     return Response(
         event_stream(),
@@ -1140,6 +1408,90 @@ def get_published_pdf():
         print(f"Error getting published PDF: {e}")
         return None
 
+def initialize_scheduled_tasks():
+    """
+    アプリ起動時に設定済みのスケジュールタスクを復元
+    """
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        
+        # セッション無効化スケジュールの復元（新形式）
+        scheduled_datetime = get_setting(conn, 'session_invalidation_datetime', None)
+        if scheduled_datetime:
+            # 過去の日時でないかチェック
+            try:
+                target_dt = datetime.fromisoformat(scheduled_datetime)
+                now = datetime.now()
+                # 5分以上前の場合のみ期限切れとして削除
+                time_diff = (target_dt - now).total_seconds()
+                if time_diff > -300:  # 5分前まではまだ有効とみなす
+                    if time_diff > 0:
+                        setup_session_invalidation_scheduler(scheduled_datetime)
+                        print(f"Restored session invalidation schedule: {target_dt}")
+                    else:
+                        print(f"Session invalidation schedule recently expired: {target_dt} (keeping for safety)")
+                else:
+                    # 5分以上前の場合は設定を削除
+                    set_setting(conn, 'session_invalidation_datetime', None, 'system')
+                    conn.commit()
+                    print(f"Removed expired session invalidation schedule: {target_dt}")
+            except ValueError:
+                # 不正な形式の場合は設定を削除
+                set_setting(conn, 'session_invalidation_datetime', None, 'system')
+                conn.commit()
+                print("Removed invalid session invalidation schedule")
+        
+        # 旧形式の設定があれば削除（migration）
+        old_schedule = get_setting(conn, 'session_invalidation_time', None)
+        if old_schedule:
+            set_setting(conn, 'session_invalidation_time', None, 'system')
+            conn.commit()
+            print("Migrated old session invalidation schedule format")
+        
+        conn.close()
+        
+    except Exception as e:
+        print(f"Failed to initialize scheduled tasks: {e}")
+
+# 起動時にスケジュールタスクを初期化
+initialize_scheduled_tasks()
+
+def cleanup_expired_schedules():
+    """期限切れのスケジュール設定をクリーンアップ"""
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # 期限切れの設定を取得
+        cursor.execute('SELECT value FROM settings WHERE key = ?', ('scheduled_invalidation_datetime',))
+        result = cursor.fetchone()
+        
+        if result:
+            try:
+                target_dt = datetime.fromisoformat(result[0])
+                if target_dt.tzinfo is None:
+                    target_jst = JST.localize(target_dt)
+                else:
+                    target_jst = target_dt.astimezone(JST)
+                
+                now_jst = datetime.now(JST)
+                if target_jst <= now_jst:
+                    # 期限切れなので削除
+                    cursor.execute("DELETE FROM settings WHERE key = ?", ('scheduled_invalidation_datetime',))
+                    conn.commit()
+                    print(f"Removed expired session invalidation schedule on startup: {target_jst}")
+            except ValueError:
+                # 無効な日時形式の設定も削除
+                cursor.execute("DELETE FROM settings WHERE key = ?", ('scheduled_invalidation_datetime',))
+                conn.commit()
+                print("Removed invalid session invalidation schedule on startup")
+        
+        conn.close()
+    except Exception as e:
+        print(f"Error during schedule cleanup: {e}")
+
 if __name__ == '__main__':
+    # 起動時に期限切れ設定をクリーンアップ
+    cleanup_expired_schedules()
     app.run(debug=True, host='0.0.0.0', port=5000)
 
