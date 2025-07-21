@@ -11,12 +11,20 @@
             <div class="error-message">{{ error }}</div>
         {% endif %}
         
-        <form method="POST" class="login-form">
+        <form method="POST" class="login-form" autocomplete="on">
+            <!-- パスワードマネージャー対応用ダミーユーザー名フィールド -->
+            <div class="form-group" style="position: absolute; left: -9999px; opacity: 0; pointer-events: none;">
+                <input type="text" name="username" value="secure-pdf-viewer" autocomplete="username" readonly>
+            </div>
+            
             <div class="form-group">
                 <label for="password">パスフレーズ:</label>
                 <div class="password-input-container">
                     <input type="password" id="password" name="password" required class="form-control" 
-                           placeholder="パスフレーズを入力してください">
+                           placeholder="パスフレーズを入力してください"
+                           autocomplete="current-password"
+                           data-lpignore="false"
+                           data-form-type="password">
                     <button type="button" class="password-toggle-btn" id="toggle-password">
                         <span class="toggle-text">表示</span>
                     </button>
@@ -27,7 +35,11 @@
         </form>
         
         <div class="login-info">
-            <p>事前共有パスフレーズを入力してください</p>
+            <p><strong>本システムはパスワードマネージャー前提です</strong></p>
+            <p class="password-manager-info">
+                iPhone/Androidの標準パスワードマネージャーやPCブラウザーの自動入力機能をご利用ください。<br>
+                事前共有パスフレーズを保存・入力できます。
+            </p>
         </div>
     </div>
 </div>
