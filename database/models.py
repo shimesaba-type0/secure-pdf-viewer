@@ -115,9 +115,19 @@ def create_tables(db):
             ip_address TEXT,
             device_type TEXT,
             orientation_changes INTEGER,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            memo TEXT DEFAULT ''
         )
     ''')
+    
+    # 既存テーブルにmemoカラムを追加（マイグレーション）
+    try:
+        db.execute('ALTER TABLE session_stats ADD COLUMN memo TEXT DEFAULT ""')
+        print("session_stats テーブルに memo カラムを追加しました")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"memo カラム追加エラー: {e}")
+        # カラムが既に存在する場合は無視
     
     # OTPトークンテーブル
     db.execute('''

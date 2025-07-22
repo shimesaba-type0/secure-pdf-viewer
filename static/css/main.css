@@ -986,3 +986,335 @@ body {
         justify-content: center;
     }
 }
+
+/* セッション管理機能のスタイル */
+.session-stats {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    border-left: 4px solid #3498db;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: #666;
+    font-weight: 500;
+}
+
+.stat-value {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.session-list-container {
+    margin-top: 1rem;
+}
+
+.session-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    background-color: #f1f3f4;
+    border-radius: 4px;
+}
+
+.auto-refresh-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.auto-refresh-toggle input[type="checkbox"] {
+    transform: scale(1.1);
+}
+
+.session-table-container {
+    overflow-x: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background-color: white;
+}
+
+.session-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.session-table th {
+    background-color: #f8f9fa;
+    padding: 0.75rem 0.5rem;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+}
+
+.session-table td {
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: middle;
+}
+
+.session-table tr:hover {
+    background-color: #f8f9fa;
+}
+
+.session-row-expiring {
+    background-color: #fff3cd !important;
+    border-left: 3px solid #ffc107;
+}
+
+.session-row-expiring:hover {
+    background-color: #ffeaa7 !important;
+}
+
+.session-id, .email-hash {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    max-width: 100px;
+    cursor: help;
+}
+
+.start-time, .ip-address {
+    white-space: nowrap;
+}
+
+.remaining-time.text-warning {
+    color: #e67e22 !important;
+    font-weight: bold;
+}
+
+.loading-row, .no-sessions-row, .error-row {
+    text-align: center;
+    padding: 1.5rem;
+    font-style: italic;
+    color: #666;
+}
+
+.error-row {
+    color: #e74c3c;
+    background-color: #fdf2f2;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .session-stats {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .stat-item {
+        flex-direction: row;
+        justify-content: space-between;
+        text-align: left;
+    }
+    
+    .session-list-header {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+    
+    .session-table th,
+    .session-table td {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.8rem;
+    }
+    
+    .session-id, .email-hash {
+        font-size: 0.7rem;
+        max-width: 80px;
+    }
+}
+
+/* メモ編集機能のスタイル */
+.memo-cell {
+    max-width: 200px;
+}
+
+.memo-display {
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.memo-display:hover {
+    background-color: #f8f9fa;
+}
+
+.memo-text {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.memo-text:empty::before {
+    content: '（メモなし）';
+    color: #999;
+}
+
+.memo-edit-icon {
+    opacity: 0;
+    font-size: 0.8rem;
+    transition: opacity 0.2s;
+}
+
+.memo-display:hover .memo-edit-icon {
+    opacity: 1;
+}
+
+.memo-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.memo-input {
+    width: 100%;
+    padding: 0.25rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.memo-edit-form .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.sid-display {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+}
+
+.email-address {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.actions .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+.device-type {
+    white-space: nowrap;
+    text-align: center;
+}
+
+.device-icon {
+    display: inline-block;
+    margin-right: 0.25rem;
+    font-size: 1rem;
+}
+
+.device-label {
+    font-size: 0.8rem;
+    color: #666;
+}
+
+/* ダッシュボードのアクセス詳細 */
+.access-details {
+    margin-top: 1rem;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-around;
+}
+
+.access-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.access-icon {
+    font-size: 1.2rem;
+}
+
+.access-count {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.access-label {
+    font-size: 0.8rem;
+    color: #666;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .access-details {
+        gap: 0.5rem;
+    }
+    
+    .access-icon {
+        font-size: 1rem;
+    }
+    
+    .access-count {
+        font-size: 1rem;
+    }
+    
+    .access-label {
+        font-size: 0.7rem;
+    }
+}
+
+/* レスポンシブ対応の更新 */
+@media (max-width: 768px) {
+    .memo-cell {
+        max-width: 120px;
+    }
+    
+    .email-address {
+        max-width: 100px;
+    }
+    
+    .memo-edit-form {
+        min-width: 150px;
+    }
+}
+
+@media (max-width: 480px) {
+    .session-table th:nth-child(4),
+    .session-table td:nth-child(4) {
+        display: none; /* 開始時刻を隠す */
+    }
+    
+    .memo-cell {
+        max-width: 100px;
+    }
+    
+    .email-address {
+        max-width: 80px;
+        font-size: 0.8rem;
+    }
+    
+    .device-label {
+        display: none; /* スマホではアイコンのみ */
+    }
+}

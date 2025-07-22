@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', function() {
         initializePasswordToggle();
     }, 100);
     
+    // セッション管理機能を初期化
+    initializeSessionManagement();
+    
 
     if (fileInput) {
         // File input change event
@@ -274,7 +277,7 @@ function initializePassphraseManagement() {
             passphraseCharCounter.classList.remove('warning', 'error', 'success');
             
             if (length === 0) {
-                passphraseCharCounter.classList.add('');
+                // 長さが0の場合は何もクラスを追加しない
             } else if (length < 32) {
                 passphraseCharCounter.classList.add('warning');
             } else if (length > 128) {
@@ -520,5 +523,324 @@ function clearInvalidationSchedule() {
         }
         alert('ネットワークエラーが発生しました。');
     });
+}
+
+// セッション管理機能
+let autoRefreshInterval = null;
+
+function initializeSessionManagement() {
+    console.log('セッション管理機能を初期化中...');
+    
+    // 初回データ取得
+    refreshSessionList();
+    
+    // 少し遅延してから自動更新を開始（DOM要素の確実な読み込みを待つ）
+    setTimeout(() => {
+        startAutoRefresh();
+        console.log('自動更新タイマーを開始しました:', autoRefreshInterval);
+    }, 500);
+}
+
+function refreshSessionList() {
+    fetch('/admin/api/active-sessions')
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showSessionError(data.error);
+            return;
+        }
+        
+        updateSessionStats(data.total_count, data.session_timeout_hours);
+        updateSessionTable(data.sessions);
+        updateDashboardStats(data.sessions);
+        
+        console.log(`セッション情報を更新: ${data.total_count}件`);
+    })
+    .catch(error => {
+        console.error('セッション情報取得エラー:', error);
+        showSessionError('セッション情報の取得に失敗しました');
+    });
+}
+
+function updateSessionStats(count, timeoutHours) {
+    const countElement = document.getElementById('activeSessionCount');
+    const timeoutElement = document.getElementById('sessionTimeoutHours');
+    
+    if (countElement) {
+        countElement.textContent = count;
+    }
+    
+    if (timeoutElement) {
+        timeoutElement.textContent = `${timeoutHours}時間`;
+    }
+}
+
+function updateDashboardStats(sessions) {
+    // ダッシュボードの統計を更新
+    const dashboardActiveCount = document.getElementById('dashboardActiveCount');
+    const dashboardMobileCount = document.getElementById('dashboardMobileCount');
+    const dashboardTabletCount = document.getElementById('dashboardTabletCount');
+    const dashboardDesktopCount = document.getElementById('dashboardDesktopCount');
+    
+    // デバイス別の集計
+    let mobileCount = 0;
+    let tabletCount = 0;
+    let desktopCount = 0;
+    
+    sessions.forEach(session => {
+        switch (session.device_type) {
+            case 'mobile':
+                mobileCount++;
+                break;
+            case 'tablet':
+                tabletCount++;
+                break;
+            case 'desktop':
+                desktopCount++;
+                break;
+        }
+    });
+    
+    // ダッシュボードの表示を更新
+    if (dashboardActiveCount) {
+        dashboardActiveCount.textContent = sessions.length;
+    }
+    if (dashboardMobileCount) {
+        dashboardMobileCount.textContent = mobileCount;
+    }
+    if (dashboardTabletCount) {
+        dashboardTabletCount.textContent = tabletCount;
+    }
+    if (dashboardDesktopCount) {
+        dashboardDesktopCount.textContent = desktopCount;
+    }
+}
+
+function updateSessionTable(sessions) {
+    const tbody = document.getElementById('sessionTableBody');
+    
+    if (!tbody) {
+        console.error('セッションテーブルが見つかりません');
+        return;
+    }
+    
+    if (sessions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="no-sessions-row">アクティブセッションはありません</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    sessions.forEach(session => {
+        const isExpiring = session.remaining_time.includes('時間') && 
+                          parseInt(session.remaining_time) <= 2;
+        const rowClass = isExpiring ? 'session-row-expiring' : '';
+        
+        // デバイスタイプのアイコンとラベル
+        const deviceInfo = getDeviceInfo(session.device_type);
+        
+        html += `
+            <tr class="${rowClass}">
+                <td class="session-id" title="${session.session_id}">
+                    <span class="sid-display">${session.session_id.substring(0, 12)}...</span>
+                </td>
+                <td class="email-address" title="${session.email_address}">
+                    ${session.email_address}
+                </td>
+                <td class="device-type" title="${session.device_type}">
+                    <span class="device-icon">${deviceInfo.icon}</span>
+                    <span class="device-label">${deviceInfo.label}</span>
+                </td>
+                <td class="start-time">${session.start_time}</td>
+                <td class="memo-cell">
+                    <div class="memo-display" onclick="editMemo('${session.session_id}')">
+                        <span class="memo-text" id="memo-${session.session_id}">${session.memo || '（メモなし）'}</span>
+                        <span class="memo-edit-icon">✏️</span>
+                    </div>
+                    <div class="memo-edit-form" id="edit-${session.session_id}" style="display: none;">
+                        <input type="text" class="memo-input" value="${session.memo || ''}" maxlength="500">
+                        <button class="btn btn-sm btn-success" onclick="saveMemo('${session.session_id}')">保存</button>
+                        <button class="btn btn-sm btn-secondary" onclick="cancelEditMemo('${session.session_id}')">キャンセル</button>
+                    </div>
+                </td>
+                <td class="actions">
+                    <button class="btn btn-info btn-sm" onclick="viewSessionDetails('${session.session_id}')">
+                        詳細
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    tbody.innerHTML = html;
+}
+
+function showSessionError(message) {
+    const tbody = document.getElementById('sessionTableBody');
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="6" class="error-row">エラー: ${message}</td></tr>`;
+    }
+}
+
+function getDeviceInfo(deviceType) {
+    // デバイスタイプに応じたアイコンとラベルを返す
+    const deviceMap = {
+        'mobile': { icon: '📱', label: 'スマホ' },
+        'tablet': { icon: '📱', label: 'タブレット' },
+        'desktop': { icon: '💻', label: 'PC' },
+        'web': { icon: '🌐', label: 'Web' },
+        'other': { icon: '❓', label: 'その他' }
+    };
+    
+    return deviceMap[deviceType] || deviceMap['other'];
+}
+
+function toggleAutoRefresh() {
+    const checkbox = document.getElementById('autoRefreshCheckbox');
+    
+    if (checkbox.checked) {
+        startAutoRefresh();
+        console.log('自動更新を有効にしました');
+    } else {
+        stopAutoRefresh();
+        console.log('自動更新を無効にしました');
+    }
+}
+
+function startAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+    }
+    
+    autoRefreshInterval = setInterval(() => {
+        refreshSessionList();
+    }, 30000); // 30秒間隔
+}
+
+function stopAutoRefresh() {
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+}
+
+// ページ離脱時のクリーンアップに自動更新停止を追加
+window.addEventListener('beforeunload', () => {
+    stopAutoRefresh();
+    if (window.sseManager) {
+        window.sseManager.removePageListeners('admin');
+    }
+});
+
+// メモ編集機能
+function editMemo(sessionId) {
+    // 表示部分を隠し、編集フォームを表示
+    const displayDiv = document.querySelector(`#memo-${sessionId}`).parentElement;
+    const editDiv = document.getElementById(`edit-${sessionId}`);
+    
+    displayDiv.style.display = 'none';
+    editDiv.style.display = 'block';
+    
+    // 入力フィールドにフォーカス
+    const input = editDiv.querySelector('.memo-input');
+    input.focus();
+    input.select();
+}
+
+function cancelEditMemo(sessionId) {
+    // 編集フォームを隠し、表示部分を元に戻す
+    const displayDiv = document.querySelector(`#memo-${sessionId}`).parentElement;
+    const editDiv = document.getElementById(`edit-${sessionId}`);
+    
+    editDiv.style.display = 'none';
+    displayDiv.style.display = 'block';
+    
+    // 入力値を元に戻す
+    const input = editDiv.querySelector('.memo-input');
+    const originalMemo = document.getElementById(`memo-${sessionId}`).textContent;
+    input.value = originalMemo === '（メモなし）' ? '' : originalMemo;
+}
+
+function saveMemo(sessionId) {
+    const editDiv = document.getElementById(`edit-${sessionId}`);
+    const input = editDiv.querySelector('.memo-input');
+    const newMemo = input.value.trim();
+    
+    // 保存ボタンを無効化
+    const saveBtn = editDiv.querySelector('.btn-success');
+    const originalText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中...';
+    
+    fetch('/admin/api/update-session-memo', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            memo: newMemo
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 表示を更新
+            const memoText = document.getElementById(`memo-${sessionId}`);
+            memoText.textContent = newMemo || '（メモなし）';
+            
+            // 編集モードを終了
+            cancelEditMemo(sessionId);
+            
+            // 成功メッセージを表示
+            showNotification('メモを更新しました', 'success');
+        } else {
+            alert(`エラー: ${data.error || data.message}`);
+        }
+    })
+    .catch(error => {
+        console.error('メモ更新エラー:', error);
+        alert('メモの更新に失敗しました');
+    })
+    .finally(() => {
+        // ボタンを元に戻す
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
+    });
+}
+
+function viewSessionDetails(sessionId) {
+    // セッション詳細画面への遷移（今後実装予定）
+    alert(`セッション詳細: ${sessionId}\n詳細画面は今後実装予定です`);
+}
+
+function showNotification(message, type = 'info') {
+    // 一時的な通知を表示
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
+        <span>${message}</span>
+        <button class="notification-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+        color: ${type === 'success' ? '#155724' : '#721c24'};
+        padding: 10px 15px;
+        border-radius: 4px;
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // 5秒後に自動削除
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 5000);
 }
 

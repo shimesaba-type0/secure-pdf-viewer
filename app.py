@@ -24,6 +24,46 @@ def get_consistent_hash(text):
     """
     return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
 
+def detect_device_type(user_agent):
+    """
+    User-Agentからデバイスタイプを判定する
+    Returns: 'mobile', 'tablet', 'desktop', 'other'
+    """
+    if not user_agent:
+        return 'other'
+    
+    user_agent = user_agent.lower()
+    
+    # モバイルデバイスの判定
+    mobile_keywords = [
+        'mobile', 'android', 'iphone', 'ipod', 'blackberry', 
+        'windows phone', 'opera mini', 'fennec'
+    ]
+    
+    # タブレットの判定（iPadは特別扱い）
+    tablet_keywords = ['ipad', 'tablet', 'kindle', 'silk', 'playbook']
+    
+    # デスクトップブラウザの判定
+    desktop_keywords = ['windows nt', 'macintosh', 'linux', 'x11']
+    
+    # タブレット判定（モバイルより先に判定）
+    if any(keyword in user_agent for keyword in tablet_keywords):
+        return 'tablet'
+    
+    # Android タブレットの特別判定（Androidでmobileが含まれていない場合はタブレット）
+    if 'android' in user_agent and 'mobile' not in user_agent:
+        return 'tablet'
+    
+    # モバイル判定
+    if any(keyword in user_agent for keyword in mobile_keywords):
+        return 'mobile'
+    
+    # デスクトップ判定
+    if any(keyword in user_agent for keyword in desktop_keywords):
+        return 'desktop'
+    
+    return 'other'
+
 def is_session_expired():
     """
     セッションが有効期限切れかどうかをチェックする
@@ -716,11 +756,15 @@ def verify_otp():
             session_id = session.get('session_id', str(uuid.uuid4()))
             session['session_id'] = session_id
             
+            # User-Agentからデバイスタイプを判定
+            user_agent = request.headers.get('User-Agent', '')
+            device_type = detect_device_type(user_agent)
+            
             conn.execute('''
                 INSERT OR REPLACE INTO session_stats 
                 (session_id, email_hash, start_time, ip_address, device_type, last_updated)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (session_id, get_consistent_hash(email), int(now.timestamp()), request.remote_addr, 'web'))
+            ''', (session_id, get_consistent_hash(email), int(now.timestamp()), request.remote_addr, device_type))
             
             conn.commit()
             conn.close()
@@ -1315,6 +1359,158 @@ def get_session_info():
             'success': True
         })
             
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/api/active-sessions')
+def get_active_sessions():
+    """管理画面用：アクティブセッション一覧を取得"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # session_timeout設定値を取得
+        try:
+            session_timeout = get_setting('session_timeout', 259200)  # デフォルト72時間
+        except:
+            session_timeout = 259200  # エラー時のフォールバック
+        
+        # 有効期限内のセッションのみ取得
+        cutoff_timestamp = int((datetime.now() - timedelta(seconds=session_timeout)).timestamp())
+        
+        cursor.execute('''
+            SELECT 
+                session_id,
+                email_hash,
+                start_time,
+                ip_address,
+                device_type,
+                last_updated,
+                memo
+            FROM session_stats 
+            WHERE start_time > ?
+            ORDER BY start_time DESC
+        ''', (cutoff_timestamp,))
+        
+        rows = cursor.fetchall()
+        
+        # 全てのOTPトークンからメールアドレスを取得してハッシュマッピングを作成
+        cursor.execute('SELECT DISTINCT email FROM otp_tokens ORDER BY created_at DESC')
+        emails = cursor.fetchall()
+        
+        email_hash_map = {}
+        for email_row in emails:
+            email = email_row[0]
+            email_hash = get_consistent_hash(email)
+            email_hash_map[email_hash] = email
+        
+        conn.close()
+        
+        sessions = []
+        for row in rows:
+            session_id, email_hash, start_time, ip_address, device_type, last_updated, memo = row
+            
+            # ハッシュマップからメールアドレスを取得
+            email_address = email_hash_map.get(email_hash, f"不明({email_hash[:8]})")
+            
+            # 開始時刻を日本時間に変換
+            start_dt = datetime.fromtimestamp(start_time)
+            start_jst = start_dt.astimezone(JST)
+            
+            # 最終更新時刻がある場合は変換（文字列形式での格納を想定）
+            last_updated_formatted = None
+            if last_updated:
+                try:
+                    last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+                    last_updated_jst = last_updated_dt.astimezone(JST)
+                    last_updated_formatted = last_updated_jst.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    last_updated_formatted = last_updated
+            
+            # セッション経過時間を計算
+            elapsed_seconds = (datetime.now() - start_dt).total_seconds()
+            remaining_seconds = session_timeout - elapsed_seconds
+            
+            # 残り時間を時分秒形式で表示
+            if remaining_seconds > 0:
+                hours = int(remaining_seconds // 3600)
+                minutes = int((remaining_seconds % 3600) // 60)
+                remaining_time = f"{hours}時間{minutes}分"
+            else:
+                remaining_time = "期限切れ"
+            
+            sessions.append({
+                'session_id': session_id,
+                'email_address': email_address,
+                'email_hash': email_hash,
+                'start_time': start_jst.strftime('%Y-%m-%d %H:%M:%S'),
+                'ip_address': ip_address,
+                'device_type': device_type,
+                'last_updated': last_updated_formatted,
+                'remaining_time': remaining_time,
+                'elapsed_hours': round(elapsed_seconds / 3600, 1),
+                'memo': memo or ''
+            })
+        
+        return jsonify({
+            'sessions': sessions,
+            'total_count': len(sessions),
+            'session_timeout_hours': round(session_timeout / 3600, 1)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/api/update-session-memo', methods=['POST'])
+def update_session_memo():
+    """セッションのメモを更新"""
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        memo = data.get('memo', '').strip()
+        
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+        
+        # メモの長さ制限
+        if len(memo) > 500:
+            return jsonify({'error': 'メモは500文字以内で入力してください'}), 400
+        
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # セッションが存在するかチェック
+        cursor.execute('SELECT session_id FROM session_stats WHERE session_id = ?', (session_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'セッションが見つかりません'}), 404
+        
+        # メモを更新
+        cursor.execute('''
+            UPDATE session_stats 
+            SET memo = ?, last_updated = CURRENT_TIMESTAMP 
+            WHERE session_id = ?
+        ''', (memo, session_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'メモを更新しました',
+            'session_id': session_id,
+            'memo': memo
+        })
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
