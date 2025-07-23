@@ -185,6 +185,8 @@ ALTER TABLE access_logs ADD COLUMN signature_valid BOOLEAN;
 
 ## 関連ドキュメント
 - [specifications.md](../../docs/specifications.md) Lines 148-151, 287-294
+- [PDF配信アーキテクチャ](../../docs/pdf-delivery-architecture.md)
+- [多層防御設計](../../docs/multilayer-defense-design.md) - 72時間期限設計の詳細
 - [Phase 3 Security Requirements](../phases/phase3-security-operations.md)
 
 ## 依存関係
