@@ -8,6 +8,7 @@ import sqlite3
 import hashlib
 from database.models import get_setting, set_setting
 from auth.passphrase import PassphraseManager
+from security.pdf_url_security import PDFURLSecurity
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import json
@@ -443,13 +444,23 @@ def broadcast_sse_event(event_type, data):
         for dead_client in dead_clients:
             sse_clients.discard(dead_client)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-this')
 app.config['UPLOAD_FOLDER'] = 'static/pdfs'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# カスタム静的ファイルハンドラー（PDFアクセス制御用）
+@app.route('/static/pdfs/<path:filename>')
+def blocked_pdf_access(filename):
+    """直接PDF静的ファイルアクセスをブロック"""
+    return jsonify({
+        'error': 'Forbidden - 直接PDFアクセスは無効化されています',
+        'message': '署名付きURLを使用してアクセスしてください',
+        'blocked_file': filename
+    }), 403
 
 # Initialize scheduler for auto-unpublish functionality
 scheduler = BackgroundScheduler()
@@ -464,6 +475,9 @@ scheduler.add_job(
     id='session_cleanup',
     replace_existing=True
 )
+
+# PDF URL Security instance
+pdf_security = PDFURLSecurity()
 
 def auto_unpublish_all_pdfs():
     """指定時刻に全てのPDFの公開を停止する"""
@@ -1723,6 +1737,56 @@ def clear_session_invalidation_schedule():
         flash(error_msg, 'error')
         return jsonify({'error': error_msg}), 500
 
+@app.route('/api/generate-pdf-url', methods=['POST'])
+def generate_pdf_url():
+    """公開PDFの署名付きURL生成API"""
+    # セッション認証チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        # 現在公開中のPDFを取得
+        published_pdf = get_published_pdf()
+        if not published_pdf:
+            return jsonify({'error': '公開中のPDFが見つかりません'}), 404
+        
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'error': 'セッションIDが見つかりません'}), 400
+        
+        # データベース接続を取得して署名付きURLを生成
+        conn = sqlite3.connect('instance/database.db')
+        
+        try:
+            url_result = pdf_security.generate_signed_url(
+                filename=published_pdf['stored_name'],
+                session_id=session_id,
+                conn=conn
+            )
+            
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'signed_url': url_result['signed_url'],
+                'expires_at': url_result['expires_at'],
+                'pdf_info': {
+                    'name': published_pdf['name'],
+                    'size': published_pdf['size']
+                }
+            })
+            
+        except Exception as e:
+            conn.close()
+            raise e
+            
+    except Exception as e:
+        return jsonify({'error': f'署名付きURL生成エラー: {str(e)}'}), 500
+
 @app.route('/api/session-info')
 def get_session_info():
     """ウォーターマーク用のセッション情報を取得"""
@@ -1899,6 +1963,127 @@ def update_session_memo():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/secure/pdf/<token>')
+def secure_pdf_delivery(token):
+    """セキュアなPDF配信エンドポイント"""
+    # セッション認証チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized - セッション認証が必要です'}), 401
+    
+    current_session_id = session.get('session_id')
+    client_ip = request.remote_addr
+    
+    try:
+        # トークンを検証
+        verification_result = pdf_security.verify_signed_url(token)
+        
+        if not verification_result['valid']:
+            error_msg = verification_result.get('error', '不明なエラー')
+            print(f"PDF URL verification failed: {error_msg} (IP: {client_ip}, Session: {current_session_id})")
+            
+            # アクセスログに失敗を記録
+            pdf_security.log_pdf_access(
+                filename='UNKNOWN',
+                session_id=current_session_id,
+                ip_address=client_ip,
+                success=False,
+                error_message=error_msg
+            )
+            
+            return jsonify({'error': f'アクセス拒否: {error_msg}'}), 403
+        
+        filename = verification_result['filename']
+        token_session_id = verification_result['session_id']
+        
+        # セッションIDの照合
+        if current_session_id != token_session_id:
+            error_msg = f'セッションIDが一致しません (current: {current_session_id}, token: {token_session_id})'
+            print(f"PDF access denied: {error_msg} (IP: {client_ip})")
+            
+            pdf_security.log_pdf_access(
+                filename=filename,
+                session_id=current_session_id,
+                ip_address=client_ip,
+                success=False,
+                error_message='セッションID不一致'
+            )
+            
+            return jsonify({'error': 'セッション不一致によりアクセスが拒否されました'}), 403
+        
+        # ファイルの存在確認
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if not os.path.exists(file_path):
+            error_msg = f'ファイルが見つかりません: {filename}'
+            print(f"PDF file not found: {error_msg} (IP: {client_ip}, Session: {current_session_id})")
+            
+            pdf_security.log_pdf_access(
+                filename=filename,
+                session_id=current_session_id,
+                ip_address=client_ip,
+                success=False,
+                error_message='ファイル不存在'
+            )
+            
+            return jsonify({'error': 'ファイルが見つかりません'}), 404
+        
+        # ワンタイムアクセス制御の処理（将来の拡張用）
+        if verification_result.get('one_time'):
+            # 実装時にはここでワンタイムトークンの使用済みマーキング処理を追加
+            pass
+        
+        # アクセスログに成功を記録
+        pdf_security.log_pdf_access(
+            filename=filename,
+            session_id=current_session_id,
+            ip_address=client_ip,
+            success=True
+        )
+        
+        print(f"PDF access granted: {filename} (IP: {client_ip}, Session: {current_session_id})")
+        
+        # セキュリティヘッダーを設定してPDFファイルを配信
+        def generate():
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(8192)  # 8KB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+        
+        response = Response(
+            generate(),
+            content_type='application/pdf',
+            headers={
+                'Content-Disposition': f'inline; filename="{filename}"',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY',
+                'Referrer-Policy': 'no-referrer'
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
+        error_msg = f'PDF配信エラー: {str(e)}'
+        print(f"PDF delivery error: {error_msg} (IP: {client_ip}, Session: {current_session_id})")
+        
+        pdf_security.log_pdf_access(
+            filename='ERROR',
+            session_id=current_session_id,
+            ip_address=client_ip,
+            success=False,
+            error_message=error_msg
+        )
+        
+        return jsonify({'error': 'ファイル配信エラーが発生しました'}), 500
 
 @app.route('/api/events')
 def sse_stream():

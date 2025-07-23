@@ -208,10 +208,42 @@ class PDFViewer {
     
     async loadPublishedPDF(publishedPdf) {
         try {
-            await this.loadPDF(publishedPdf.path, publishedPdf.name);
+            // 署名付きURLを取得してからPDFを読み込み
+            const signedUrl = await this.getSignedPdfUrl();
+            if (signedUrl) {
+                await this.loadPDF(signedUrl, publishedPdf.name);
+            } else {
+                throw new Error('署名付きURLの取得に失敗しました');
+            }
         } catch (error) {
             console.error('PDF loading failed:', error);
             this.showError('PDFファイルの読み込みに失敗しました: ' + error.message);
+        }
+    }
+    
+    async getSignedPdfUrl() {
+        try {
+            const response = await fetch('/api/generate-pdf-url', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            if (result.success && result.signed_url) {
+                console.log('署名付きURL取得成功:', result.signed_url);
+                return result.signed_url;
+            } else {
+                throw new Error(result.error || '署名付きURL生成に失敗しました');
+            }
+        } catch (error) {
+            console.error('署名付きURL取得エラー:', error);
+            return null;
         }
     }
     
