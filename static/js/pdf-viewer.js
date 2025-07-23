@@ -674,6 +674,7 @@ class PDFViewer {
         const baseFontSize = Math.min(canvasWidth, canvasHeight) * 0.015;
         const fontSize = Math.max(10, Math.min(14, baseFontSize));
         
+        // === 既存の右上角ウォーターマーク（維持） ===
         // Watermark style - right top corner with improved visibility
         ctx.globalAlpha = 0.3; // Improved readability
         ctx.fillStyle = '#000000'; // Black for better contrast
@@ -686,16 +687,18 @@ class PDFViewer {
         const lineHeight = fontSize + 2;
         let yPosition = padding;
         
-        // Semi-transparent background for better readability
+        // Semi-transparent background for better readability（4行分に拡張）
         ctx.globalAlpha = 0.8;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        const sessionIdShort = sessionId.substring(0, 8);
         const maxTextWidth = Math.max(
             ctx.measureText(`著作者: ${author}`).width,
             ctx.measureText(`閲覧者: ${viewerEmail}`).width,
-            ctx.measureText(`日時: ${currentDateTime}`).width
+            ctx.measureText(`日時: ${currentDateTime}`).width,
+            ctx.measureText(sessionIdShort).width
         );
         ctx.fillRect(canvasWidth - maxTextWidth - padding - 10, padding - 5, 
-                    maxTextWidth + 20, lineHeight * 3 + 10);
+                    maxTextWidth + 20, lineHeight * 4 + 10);
         
         // Display 3 pieces of information vertically as specified
         ctx.globalAlpha = 0.5;
@@ -708,8 +711,12 @@ class PDFViewer {
         yPosition += lineHeight;
         
         ctx.fillText(`日時: ${currentDateTime}`, canvasWidth - padding, yPosition);
+        yPosition += lineHeight;
         
-        // Add diagonal SID watermark across the page
+        // セッションIDの上8桁を追加（SID表記なし）
+        ctx.fillText(sessionIdShort, canvasWidth - padding, yPosition);
+        
+        // === 既存の中央対角線セッションIDウォーターマーク（維持） ===
         ctx.save();
         
         // Calculate true diagonal angle for proper corner-to-corner alignment
@@ -751,7 +758,52 @@ class PDFViewer {
         // Restore context for diagonal watermark
         ctx.restore();
         
-        // Add page number watermark at bottom center
+        // === 新規追加：3箇所分散ウォーターマーク ===
+        
+        // 1. 左端中央に日時表示（中央SIDと同じ角度）
+        ctx.save();
+        
+        // 左端中央への移動
+        ctx.translate(canvasWidth * 0.25, canvasHeight / 2);
+        
+        // 中央SIDと同じ対角線角度を使用
+        ctx.rotate(-diagonalAngle);
+        
+        // 日時のフォントサイズを中央SIDに合わせる
+        const dateTimeFontSize = diagonalFontSize;
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = '#000000';
+        ctx.font = `bold ${dateTimeFontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        ctx.fillText(currentDateTime, 0, 0);
+        ctx.restore();
+        
+        // 2. 右端中央にメールアドレス表示（中央SIDと同じ角度）
+        ctx.save();
+        
+        // 右端中央への移動
+        ctx.translate(canvasWidth * 0.75, canvasHeight / 2);
+        
+        // 中央SIDと同じ対角線角度を使用
+        ctx.rotate(-diagonalAngle);
+        
+        // メールアドレスのフォントサイズと濃さを中央SIDに合わせる
+        const emailFontSize = diagonalFontSize;
+        ctx.globalAlpha = 0.08;
+        ctx.fillStyle = '#000000';
+        ctx.font = `bold ${emailFontSize}px Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // メールアドレスの@より左側のみを表示（30文字制限）
+        const emailLocal = viewerEmail.split('@')[0].substring(0, 30);
+        ctx.fillText(emailLocal, 0, 0);
+        ctx.restore();
+        
+        
+        // === 既存のページ番号ウォーターマーク（維持） ===
         if (this.currentPage && this.totalPages) {
             ctx.globalAlpha = 0.3;
             ctx.fillStyle = '#666666';
