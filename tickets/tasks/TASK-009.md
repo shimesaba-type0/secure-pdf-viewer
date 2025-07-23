@@ -69,13 +69,81 @@ GET /secure/pdf/<signed_url_token>
 
 ### 設定・運用
 5. **設定項目追加**
-   - `pdf_url_expiry`: URL有効期限（秒）
+   - `pdf_url_expiry_hours`: URL有効期限（時間、デフォルト72時間）
    - `pdf_access_rate_limit`: アクセス制限設定
    - `signed_url_secret`: 署名用秘密鍵
 
 6. **ログ・監視強化**
    - PDF アクセス詳細ログ
    - 不正アクセス試行の検知・通知
+
+## PDF.js動作フローと署名付きURL統合
+
+### 現在のPDF配信フロー
+```mermaid
+sequenceDiagram
+    participant User as ブラウザ
+    participant Server as Flaskサーバー
+    participant DB as データベース
+    participant Static as 静的ファイル
+
+    User->>Server: GET / (閲覧画面リクエスト)
+    Server->>DB: get_published_pdf() 実行
+    DB-->>Server: file_path: "static/pdfs/xxxxx.pdf"
+    Server-->>User: HTML + PDF path埋め込み
+    User->>Static: pdfjsLib.getDocument(filePath) 実行
+    Static-->>User: PDFファイル直接ダウンロード
+    Note over User: PDF.jsがメモリ上でPDF処理
+```
+
+### 署名付きURL実装後のフロー
+```mermaid
+sequenceDiagram
+    participant User as ブラウザ
+    participant Server as Flaskサーバー
+    participant DB as データベース
+    participant Secure as 署名付きエンドポイント
+
+    User->>Server: GET / (閲覧画面リクエスト)
+    Server->>DB: get_published_pdf() 実行
+    Server->>Server: generate_signed_pdf_url() 実行
+    Server-->>User: HTML + 署名付きURL埋め込み
+    User->>Secure: pdfjsLib.getDocument(signed_url) 実行
+    Secure->>Secure: 署名検証 + セッション認証
+    Secure-->>User: 認証済みPDFファイル配信
+    Note over User: PDF.jsがメモリ上でPDF処理
+```
+
+### 重要な技術的ポイント
+
+1. **PDF.jsのアクセスパターン**
+   - **初回ロード時のみアクセス**: `pdfjsLib.getDocument()` は最初の1回だけ実行
+   - **全データダウンロード**: PDFファイル全体をブラウザにダウンロード
+   - **メモリ上処理**: ページめくりは既ダウンロードデータを使用
+   - **再アクセスなし**: セッション中にPDF URLへの追加リクエストは発生しない
+
+2. **署名付きURL期限設計**
+   - **72時間有効**: セッション有効期限と同期（30分は短すぎる）
+   - **1回限りアクセス**: 初回PDF取得時専用の設計
+   - **セッション連動**: セッション無効化時にURL期限も即座無効
+
+3. **JavaScript側の変更点**
+   ```javascript
+   // 現在の実装
+   const loadingTask = pdfjsLib.getDocument('/static/pdfs/xxxxx.pdf');
+   
+   // 署名付きURL実装後
+   const loadingTask = pdfjsLib.getDocument('/secure/pdf/signed-token-here');
+   ```
+
+### データフロー詳細
+
+| 段階 | 処理内容 | 実行場所 | 技術要素 |
+|------|----------|----------|----------|
+| 1. ページ生成 | 署名付きURL生成 | サーバー側 | HMAC署名、期限設定 |
+| 2. HTML配信 | 署名付きURL埋め込み | テンプレート | Jinja2変数展開 |
+| 3. PDF取得 | 署名付きURLアクセス | ブラウザ側 | PDF.js, XMLHttpRequest |
+| 4. 認証・配信 | 署名検証→ファイル送信 | サーバー側 | 認証チェック、ファイルI/O |
 
 ## 技術仕様
 
