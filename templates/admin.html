@@ -102,8 +102,12 @@
         
         <div class="card">
             <h3>クイックアクション</h3>
-            <button class="btn btn-warning" disabled>緊急停止</button>
-            <button class="btn btn-info" disabled>設定変更</button>
+            <button class="btn btn-danger" onclick="emergencyStop()">
+                ⚠️ 緊急停止
+            </button>
+            <small class="help-text">
+                全PDF公開停止 + 全セッション無効化を実行
+            </small>
         </div>
     </div>
     

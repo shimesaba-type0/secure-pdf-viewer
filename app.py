@@ -1351,6 +1351,124 @@ def manual_invalidate_all_sessions():
         flash(error_msg, 'error')
         return jsonify({'error': error_msg}), 500
 
+@app.route('/admin/emergency-stop', methods=['POST'])
+def emergency_stop():
+    """緊急停止機能: 全PDF公開停止 + 全セッション無効化"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        import time
+        
+        # 実行開始時刻を記録
+        start_time = time.time()
+        timestamp = get_jst_datetime_string()
+        
+        print(f"*** EMERGENCY STOP INITIATED AT {timestamp} ***")
+        
+        # ログ記録用
+        unpublished_pdfs = 0
+        deleted_sessions = 0
+        deleted_otps = 0
+        errors = []
+        
+        # Step 1: 全PDF公開停止（既存関数を使用）
+        try:
+            # 現在公開中のPDF数を事前に取得
+            conn = sqlite3.connect('instance/database.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM pdf_files WHERE is_published = TRUE')
+            unpublished_pdfs = cursor.fetchone()[0]
+            conn.close()
+            
+            # 既存の全PDF公開停止関数を呼び出し
+            auto_unpublish_all_pdfs()
+            print(f"緊急停止: {unpublished_pdfs}件のPDFを公開停止しました")
+            
+        except Exception as e:
+            error_msg = f"PDF公開停止でエラー: {str(e)}"
+            errors.append(error_msg)
+            print(f"ERROR: {error_msg}")
+        
+        # Step 2: 全セッション無効化（既存関数を使用）
+        try:
+            result = invalidate_all_sessions()
+            if result['success']:
+                deleted_sessions = result.get('deleted_sessions', 0)
+                deleted_otps = result.get('deleted_otps', 0)
+                print(f"緊急停止: {deleted_sessions}セッション, {deleted_otps}OTPを削除しました")
+            else:
+                errors.append(f"セッション無効化エラー: {result.get('message', '不明なエラー')}")
+        except Exception as e:
+            error_msg = f"セッション無効化でエラー: {str(e)}"
+            errors.append(error_msg)
+            print(f"ERROR: {error_msg}")
+        
+        # Step 3: SSE通知送信
+        try:
+            send_sse_event({
+                'type': 'emergency_stop',
+                'message': '🚨 緊急停止が実行されました - 全PDF公開停止・全セッション無効化',
+                'unpublished_pdfs': unpublished_pdfs,
+                'deleted_sessions': deleted_sessions,
+                'deleted_otps': deleted_otps,
+                'timestamp': timestamp,
+                'clear_session': True
+            })
+            print("緊急停止: SSE通知を送信しました")
+        except Exception as e:
+            print(f"WARNING: SSE通知送信エラー (処理は継続): {str(e)}")
+        
+        # Step 4: 実行ログの記録
+        try:
+            execution_time = round(time.time() - start_time, 2)
+            log_entry = f"EMERGENCY_STOP|{timestamp}|PDFs:{unpublished_pdfs}|Sessions:{deleted_sessions}|OTPs:{deleted_otps}|Time:{execution_time}s"
+            if errors:
+                log_entry += f"|Errors:{len(errors)}"
+            
+            # 簡易ログファイルに記録
+            try:
+                with open('instance/emergency_log.txt', 'a', encoding='utf-8') as f:
+                    f.write(f"{log_entry}\n")
+            except:
+                print("WARNING: ファイルログ記録に失敗しました")
+            
+            print(f"緊急停止完了 (実行時間: {execution_time}秒)")
+            
+        except Exception as e:
+            print(f"WARNING: ログ記録エラー: {str(e)}")
+        
+        # 結果の返却
+        if len(errors) == 0:
+            flash('🚨 緊急停止が正常に実行されました', 'success')
+            return jsonify({
+                'success': True,
+                'message': '緊急停止が完了しました',
+                'unpublished_pdfs': unpublished_pdfs,
+                'deleted_sessions': deleted_sessions,
+                'deleted_otps': deleted_otps,
+                'timestamp': timestamp,
+                'execution_time': round(time.time() - start_time, 2)
+            })
+        else:
+            flash('⚠️ 緊急停止は実行されましたが、一部でエラーが発生しました', 'warning')
+            return jsonify({
+                'success': True,
+                'message': f'緊急停止は実行されましたが、{len(errors)}件のエラーが発生しました',
+                'unpublished_pdfs': unpublished_pdfs,
+                'deleted_sessions': deleted_sessions,
+                'deleted_otps': deleted_otps,
+                'timestamp': timestamp,
+                'errors': errors,
+                'execution_time': round(time.time() - start_time, 2)
+            })
+            
+    except Exception as e:
+        error_msg = f'緊急停止の実行に失敗しました: {str(e)}'
+        print(f"CRITICAL ERROR: {error_msg}")
+        flash(error_msg, 'error')
+        return jsonify({'error': error_msg}), 500
+
 @app.route('/admin/schedule-session-invalidation', methods=['POST'])
 def schedule_session_invalidation():
     """設定時刻セッション無効化のスケジュール設定"""

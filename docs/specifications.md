@@ -260,6 +260,7 @@
 - `POST /admin/unblock-ip` - IP制限解除
 - `POST /admin/unpublish` - 緊急公開停止
 - `POST /admin/invalidate-all-sessions` - 手動全セッション無効化実行
+- `POST /admin/emergency-stop` - 緊急停止実行（全PDF公開停止 + 全セッション無効化）
 - `POST /admin/schedule-session-invalidation` - 定時全セッション無効化スケジュール設定
 - `POST /admin/clear-session-invalidation-schedule` - スケジュール解除
 - `POST /admin/upload-pdf` - PDFファイルアップロード
@@ -560,7 +561,11 @@ CLOUDFLARE_DOMAIN=<ドメイン名>
 3. **設定変更**: 管理画面で期間・パスフレーズ変更
 
 ### 緊急対応
-1. **即時停止**: 管理画面の緊急停止ボタン
+1. **即時停止**: 管理画面の緊急停止ボタン（2段階確認付き）
+   - 全PDF公開停止 + 全セッション無効化を一括実行
+   - 誤操作防止のための「緊急停止」テキスト入力確認
+   - SSE通知による即座な状態変更通知
+   - 実行ログの自動記録（`instance/emergency_log.txt`）
 2. **IP制限解除**: LINEで連絡受付→管理画面で解除
 3. **異常検知**: メール通知→状況確認→対応
 

@@ -193,7 +193,8 @@ function initializeAdminSSE() {
     // 管理画面固有のイベントリスナーを登録
     window.sseManager.addPageListeners('admin', {
         'pdf_published': handlePDFPublished,
-        'pdf_unpublished': handlePDFUnpublished
+        'pdf_unpublished': handlePDFUnpublished,
+        'emergency_stop': handleEmergencyStop
     });
     
     console.log('管理画面: SSE接続とリスナーを初期化しました');
@@ -230,6 +231,43 @@ function handlePDFUnpublished(data) {
     setTimeout(() => {
         window.location.reload();
     }, 5000);
+}
+
+function handleEmergencyStop(data) {
+    console.log('管理画面: 緊急停止実行:', data.message);
+    
+    // 即座に警告メッセージを表示
+    showSSENotification('🚨 ' + data.message, 'warning');
+    
+    // 詳細情報をアラートで表示
+    const details = [
+        `📄 公開停止PDF: ${data.unpublished_pdfs || 0}件`,
+        `🔐 無効化セッション: ${data.deleted_sessions || 0}件`,
+        `🔑 削除OTPトークン: ${data.deleted_otps || 0}件`,
+        `⏰ 実行時刻: ${data.timestamp || '不明'}`
+    ].join('\n');
+    
+    setTimeout(() => {
+        alert(`🚨 緊急停止が実行されました\n\n${details}`);
+    }, 1000);
+    
+    // セッションクリア指示がある場合はクライアント側のセッションストレージもクリア
+    if (data.clear_session) {
+        try {
+            if (typeof(Storage) !== "undefined") {
+                sessionStorage.clear();
+                localStorage.removeItem('session_data');
+            }
+            console.log('管理画面: クライアント側セッションストレージをクリアしました');
+        } catch (e) {
+            console.log('クライアント側セッションクリアでエラー:', e);
+        }
+    }
+    
+    // 8秒後にページをリロード（緊急停止の場合は少し長めに待つ）
+    setTimeout(() => {
+        window.location.reload();
+    }, 8000);
 }
 
 function showSSENotification(message, type = 'info') {
@@ -842,5 +880,113 @@ function showNotification(message, type = 'info') {
             notification.remove();
         }
     }, 5000);
+}
+
+// 緊急停止機能
+function emergencyStop() {
+    // 第一段階の確認：基本的な確認ダイアログ
+    if (!confirm('⚠️ 緊急停止を実行しますか？\n\n実行内容：\n✗ 全PDF公開を即座に停止\n✗ 全セッションを無効化\n\n全ユーザーは再度ログインが必要になります。')) {
+        return;
+    }
+    
+    // 第二段階の確認：誤操作防止のための詳細確認
+    const confirmText = prompt('本当に緊急停止を実行する場合は、「緊急停止」と入力してください：');
+    if (confirmText !== '緊急停止') {
+        if (confirmText !== null) { // キャンセル以外の場合
+            alert('入力が正しくありません。緊急停止はキャンセルされました。');
+        }
+        return;
+    }
+    
+    // 実行中の視覚的フィードバック
+    const originalBtn = document.querySelector('button[onclick="emergencyStop()"]');
+    if (originalBtn) {
+        originalBtn.disabled = true;
+        originalBtn.innerHTML = '⏳ 緊急停止実行中...';
+        originalBtn.style.opacity = '0.6';
+    }
+    
+    // 画面全体にオーバーレイを表示
+    const overlay = document.createElement('div');
+    overlay.id = 'emergency-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(220, 53, 69, 0.8);
+        color: white;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        font-size: 1.5rem;
+        text-align: center;
+    `;
+    overlay.innerHTML = `
+        <div>
+            <div style="font-size: 3rem; margin-bottom: 1rem;">⚠️</div>
+            <div>緊急停止実行中...</div>
+            <div style="font-size: 1rem; margin-top: 1rem; opacity: 0.8;">
+                全PDF公開停止 + 全セッション無効化
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    
+    // 緊急停止API呼び出し
+    fetch('/admin/emergency-stop', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        // オーバーレイを削除
+        if (overlay.parentNode) {
+            overlay.remove();
+        }
+        
+        if (data.success) {
+            // 成功時の詳細メッセージ
+            const details = [
+                `📄 公開停止PDF: ${data.unpublished_pdfs || 0}件`,
+                `🔐 無効化セッション: ${data.deleted_sessions || 0}件`,
+                `🔑 削除OTPトークン: ${data.deleted_otps || 0}件`
+            ].join('\n');
+            
+            alert(`✅ 緊急停止が完了しました。\n\n${details}\n\n実行時刻: ${data.timestamp || '不明'}`);
+            
+            // SSE通知も表示
+            showSSENotification('🚨 緊急停止が実行されました', 'warning');
+            
+            // 5秒後にページをリロード
+            setTimeout(() => {
+                location.reload();
+            }, 5000);
+        } else {
+            alert(`❌ 緊急停止でエラーが発生しました:\n${data.message || data.error}`);
+        }
+    })
+    .catch(error => {
+        // オーバーレイを削除
+        if (overlay.parentNode) {
+            overlay.remove();
+        }
+        
+        console.error('緊急停止エラー:', error);
+        alert('❌ 緊急停止でネットワークエラーが発生しました。\n管理者に連絡してください。');
+    })
+    .finally(() => {
+        // ボタンを元に戻す
+        if (originalBtn) {
+            originalBtn.disabled = false;
+            originalBtn.innerHTML = '⚠️ 緊急停止';
+            originalBtn.style.opacity = '1';
+        }
+    });
 }
 
