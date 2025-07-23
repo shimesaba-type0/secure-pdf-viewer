@@ -762,9 +762,9 @@ def verify_otp():
             
             conn.execute('''
                 INSERT OR REPLACE INTO session_stats 
-                (session_id, email_hash, start_time, ip_address, device_type, last_updated)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (session_id, get_consistent_hash(email), int(now.timestamp()), request.remote_addr, device_type))
+                (session_id, email_hash, email_address, start_time, ip_address, device_type, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (session_id, get_consistent_hash(email), email, int(now.timestamp()), request.remote_addr, device_type))
             
             conn.commit()
             conn.close()
@@ -973,6 +973,104 @@ def admin():
                          scheduled_invalidation_datetime=scheduled_invalidation_datetime,
                          scheduled_invalidation_datetime_formatted=scheduled_invalidation_datetime_formatted,
                          scheduled_invalidation_seconds=scheduled_invalidation_seconds)
+
+@app.route('/admin/sessions')
+def sessions():
+    """セッション一覧ページ"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    return render_template('sessions.html')
+
+@app.route('/admin/sessions/<session_id>')
+def session_detail(session_id):
+    """セッション詳細ページ"""
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        cursor = conn.cursor()
+        
+        # セッション情報を取得
+        cursor.execute('''
+            SELECT 
+                session_id,
+                email_hash,
+                email_address,
+                start_time,
+                ip_address,
+                device_type,
+                last_updated,
+                memo
+            FROM session_stats 
+            WHERE session_id = ?
+        ''', (session_id,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return "セッションが見つかりません", 404
+        
+        session_id, email_hash, stored_email_address, start_time, ip_address, device_type, last_updated, memo = row
+        
+        # フォールバック用のメールアドレス取得
+        if not stored_email_address:
+            conn = sqlite3.connect('instance/database.db')
+            cursor = conn.cursor()
+            cursor.execute('SELECT DISTINCT email FROM otp_tokens ORDER BY created_at DESC')
+            emails = cursor.fetchall()
+            
+            email_hash_map = {}
+            for email_row in emails:
+                email = email_row[0]
+                email_hash_calc = get_consistent_hash(email)
+                email_hash_map[email_hash_calc] = email
+            
+            email_address = email_hash_map.get(email_hash, f"不明({email_hash[:8]})")
+            conn.close()
+        else:
+            email_address = stored_email_address
+        
+        # 開始時刻を日本時間に変換
+        start_dt = datetime.fromtimestamp(start_time)
+        start_jst = start_dt.astimezone(JST)
+        
+        # 残り時間と経過時間を計算
+        now = datetime.now(JST)
+        elapsed = now - start_jst
+        elapsed_hours = round(elapsed.total_seconds() / 3600, 1)
+        
+        # 72時間から経過時間を引いて残り時間を計算
+        session_timeout = 72 * 3600  # 72時間を秒に変換
+        remaining_seconds = session_timeout - elapsed.total_seconds()
+        
+        if remaining_seconds > 0:
+            remaining_hours = int(remaining_seconds // 3600)
+            remaining_minutes = int((remaining_seconds % 3600) // 60)
+            remaining_time = f"{remaining_hours}時間{remaining_minutes}分"
+        else:
+            remaining_time = "期限切れ"
+        
+        session_data = {
+            'session_id': session_id,
+            'email_address': email_address,
+            'device_type': device_type,
+            'start_time': start_jst.strftime('%Y-%m-%d %H:%M:%S'),
+            'remaining_time': remaining_time,
+            'elapsed_hours': elapsed_hours,
+            'memo': memo or ''
+        }
+        
+        return render_template('session_detail.html', session=session_data)
+        
+    except Exception as e:
+        print(f"セッション詳細取得エラー: {e}")
+        return "エラーが発生しました", 500
 
 @app.route('/admin/upload-pdf', methods=['POST'])
 def upload_pdf():
@@ -1387,6 +1485,7 @@ def get_active_sessions():
             SELECT 
                 session_id,
                 email_hash,
+                email_address,
                 start_time,
                 ip_address,
                 device_type,
@@ -1413,10 +1512,10 @@ def get_active_sessions():
         
         sessions = []
         for row in rows:
-            session_id, email_hash, start_time, ip_address, device_type, last_updated, memo = row
+            session_id, email_hash, stored_email_address, start_time, ip_address, device_type, last_updated, memo = row
             
-            # ハッシュマップからメールアドレスを取得
-            email_address = email_hash_map.get(email_hash, f"不明({email_hash[:8]})")
+            # 保存されたemail_addressを使用、なければハッシュマップから取得
+            email_address = stored_email_address or email_hash_map.get(email_hash, f"不明({email_hash[:8]})")
             
             # 開始時刻を日本時間に変換
             start_dt = datetime.fromtimestamp(start_time)

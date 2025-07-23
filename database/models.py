@@ -129,6 +129,15 @@ def create_tables(db):
             print(f"memo カラム追加エラー: {e}")
         # カラムが既に存在する場合は無視
     
+    # email_addressカラムを追加（メールアドレス表示問題解決）
+    try:
+        db.execute('ALTER TABLE session_stats ADD COLUMN email_address TEXT DEFAULT ""')
+        print("session_stats テーブルに email_address カラムを追加しました")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e).lower():
+            print(f"email_address カラム追加エラー: {e}")
+        # カラムが既に存在する場合は無視
+    
     # OTPトークンテーブル
     db.execute('''
         CREATE TABLE IF NOT EXISTS otp_tokens (

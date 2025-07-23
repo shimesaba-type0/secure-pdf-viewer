@@ -1,0 +1,141 @@
+{% extends "layout.html" %}
+
+{% block title %}セッション一覧 - Secure PDF Viewer{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sessions.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="sessions-container">
+    <div class="sessions-header">
+        <h2>アクティブセッション一覧</h2>
+        <div class="header-actions">
+            <div class="auto-refresh-setting">
+                <label>
+                    <input type="checkbox" id="autoRefreshCheckbox" checked onchange="toggleAutoRefresh()">
+                    自動更新（30秒間隔）
+                </label>
+            </div>
+            <div class="sessions-info">
+                <span>最終更新: <span id="lastUpdateTime">-</span></span>
+            </div>
+            <button type="button" class="btn btn-info" onclick="refreshSessionList()">
+                🔄 更新
+            </button>
+            <a href="/admin" class="btn btn-secondary">
+                ← 管理画面に戻る
+            </a>
+        </div>
+    </div>
+    
+    <!-- 統計情報 -->
+    <div class="sessions-stats">
+        <div class="stat-card">
+            <div class="stat-number" id="totalSessions">-</div>
+            <div class="stat-label">総セッション数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="mobileCount">-</div>
+            <div class="stat-label">📱 スマホ</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="tabletCount">-</div>
+            <div class="stat-label">📱 タブレット</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="desktopCount">-</div>
+            <div class="stat-label">💻 PC</div>
+        </div>
+    </div>
+    
+    <!-- フィルター・検索機能 -->
+    <div class="sessions-filters">
+        <div class="filters-row">
+            <div class="filter-group">
+                <label for="filterSid">セッションID:</label>
+                <input type="text" id="filterSid" placeholder="SIDで検索..." class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="filterEmail">メールアドレス:</label>
+                <input type="text" id="filterEmail" placeholder="メールアドレスで検索..." class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="filterDevice">デバイス:</label>
+                <select id="filterDevice" class="filter-select">
+                    <option value="">全て</option>
+                    <option value="mobile">📱 スマホ</option>
+                    <option value="tablet">📱 タブレット</option>
+                    <option value="desktop">💻 PC</option>
+                    <option value="other">❓ その他</option>
+                </select>
+            </div>
+        </div>
+        <div class="filters-row">
+            <div class="filter-group">
+                <label for="filterMemo">メモ:</label>
+                <input type="text" id="filterMemo" placeholder="メモで検索..." class="filter-input">
+            </div>
+            <div class="filter-group">
+                <label for="filterDate">開始日:</label>
+                <input type="date" id="filterDate" class="filter-input">
+            </div>
+            <div class="filter-group">
+                <button type="button" class="btn btn-secondary" onclick="clearFilters()">
+                    🗑️ フィルタークリア
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- セッション一覧テーブル -->
+    <div class="sessions-table-container">
+        <table class="sessions-table" id="sessionsTable">
+            <thead>
+                <tr>
+                    <th class="sortable" data-sort="session_id">
+                        セッションID
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th class="sortable" data-sort="email_address">
+                        メールアドレス
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th class="sortable" data-sort="device_type">
+                        デバイス
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th class="sortable" data-sort="start_time">
+                        開始時刻
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th class="sortable" data-sort="remaining_time">
+                        残り時間
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th class="sortable" data-sort="elapsed_hours">
+                        経過時間
+                        <span class="sort-indicator"></span>
+                    </th>
+                    <th>メモ</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="sessionsTableBody">
+                <tr>
+                    <td colspan="8" class="loading-row">セッション情報を読み込み中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- ページネーション（将来の拡張用） -->
+    <div class="sessions-pagination" id="sessionsPagination" style="display: none;">
+        <button class="btn btn-sm btn-secondary" id="prevPage">← 前</button>
+        <span class="pagination-info" id="paginationInfo">1 / 1</span>
+        <button class="btn btn-sm btn-secondary" id="nextPage">次 →</button>
+    </div>
+    
+</div>
+{% endblock %}

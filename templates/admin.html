@@ -284,9 +284,14 @@
                     
                     <div class="session-list-container">
                         <div class="session-list-header">
-                            <button type="button" class="btn btn-info btn-sm" onclick="refreshSessionList()">
-                                🔄 更新
-                            </button>
+                            <div class="session-list-actions">
+                                <button type="button" class="btn btn-info btn-sm" onclick="refreshSessionList()">
+                                    🔄 更新
+                                </button>
+                                <a href="/admin/sessions" class="btn btn-primary btn-sm">
+                                    📋 詳細管理
+                                </a>
+                            </div>
                             <div class="auto-refresh-toggle">
                                 <label>
                                     <input type="checkbox" id="autoRefreshCheckbox" onchange="toggleAutoRefresh()" checked>

@@ -148,7 +148,21 @@
    - 詳細ログ（IP、UA、メールアドレス、滞在時間、デバイス情報）
    - アクセス端末数監視（100台超過時警告）
 
-2. **設定管理**
+2. **セッション管理機能 (TASK-003-3完了)**
+   - **アクティブセッション一覧表示**: セッションID、メールアドレス、デバイス種別、開始時刻、残り時間、経過時間
+   - **高度なフィルター機能**: SID、メールアドレス、デバイス、開始日、メモによる絞り込み
+   - **ソート機能**: 全カラムでの昇順・降順ソート
+   - **デバイス種別自動判定**: User-Agentからモバイル/タブレット/PC/その他を判定
+   - **管理者メモ機能**: セッションごとのメモ編集・保存機能
+   - **専用セッション管理ページ**: `/admin/sessions` での詳細管理
+   - **セッション詳細専用URL**: `/admin/sessions/<session_id>` での個別詳細表示
+   - **詳細ページメモ編集**: 専用URLページでのリアルタイムメモ編集機能
+   - **ダッシュボード統合**: メイン管理画面にデバイス別セッション数表示
+   - **リアルタイム更新**: 30秒間隔自動更新、手動更新ボタン
+   - **レスポンシブ対応**: 横スクロール対応で全カラム表示、モバイル最適化
+   - **テキスト折り返し対応**: 長いメモテキストの適切な表示制御
+
+3. **設定管理**
    - 事前共有パスワード変更
    - 公開期間変更
    - IP制限解除
@@ -156,7 +170,7 @@
    - 全セッション無効化実行時刻設定（時:分形式）
    - 手動全ユーザー強制ログアウト
 
-3. **通知機能**
+4. **通知機能**
    - 異常アクセス時メール通知
    - アクセス数閾値超過通知
 
@@ -249,6 +263,12 @@
 - `POST /admin/schedule-session-invalidation` - 定時全セッション無効化スケジュール設定
 - `POST /admin/clear-session-invalidation-schedule` - スケジュール解除
 - `POST /admin/upload-pdf` - PDFファイルアップロード
+
+**セッション管理機能 (TASK-003-3実装)**
+- `GET /admin/sessions` - 専用セッション管理ページ（フィルター・ソート機能付き）
+- `GET /admin/sessions/<session_id>` - セッション詳細ページ（専用URL、メモ編集機能付き）
+- `GET /admin/api/active-sessions` - アクティブセッション情報取得API
+- `POST /admin/api/update-session-memo` - セッションメモ更新API
 
 **セッション無効化機能強化 (TASK-003-8対応)**
 - **手動実行**: 管理画面から即座に全セッション無効化
@@ -371,7 +391,7 @@ CREATE TABLE admin_users (
     is_active BOOLEAN DEFAULT TRUE
 );
 
--- セッション統計（集計用・整合性チェック用）
+-- セッション統計（集計用・整合性チェック用・管理機能用）
 CREATE TABLE session_stats (
     session_id TEXT PRIMARY KEY,
     email_hash TEXT,              -- SHA256ベース一貫したハッシュ
@@ -382,7 +402,8 @@ CREATE TABLE session_stats (
     page_views INTEGER,
     reactivation_count INTEGER,
     ip_address TEXT,
-    device_type TEXT,
+    device_type TEXT,             -- 'mobile', 'tablet', 'desktop', 'other'（User-Agent判定）
+    memo TEXT DEFAULT '',         -- 管理者メモ機能（TASK-003-3）
     orientation_changes INTEGER,  -- 画面回転回数
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -424,9 +445,12 @@ secure-pdf-viewer/
 |   +-- migrations.py     # マイグレーション
 |-- static/
 |   |-- css/
-|   |   |-- main.css      # 基本スタイル
+|   |   |-- main.css      # 基本スタイル（レスポンシブ対応含む）
 |   |   +-- responsive.css # レスポンシブ専用CSS
 |   |-- js/
+|   |   |-- admin.js      # 管理画面用JavaScript
+|   |   |-- sessions.js   # セッション管理ページ用JavaScript
+|   |   |-- sse-manager.js # SSE統一管理システム
 |   |   |-- watermark.js  # ウォーターマーク生成・管理
 |   |   |-- responsive.js # レスポンシブ制御
 |   |   +-- device-detect.js # デバイス検知
@@ -435,6 +459,8 @@ secure-pdf-viewer/
 |   |-- index.html        # 認証画面
 |   |-- viewer.html       # PDF閲覧画面
 |   |-- admin.html        # 管理画面
+|   |-- sessions.html     # セッション管理専用ページ
+|   |-- session_detail.html # セッション詳細専用ページ
 |   |-- layout.html       # 共通レイアウト
 |   +-- responsive/       # デバイス別テンプレート
 |       |-- mobile.html

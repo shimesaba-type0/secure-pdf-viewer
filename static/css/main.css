@@ -1031,6 +1031,12 @@ body {
     border-radius: 4px;
 }
 
+.session-list-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .auto-refresh-toggle {
     display: flex;
     align-items: center;
@@ -1166,6 +1172,10 @@ body {
     flex: 1;
     font-size: 0.9rem;
     color: #666;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 150px;
 }
 
 .memo-text:empty::before {
@@ -1191,10 +1201,20 @@ body {
 
 .memo-input {
     width: 100%;
-    padding: 0.25rem;
+    padding: 0.5rem;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 0.9rem;
+    min-height: 60px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.memo-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
 }
 
 .memo-edit-form .btn {
@@ -1316,5 +1336,331 @@ body {
     
     .device-label {
         display: none; /* スマホではアイコンのみ */
+    }
+}
+
+/* セッション一覧ページのスタイル */
+.sessions-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.sessions-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e1e5e9;
+}
+
+.sessions-header h2 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.header-actions {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+/* ヘッダーの自動更新設定と最終更新時刻のスタイル */
+.header-actions .auto-refresh-setting,
+.header-actions .sessions-info {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.header-actions .auto-refresh-setting label {
+    margin: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.header-actions .sessions-info {
+    color: #666;
+}
+
+/* 統計情報 */
+.sessions-stats {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    flex: 1;
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.stat-card .stat-number {
+    display: block;
+    font-size: 2rem;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+.stat-card .stat-label {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+/* フィルター機能 */
+.sessions-filters {
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.filters-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.filters-row:last-child {
+    margin-bottom: 0;
+}
+
+.filter-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.filter-group label {
+    font-weight: 500;
+    color: #555;
+    font-size: 0.9rem;
+}
+
+.filter-input, .filter-select {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+/* フィルタークリアボタンの位置調整 */
+.filter-group .btn {
+    margin-top: 2.0rem; /* ラベル高さ + gap を調整してボトムを揃える */
+    align-self: flex-start;
+    width: 100%; /* 他の入力フィールドと同じ幅 */
+    padding: 0.5rem; /* 他の入力フィールドと同じパディング */
+    font-size: 0.9rem; /* 他の入力フィールドと同じフォントサイズ */
+    height: auto; /* 自動高さ調整 */
+}
+
+.filter-input:focus, .filter-select:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+/* セッションテーブル */
+.sessions-table-container {
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin-bottom: 2rem;
+}
+
+.sessions-table {
+    width: 100%;
+    min-width: 800px; /* 小さい画面でも全カラム表示のための最小幅 */
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.sessions-table th {
+    background: #f8f9fa;
+    padding: 1rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+    position: relative;
+}
+
+.sessions-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sessions-table th.sortable:hover {
+    background: #e9ecef;
+}
+
+.sort-indicator {
+    font-size: 0.8rem;
+    color: #666;
+    margin-left: 0.25rem;
+}
+
+.sessions-table th.sort-asc .sort-indicator {
+    color: #3498db;
+}
+
+.sessions-table th.sort-desc .sort-indicator {
+    color: #3498db;
+}
+
+.sessions-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: middle;
+}
+
+.sessions-table tr:hover {
+    background: #f8f9fa;
+}
+
+.sessions-table .sid-display {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+}
+
+.sessions-table .email-address {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sessions-table .no-sessions-row,
+.sessions-table .error-row {
+    text-align: center;
+    padding: 2rem;
+    color: #666;
+    font-style: italic;
+}
+
+.sessions-table .error-row {
+    color: #e74c3c;
+    background: #fdf2f2;
+}
+
+/* フッター */
+.sessions-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 8px;
+}
+
+.auto-refresh-setting label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.sessions-info {
+    font-size: 0.85rem;
+    color: #666;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 1200px) {
+    .filters-row {
+        flex-wrap: wrap;
+    }
+    
+    .filter-group {
+        min-width: 200px;
+    }
+}
+
+@media (max-width: 768px) {
+    .sessions-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+    
+    .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    
+    .header-actions .auto-refresh-setting,
+    .header-actions .sessions-info {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
+    }
+    
+    .sessions-stats {
+        flex-direction: column;
+    }
+    
+    .filters-row {
+        flex-direction: column;
+    }
+    
+    .filter-group {
+        min-width: auto;
+    }
+    
+    .sessions-table th,
+    .sessions-table td {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.8rem;
+    }
+    
+    .sessions-footer {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+}
+
+
+@media (max-width: 480px) {
+    .header-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    .header-actions .auto-refresh-setting,
+    .header-actions .sessions-info {
+        text-align: center;
+        font-size: 0.75rem;
+    }
+    
+    .header-actions .auto-refresh-setting label {
+        justify-content: center;
+    }
+    
+    .header-actions .btn {
+        width: 100%;
+        text-align: center;
+        justify-content: center;
+        display: flex;
+        align-items: center;
     }
 }
