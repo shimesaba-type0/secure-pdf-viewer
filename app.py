@@ -24,6 +24,61 @@ def get_consistent_hash(text):
     """
     return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
 
+def check_session_limit():
+    """
+    セッション数制限をチェックする
+    Returns:
+        dict: {'allowed': bool, 'current_count': int, 'max_limit': int, 'warning': str}
+    """
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        conn.row_factory = sqlite3.Row
+        
+        # 制限機能が有効かチェック
+        limit_enabled = get_setting(conn, 'session_limit_enabled', True)
+        if not limit_enabled:
+            conn.close()
+            return {'allowed': True, 'current_count': 0, 'max_limit': 0, 'warning': None}
+        
+        # 現在のアクティブセッション数を取得
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as active_sessions FROM session_stats')
+        result = cursor.fetchone()
+        current_sessions = result['active_sessions'] if result else 0
+        
+        # 制限値を取得
+        max_sessions = int(get_setting(conn, 'max_concurrent_sessions', 100))
+        
+        conn.close()
+        
+        # 制限チェック
+        if current_sessions >= max_sessions:
+            return {
+                'allowed': False,
+                'current_count': current_sessions,
+                'max_limit': max_sessions,
+                'warning': f'同時接続数制限に達しています（{current_sessions}/{max_sessions}）'
+            }
+        elif current_sessions >= max_sessions * 0.8:  # 80%以上で警告
+            return {
+                'allowed': True,
+                'current_count': current_sessions,
+                'max_limit': max_sessions,
+                'warning': f'同時接続数制限に近づいています（{current_sessions}/{max_sessions}）'
+            }
+        else:
+            return {
+                'allowed': True,
+                'current_count': current_sessions,
+                'max_limit': max_sessions,
+                'warning': None
+            }
+            
+    except Exception as e:
+        print(f"Session limit check error: {e}")
+        # エラー時は制限を無効として処理
+        return {'allowed': True, 'current_count': 0, 'max_limit': 0, 'warning': None}
+
 def detect_device_type(user_agent):
     """
     User-Agentからデバイスタイプを判定する
@@ -747,6 +802,13 @@ def verify_otp():
             ''', (otp_record['id'],))
             conn.commit()
             
+            # セッション制限チェック（認証完了前）
+            session_limit_check = check_session_limit()
+            if not session_limit_check['allowed']:
+                conn.close()
+                error_message = f"接続数制限に達しています。現在 {session_limit_check['current_count']}/{session_limit_check['max_limit']} セッションが利用中です。しばらく時間をおいてから再度お試しください。"
+                return render_template('verify_otp.html', email=email, error=error_message)
+            
             # 認証完了
             session['authenticated'] = True
             session['email'] = email
@@ -768,6 +830,21 @@ def verify_otp():
             
             conn.commit()
             conn.close()
+            
+            # セッション制限警告のSSE通知を送信
+            if session_limit_check.get('warning'):
+                try:
+                    sse_queue.put({
+                        'type': 'session_limit_warning',
+                        'data': {
+                            'message': session_limit_check['warning'],
+                            'current_count': session_limit_check['current_count'],
+                            'max_limit': session_limit_check['max_limit'],
+                            'usage_percentage': round((session_limit_check['current_count'] / session_limit_check['max_limit']) * 100, 1)
+                        }
+                    })
+                except:
+                    pass  # SSE失敗は無視
             
             return redirect(url_for('index'))
             
@@ -962,6 +1039,12 @@ def admin():
             scheduled_invalidation_datetime_formatted = None
             scheduled_invalidation_seconds = '00'
     
+    # Get session limit settings
+    conn = sqlite3.connect('instance/database.db')
+    max_concurrent_sessions = get_setting(conn, 'max_concurrent_sessions', 100)
+    session_limit_enabled = get_setting(conn, 'session_limit_enabled', True)
+    conn.close()
+    
     return render_template('admin.html', 
                          pdf_files=pdf_files, 
                          author_name=author_name,
@@ -972,7 +1055,9 @@ def admin():
                          current_published_pdf=current_published_pdf,
                          scheduled_invalidation_datetime=scheduled_invalidation_datetime,
                          scheduled_invalidation_datetime_formatted=scheduled_invalidation_datetime_formatted,
-                         scheduled_invalidation_seconds=scheduled_invalidation_seconds)
+                         scheduled_invalidation_seconds=scheduled_invalidation_seconds,
+                         max_concurrent_sessions=max_concurrent_sessions,
+                         session_limit_enabled=session_limit_enabled)
 
 @app.route('/admin/sessions')
 def sessions():
@@ -1331,6 +1416,90 @@ def update_publish_end():
         flash(f'設定の更新に失敗しました: {str(e)}')
     
     return redirect(url_for('admin'))
+
+@app.route('/admin/update-session-limits', methods=['POST'])
+def update_session_limits():
+    """セッション制限設定を更新"""
+    if not session.get('authenticated'):
+        flash('認証が必要です')
+        return redirect(url_for('login'))
+    
+    try:
+        max_concurrent_sessions = request.form.get('max_concurrent_sessions', '100')
+        session_limit_enabled = 'session_limit_enabled' in request.form
+        
+        # 数値検証
+        try:
+            max_sessions = int(max_concurrent_sessions)
+            if max_sessions < 1 or max_sessions > 1000:
+                flash('同時接続数制限は1-1000の範囲で設定してください')
+                return redirect(url_for('admin'))
+        except ValueError:
+            flash('同時接続数制限は数値で入力してください')
+            return redirect(url_for('admin'))
+        
+        conn = sqlite3.connect('database/secure_pdf.db')
+        conn.row_factory = sqlite3.Row
+        
+        # 設定を更新
+        set_setting(conn, 'max_concurrent_sessions', str(max_sessions), 'admin')
+        set_setting(conn, 'session_limit_enabled', str(session_limit_enabled).lower(), 'admin')
+        
+        conn.close()
+        
+        # SSE通知を送信（設定変更を通知）
+        try:
+            sse_queue.put({
+                'type': 'session_limit_updated',
+                'data': {
+                    'max_sessions': max_sessions,
+                    'enabled': session_limit_enabled
+                }
+            })
+        except:
+            pass  # SSE失敗は無視
+        
+        flash(f'セッション制限設定を更新しました（制限: {max_sessions}セッション、監視: {"有効" if session_limit_enabled else "無効"}）')
+        
+    except Exception as e:
+        flash(f'設定の更新に失敗しました: {str(e)}')
+    
+    return redirect(url_for('admin'))
+
+@app.route('/admin/api/session-limit-status')
+def get_session_limit_status():
+    """セッション制限状況を取得"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect('instance/database.db')
+        conn.row_factory = sqlite3.Row
+        
+        # 現在のアクティブセッション数を取得
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as active_sessions FROM session_stats')
+        result = cursor.fetchone()
+        current_sessions = result['active_sessions'] if result else 0
+        
+        # 設定値を取得
+        max_sessions = get_setting(conn, 'max_concurrent_sessions', 100)
+        enabled = get_setting(conn, 'session_limit_enabled', True)
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'current_sessions': current_sessions,
+            'max_sessions': int(max_sessions),
+            'enabled': enabled,
+            'usage_percentage': round((current_sessions / int(max_sessions)) * 100, 1),
+            'is_warning': current_sessions >= int(max_sessions) * 0.8,
+            'is_critical': current_sessions >= int(max_sessions)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/admin/invalidate-all-sessions', methods=['POST'])
 def manual_invalidate_all_sessions():

@@ -332,13 +332,95 @@ ALTER TABLE session_stats ADD COLUMN memo TEXT DEFAULT '';
 - **セッションID部分表示**: 機密性とユーザビリティのバランス
 - **監査ログ**: メモ更新履歴の記録
 
+## セッション制限監視機能（TASK-003-5実装済み）
+
+### 5. セッション制限設定機能 ✅ 2025-07-23完了
+
+#### 管理画面設定UI
+- **制限数設定**: 1-1000セッションの範囲で設定可能（デフォルト100）
+- **監視有効/無効**: セッション制限機能のオン/オフ切り替え
+- **リアルタイム状況表示**: 現在のセッション数と使用率の表示
+- **警告表示**: 制限の80%以上で警告、90%以上でアラート
+
+#### セッション制限チェック機能
+```python
+def check_session_limit():
+    """
+    セッション数制限をチェックする
+    Returns:
+        dict: {'allowed': bool, 'current_count': int, 'max_limit': int, 'warning': str}
+    """
+```
+
+#### 制限実行タイミング
+- **OTP認証完了前**: 制限到達時は認証を拒否
+- **エラーメッセージ表示**: ユーザーに制限状況を通知
+- **管理者警告**: SSE経由でリアルタイム警告配信
+
+### 6. リアルタイム監視ダッシュボード ✅ 2025-07-23完了
+
+#### 自動更新機能
+- **更新間隔**: 30秒間隔での状況更新
+- **使用率表示**: パーセンテージと分数形式での表示
+- **警告レベル表示**: 視覚的な警告インジケーター
+
+#### API エンドポイント
+```javascript
+// セッション制限状況取得
+GET /admin/api/session-limit-status
+Response: {
+    "success": true,
+    "current_sessions": 15,
+    "max_sessions": 100,
+    "usage_percentage": 15.0,
+    "is_warning": false,
+    "is_critical": false
+}
+
+// セッション制限設定更新
+POST /admin/update-session-limits
+Data: {
+    "max_concurrent_sessions": "50",
+    "session_limit_enabled": "on"
+}
+```
+
+### 7. SSE警告通知システム ✅ 2025-07-23完了
+
+#### 通知イベント
+- **session_limit_warning**: 制限の80%以上で発生
+- **session_limit_updated**: 設定変更時に発生
+
+#### JavaScript処理
+```javascript
+function handleSessionLimitWarning(data) {
+    // 警告メッセージ表示
+    showSSENotification('⚠️ ' + data.message, 'warning');
+    
+    // 90%以上でアラートダイアログ表示
+    if (data.usage_percentage >= 90) {
+        alert(`🚨 セッション数制限に近づいています\n現在: ${data.current_count}/${data.max_limit}`);
+    }
+}
+```
+
+## データベース拡張
+
+### settings テーブル追加設定
+```sql
+-- セッション制限関連設定
+INSERT INTO settings (key, value, value_type, description, category, is_sensitive) VALUES
+('max_concurrent_sessions', '100', 'integer', '同時接続数制限（警告閾値）', 'security', FALSE),
+('session_limit_enabled', 'true', 'boolean', 'セッション数制限有効化', 'security', FALSE);
+```
+
 ## 今後の拡張予定
 
 ### 機能追加候補
 - **セッション詳細ページ**: 個別セッションの詳細情報表示
 - **CSVエクスポート**: セッション一覧のデータ出力
 - **アクセス履歴**: セッション内のページ遷移履歴
-- **アラート機能**: 異常なセッション活動の検知・通知
+- **メールアラート機能**: セッション制限達成時の管理者メール通知 🔄 検討中
 
 ### パフォーマンス改善
 - **ページネーション**: 大量セッション対応

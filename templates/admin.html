@@ -269,6 +269,54 @@
     </div>
     
     <div class="admin-section">
+        <h3>セッション制限設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-session-limits" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="maxConcurrentSessions">同時接続数制限:</label>
+                    <input type="number" id="maxConcurrentSessions" name="max_concurrent_sessions" 
+                           value="{{ max_concurrent_sessions or 100 }}" 
+                           class="form-control" min="1" max="1000" required>
+                    <small class="form-text">
+                        同時接続できるセッション数の警告閾値を設定します。この数を超えると管理者に警告が表示されます。
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="sessionLimitEnabled" name="session_limit_enabled" 
+                               {{ 'checked' if session_limit_enabled else '' }}>
+                        セッション制限監視を有効にする
+                    </label>
+                    <small class="form-text">
+                        チェックを外すと、セッション数制限の監視と警告を無効化します。
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">設定を保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="resetSessionLimits()">デフォルトに戻す</button>
+                </div>
+            </form>
+            <div class="current-session-status">
+                <h5>現在の接続状況</h5>
+                <div class="session-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">現在のアクティブセッション数:</span>
+                        <span class="stat-value" id="currentSessionCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">制限に対する使用率:</span>
+                        <span class="stat-value" id="sessionUsageRate">-</span>
+                    </div>
+                    <div class="stat-item session-warning" id="sessionWarning" style="display: none;">
+                        <span class="warning-icon">⚠️</span>
+                        <span class="warning-text">制限に近づいています</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="admin-section">
         <h3>セッション管理</h3>
         <div class="settings-container">
             <div class="session-management">

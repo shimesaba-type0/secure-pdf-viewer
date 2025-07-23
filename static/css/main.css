@@ -1673,3 +1673,83 @@ body {
         align-items: center;
     }
 }
+
+/* セッション制限警告スタイル */
+.session-warning {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.session-warning .warning-icon {
+    font-size: 16px;
+    color: #856404;
+}
+
+.session-warning .warning-text {
+    color: #856404;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.current-session-status {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 15px;
+    margin-top: 15px;
+}
+
+.current-session-status h5 {
+    margin-bottom: 10px;
+    color: #495057;
+    font-size: 16px;
+}
+
+.current-session-status .session-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.current-session-status .stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.current-session-status .stat-item:last-child {
+    border-bottom: none;
+}
+
+.current-session-status .stat-label {
+    font-weight: 500;
+    color: #6c757d;
+}
+
+.current-session-status .stat-value {
+    font-weight: 600;
+    color: #212529;
+}
+
+/* SSE通知スタイルの改善 */
+.sse-notification.sse-warning {
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+    color: #856404;
+}
+
+.sse-notification.sse-warning .sse-close {
+    color: #856404;
+}
+
+.sse-notification.sse-warning .sse-close:hover {
+    background-color: #ffeaa7;
+}

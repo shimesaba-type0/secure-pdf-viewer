@@ -220,6 +220,8 @@ def insert_initial_data(db):
             ('mobile_breakpoint', '480', 'integer', 'モバイル判定ブレークポイント（px）', 'responsive', False),
             ('tablet_breakpoint', '768', 'integer', 'タブレット判定ブレークポイント（px）', 'responsive', False),
             ('enable_touch_optimizations', 'true', 'boolean', 'タッチ操作最適化有効', 'responsive', False),
+            ('max_concurrent_sessions', '100', 'integer', '同時接続数制限（警告閾値）', 'security', False),
+            ('session_limit_enabled', 'true', 'boolean', 'セッション数制限有効化', 'security', False),
         ]
         
         for setting in initial_settings:

@@ -180,6 +180,50 @@ function clearPublishEndTime() {
     }
 }
 
+function resetSessionLimits() {
+    const maxSessionsInput = document.getElementById('maxConcurrentSessions');
+    const enabledCheckbox = document.getElementById('sessionLimitEnabled');
+    
+    if (confirm('セッション制限設定をデフォルト値（100セッション、監視有効）に戻しますか？')) {
+        maxSessionsInput.value = '100';
+        enabledCheckbox.checked = true;
+    }
+}
+
+function updateSessionLimitStatus() {
+    // セッション制限状況を更新する関数
+    fetch('/admin/api/session-limit-status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const currentCount = document.getElementById('currentSessionCount');
+                const usageRate = document.getElementById('sessionUsageRate');
+                const warning = document.getElementById('sessionWarning');
+                
+                if (currentCount) currentCount.textContent = data.current_sessions;
+                if (usageRate) {
+                    const percentage = Math.round((data.current_sessions / data.max_sessions) * 100);
+                    usageRate.textContent = `${percentage}% (${data.current_sessions}/${data.max_sessions})`;
+                }
+                
+                // 警告表示の制御（80%以上で警告）
+                if (warning) {
+                    if (data.current_sessions >= data.max_sessions * 0.8) {
+                        warning.style.display = 'block';
+                        warning.querySelector('.warning-text').textContent = 
+                            data.current_sessions >= data.max_sessions ? 
+                            '制限に達しています' : '制限に近づいています';
+                    } else {
+                        warning.style.display = 'none';
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('セッション制限状況の取得に失敗:', error);
+        });
+}
+
 function initializeAdminSSE() {
     // SSE Manager を使用して接続確立
     if (!window.sseManager) {
@@ -194,10 +238,18 @@ function initializeAdminSSE() {
     window.sseManager.addPageListeners('admin', {
         'pdf_published': handlePDFPublished,
         'pdf_unpublished': handlePDFUnpublished,
-        'emergency_stop': handleEmergencyStop
+        'emergency_stop': handleEmergencyStop,
+        'session_limit_warning': handleSessionLimitWarning,
+        'session_limit_updated': handleSessionLimitUpdated
     });
     
     console.log('管理画面: SSE接続とリスナーを初期化しました');
+    
+    // 初期のセッション制限状況を更新
+    updateSessionLimitStatus();
+    
+    // 30秒ごとにセッション制限状況を更新（セッションリスト更新と同期）
+    setInterval(updateSessionLimitStatus, 30000);
 }
 
 // ページ離脱時のクリーンアップ
@@ -268,6 +320,49 @@ function handleEmergencyStop(data) {
     setTimeout(() => {
         window.location.reload();
     }, 8000);
+}
+
+function handleSessionLimitWarning(data) {
+    console.log('管理画面: セッション制限警告:', data.message);
+    
+    // 警告メッセージを表示
+    showSSENotification('⚠️ ' + data.message, 'warning');
+    
+    // セッション制限状況を更新
+    updateSessionLimitStatus();
+    
+    // 使用率が90%以上の場合はより目立つ警告を表示
+    if (data.usage_percentage >= 90) {
+        setTimeout(() => {
+            const warningDetails = [
+                `現在のセッション数: ${data.current_count}`,
+                `制限値: ${data.max_limit}`,
+                `使用率: ${data.usage_percentage}%`,
+                '',
+                '新規ユーザーの接続が拒否される可能性があります。'
+            ].join('\n');
+            
+            alert(`🚨 セッション数制限に近づいています\n\n${warningDetails}`);
+        }, 1000);
+    }
+}
+
+function handleSessionLimitUpdated(data) {
+    console.log('管理画面: セッション制限設定更新:', data);
+    
+    // 設定更新通知を表示
+    const message = `セッション制限設定が更新されました（制限: ${data.max_sessions}、監視: ${data.enabled ? '有効' : '無効'}）`;
+    showSSENotification('⚙️ ' + message, 'info');
+    
+    // セッション制限状況を更新
+    updateSessionLimitStatus();
+    
+    // 設定フォームの値を更新
+    const maxSessionsInput = document.getElementById('maxConcurrentSessions');
+    const enabledCheckbox = document.getElementById('sessionLimitEnabled');
+    
+    if (maxSessionsInput) maxSessionsInput.value = data.max_sessions;
+    if (enabledCheckbox) enabledCheckbox.checked = data.enabled;
 }
 
 function showSSENotification(message, type = 'info') {
