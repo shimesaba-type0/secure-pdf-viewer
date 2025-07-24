@@ -23,6 +23,7 @@ class PDFViewer {
     initializeElements() {
         // Controls
         this.currentFileNameSpan = document.getElementById('currentFileName');
+        this.firstPageBtn = document.getElementById('firstPageBtn');
         this.prevPageBtn = document.getElementById('prevPage');
         this.nextPageBtn = document.getElementById('nextPage');
         this.pageInput = document.getElementById('pageInput');
@@ -168,6 +169,7 @@ class PDFViewer {
     
     bindEvents() {
         // Page navigation
+        this.firstPageBtn?.addEventListener('click', () => this.goToFirstPage());
         this.prevPageBtn?.addEventListener('click', () => this.previousPage());
         this.nextPageBtn?.addEventListener('click', () => this.nextPage());
         this.pageInput?.addEventListener('change', (e) => this.goToPage(parseInt(e.target.value)));
@@ -409,6 +411,7 @@ class PDFViewer {
     
     updatePageInfo() {
         this.pageInput.value = this.currentPage;
+        this.firstPageBtn.disabled = this.currentPage <= 1;
         this.prevPageBtn.disabled = this.currentPage <= 1;
         this.nextPageBtn.disabled = this.currentPage >= this.totalPages;
         
@@ -422,6 +425,7 @@ class PDFViewer {
     }
     
     enableControls() {
+        this.firstPageBtn.disabled = false;
         this.prevPageBtn.disabled = false;
         this.nextPageBtn.disabled = false;
         this.pageInput.disabled = false;
@@ -429,6 +433,7 @@ class PDFViewer {
     }
     
     disableControls() {
+        this.firstPageBtn.disabled = true;
         this.prevPageBtn.disabled = true;
         this.nextPageBtn.disabled = true;
         this.pageInput.disabled = true;
@@ -444,6 +449,12 @@ class PDFViewer {
     async nextPage() {
         if (this.currentPage < this.totalPages) {
             await this.renderPage(this.currentPage + 1);
+        }
+    }
+    
+    async goToFirstPage() {
+        if (this.totalPages > 0) {
+            await this.renderPage(1);
         }
     }
     
