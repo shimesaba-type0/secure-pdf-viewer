@@ -12,6 +12,10 @@ class PDFViewer {
         this.eventSource = null; // SSE接続
         this.watermarkUpdateInterval = null; // ウォーターマーク更新タイマー
         
+        // レンダリング排他制御
+        this.isRendering = false;
+        this.renderTask = null;
+        
         this.initializeElements();
         this.loadAuthorName();
         this.loadSessionInfo();
@@ -162,6 +166,11 @@ class PDFViewer {
     }
     
     updateWatermarkOnly() {
+        // レンダリング中の場合は更新をスキップ
+        if (this.isRendering) {
+            return;
+        }
+        
         // 現在のページを再レンダリングしてウォーターマークを更新
         if (this.pdfDoc && this.currentPage) {
             this.renderPage(this.currentPage);
@@ -287,6 +296,19 @@ class PDFViewer {
     async renderPage(pageNum) {
         if (!this.pdfDoc) return;
         
+        // 既存のレンダリングタスクをキャンセル
+        if (this.renderTask) {
+            this.renderTask.cancel();
+            this.renderTask = null;
+        }
+        
+        // レンダリング中の場合は新しいレンダリングを拒否
+        if (this.isRendering) {
+            return;
+        }
+        
+        this.isRendering = true;
+        
         try {
             // Get page
             const page = await this.pdfDoc.getPage(pageNum);
@@ -392,7 +414,8 @@ class PDFViewer {
                 viewport: scaledViewport
             };
             
-            await page.render(renderContext).promise;
+            this.renderTask = page.render(renderContext);
+            await this.renderTask.promise;
             
             // Add watermark overlay
             this.addWatermark(this.ctx, scaledViewport.width, scaledViewport.height);
@@ -404,6 +427,10 @@ class PDFViewer {
         } catch (error) {
             console.error('Page rendering failed:', error);
             this.showError('ページの表示に失敗しました: ' + error.message);
+        } finally {
+            // レンダリング完了時にフラグをリセット
+            this.isRendering = false;
+            this.renderTask = null;
         }
     }
     
