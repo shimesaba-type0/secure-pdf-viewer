@@ -29,6 +29,7 @@ class PDFViewer {
         this.pageInput = document.getElementById('pageInput');
         this.pageCount = document.getElementById('pageCount');
         this.fullscreenBtn = document.getElementById('fullscreenBtn');
+        this.reloadPdfBtn = document.getElementById('reloadPdfBtn');
         
         // Container
         this.pdfContainer = document.getElementById('pdfContainer');
@@ -176,6 +177,9 @@ class PDFViewer {
         
         // Fullscreen control
         this.fullscreenBtn?.addEventListener('click', () => this.toggleFullscreen());
+        
+        // PDF reload control
+        this.reloadPdfBtn?.addEventListener('click', () => this.reloadCurrentPDF());
         
         // Mobile fullscreen exit - double tap
         let lastTap = 0;
@@ -430,6 +434,7 @@ class PDFViewer {
         this.nextPageBtn.disabled = false;
         this.pageInput.disabled = false;
         this.fullscreenBtn.disabled = false;
+        this.reloadPdfBtn.disabled = false;
     }
     
     disableControls() {
@@ -438,6 +443,7 @@ class PDFViewer {
         this.nextPageBtn.disabled = true;
         this.pageInput.disabled = true;
         this.fullscreenBtn.disabled = true;
+        this.reloadPdfBtn.disabled = true;
     }
     
     async previousPage() {
@@ -463,6 +469,58 @@ class PDFViewer {
             await this.renderPage(pageNum);
         } else {
             this.pageInput.value = this.currentPage; // Reset to current page
+        }
+    }
+    
+    async reloadCurrentPDF() {
+        if (!this.currentFileName) {
+            this.showError('再読み込みするPDFがありません');
+            return;
+        }
+        
+        try {
+            this.showLoading();
+            console.log('PDF再読み込み開始:', this.currentFileName);
+            
+            // 現在のページ位置を保持
+            const targetPage = this.currentPage;
+            const fileName = this.currentFileName;
+            
+            // PDFを再読み込み
+            const signedUrl = await this.getSignedPdfUrl();
+            console.log('署名付きURL取得結果:', signedUrl);
+            
+            if (signedUrl) {
+                // 既存のPDFをクリア
+                this.pdfDoc = null;
+                this.canvas = null;
+                
+                // Load PDF document directly without using loadPDF to avoid conflicts
+                const loadingTask = pdfjsLib.getDocument(signedUrl);
+                this.pdfDoc = await loadingTask.promise;
+                
+                this.currentFileName = fileName;
+                this.totalPages = this.pdfDoc.numPages;
+                
+                // Update UI
+                this.updateUI();
+                this.enableControls();
+                this.showNavigationHelp();
+                
+                // Ensure container has proper dimensions before rendering
+                await this.waitForContainerReady();
+                
+                // 元のページに戻る（範囲チェック）
+                const pageToRender = Math.min(targetPage, this.totalPages);
+                await this.renderPage(pageToRender);
+                
+                console.log('PDF再読み込み完了, ページ:', pageToRender);
+            } else {
+                throw new Error('署名付きURLの取得に失敗しました');
+            }
+        } catch (error) {
+            console.error('PDF再読み込みエラー:', error);
+            this.showError('PDF再読み込みに失敗しました: ' + error.message);
         }
     }
     
