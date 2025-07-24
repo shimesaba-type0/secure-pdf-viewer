@@ -25,6 +25,12 @@ def get_consistent_hash(text):
     """
     return hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]
 
+def get_db_path():
+    """
+    データベースパスを取得（テスト環境対応）
+    """
+    return app.config.get('DATABASE', 'instance/database.db')
+
 def check_session_limit():
     """
     セッション数制限をチェックする
@@ -32,7 +38,8 @@ def check_session_limit():
         dict: {'allowed': bool, 'current_count': int, 'max_limit': int, 'warning': str}
     """
     try:
-        conn = sqlite3.connect('instance/database.db')
+        # テスト環境では設定されたDATABASEパスを使用
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         
         # 制限機能が有効かチェック
@@ -179,7 +186,7 @@ def check_session_integrity():
     
     # データベースのセッション統計と照合
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # セッションIDがデータベースに存在するかチェック
@@ -251,7 +258,7 @@ def invalidate_all_sessions():
     
     try:
         import sqlite3
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # 全てのセッション統計データを削除
@@ -319,7 +326,7 @@ def cleanup_expired_sessions():
     """
     try:
         import sqlite3
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # 72時間以上古いセッション統計データを削除
@@ -482,7 +489,7 @@ pdf_security = PDFURLSecurity()
 def auto_unpublish_all_pdfs():
     """指定時刻に全てのPDFの公開を停止する"""
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # 全てのPDFを非公開にする
@@ -534,7 +541,7 @@ def schedule_auto_unpublish(end_datetime):
 def restore_scheduled_unpublish():
     """アプリ起動時に既存の公開終了設定を復元"""
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         publish_end_str = get_setting(conn, 'publish_end', None)
         conn.close()
         
@@ -561,7 +568,7 @@ restore_scheduled_unpublish()
 def check_and_handle_expired_publish():
     """フォールバック: アクセス時に公開終了時刻をチェック"""
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         publish_end_str = get_setting(conn, 'publish_end', None)
         conn.close()
         
@@ -636,7 +643,7 @@ def login():
         password = request.form.get('password')
         
         # パスフレーズ認証を実行
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         passphrase_manager = PassphraseManager(conn)
         
         try:
@@ -693,7 +700,7 @@ def email_input():
         
         try:
             # データベース接続
-            conn = sqlite3.connect('instance/database.db')
+            conn = sqlite3.connect(get_db_path())
             conn.row_factory = sqlite3.Row
             
             # OTP生成（6桁）
@@ -774,7 +781,7 @@ def verify_otp():
         
         try:
             # データベース接続
-            conn = sqlite3.connect('instance/database.db')
+            conn = sqlite3.connect(get_db_path())
             conn.row_factory = sqlite3.Row
             
             # 有効なOTPを検索
@@ -880,7 +887,7 @@ def resend_otp():
     
     try:
         # データベース接続
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         
         # OTP生成（6桁）
@@ -1091,7 +1098,7 @@ def session_detail(session_id):
         return session_check
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # セッション情報を取得
@@ -1119,7 +1126,7 @@ def session_detail(session_id):
         
         # フォールバック用のメールアドレス取得
         if not stored_email_address:
-            conn = sqlite3.connect('instance/database.db')
+            conn = sqlite3.connect(get_db_path())
             cursor = conn.cursor()
             cursor.execute('SELECT DISTINCT email FROM otp_tokens ORDER BY created_at DESC')
             emails = cursor.fetchall()
@@ -1217,7 +1224,7 @@ def delete_pdf(pdf_id):
     
     try:
         # Get file info from database
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -1247,7 +1254,7 @@ def publish_pdf(pdf_id):
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # Check if PDF exists
@@ -1292,7 +1299,7 @@ def unpublish_pdf(pdf_id):
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # Unpublish the PDF
@@ -1333,7 +1340,7 @@ def update_passphrase():
         return redirect(url_for('admin'))
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         passphrase_manager = PassphraseManager(conn)
         
         # パスフレーズを更新
@@ -1368,7 +1375,7 @@ def update_author():
         return redirect(url_for('admin'))
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         set_setting(conn, 'author_name', author_name, 'admin')
         conn.commit()
         conn.close()
@@ -1387,7 +1394,7 @@ def update_publish_end():
     publish_end_datetime = request.form.get('publish_end_datetime', '').strip()
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         
         if publish_end_datetime:
             # Convert datetime-local format to JST aware datetime
@@ -1452,7 +1459,7 @@ def update_session_limits():
             flash('同時接続数制限は数値で入力してください')
             return redirect(url_for('admin'))
         
-        conn = sqlite3.connect('database/secure_pdf.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         
         # 設定を更新
@@ -1487,7 +1494,7 @@ def get_session_limit_status():
         return jsonify({'error': 'Unauthorized'}), 401
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         
         # 現在のアクティブセッション数を取得
@@ -1558,7 +1565,7 @@ def emergency_stop():
         # Step 1: 全PDF公開停止（既存関数を使用）
         try:
             # 現在公開中のPDF数を事前に取得
-            conn = sqlite3.connect('instance/database.db')
+            conn = sqlite3.connect(get_db_path())
             cursor = conn.cursor()
             cursor.execute('SELECT COUNT(*) FROM pdf_files WHERE is_published = TRUE')
             unpublished_pdfs = cursor.fetchone()[0]
@@ -1676,7 +1683,7 @@ def schedule_session_invalidation():
                 return redirect(url_for('admin'))
             
             # データベースに設定を保存（秒まで含む完全な日時文字列）
-            conn = sqlite3.connect('instance/database.db')
+            conn = sqlite3.connect(get_db_path())
             set_setting(conn, 'scheduled_invalidation_datetime', complete_datetime_str, 'admin')
             conn.commit()
             conn.close()
@@ -1713,7 +1720,7 @@ def clear_session_invalidation_schedule():
     
     try:
         # データベースから設定を削除
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         cursor.execute("DELETE FROM settings WHERE key = ?", ('scheduled_invalidation_datetime',))
         deleted_rows = cursor.rowcount
@@ -1759,7 +1766,7 @@ def generate_pdf_url():
             return jsonify({'error': 'セッションIDが見つかりません'}), 400
         
         # データベース接続を取得して署名付きURLを生成
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         
         try:
             url_result = pdf_security.generate_signed_url(
@@ -1820,7 +1827,7 @@ def get_active_sessions():
         return session_check
     
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # session_timeout設定値を取得
@@ -1935,7 +1942,7 @@ def update_session_memo():
         if len(memo) > 500:
             return jsonify({'error': 'メモは500文字以内で入力してください'}), 400
         
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # セッションが存在するかチェック
@@ -2144,7 +2151,7 @@ def allowed_file(filename):
 
 def get_pdf_files():
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -2265,7 +2272,7 @@ def format_file_size(size_bytes):
 def get_published_pdf():
     """Get the currently published PDF file"""
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -2297,7 +2304,7 @@ def initialize_scheduled_tasks():
     アプリ起動時に設定済みのスケジュールタスクを復元
     """
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         
         # セッション無効化スケジュールの復元（新形式）
         scheduled_datetime = get_setting(conn, 'session_invalidation_datetime', None)
@@ -2343,7 +2350,7 @@ initialize_scheduled_tasks()
 def cleanup_expired_schedules():
     """期限切れのスケジュール設定をクリーンアップ"""
     try:
-        conn = sqlite3.connect('instance/database.db')
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         
         # 期限切れの設定を取得

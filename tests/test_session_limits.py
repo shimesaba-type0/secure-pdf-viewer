@@ -36,8 +36,12 @@ class TestSessionLimits(unittest.TestCase):
         app.app.config['DATABASE'] = self.db_path
         self.client = app.app.test_client()
         
-        # データベース初期化
-        init_db()
+        # テスト用データベースを直接初期化
+        from database.models import create_tables, insert_initial_data
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row  # 辞書形式でアクセス可能
+            create_tables(conn)
+            insert_initial_data(conn)
     
     def tearDown(self):
         """テストケース毎のクリーンアップ"""

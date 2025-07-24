@@ -942,8 +942,9 @@ function saveMemo(sessionId) {
 }
 
 function viewSessionDetails(sessionId) {
-    // セッション詳細画面への遷移（今後実装予定）
-    alert(`セッション詳細: ${sessionId}\n詳細画面は今後実装予定です`);
+    // セッション詳細ページへ遷移
+    const detailUrl = `/admin/sessions/${sessionId}`;
+    window.open(detailUrl, '_blank');
 }
 
 function showNotification(message, type = 'info') {
