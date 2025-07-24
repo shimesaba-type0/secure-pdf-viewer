@@ -28,17 +28,32 @@ Use different canvas or ensure previous operations were cancelled or completed.
    - 完了後の再開制御
 
 ## ✅ 完了条件
-- [ ] canvas競合エラーの解消
-- [ ] PDF再読み込み処理の安定化
-- [ ] ウォーターマーク更新機能の正常動作
+- [x] canvas競合エラーの解消
+- [x] PDF再読み込み処理の安定化
+- [x] ウォーターマーク更新機能の正常動作
 
 ## 🔧 実装場所
-- `static/js/pdf-viewer.js:158-168` (ウォーターマーク更新)
-- `static/js/pdf-viewer.js:390-408` (ページレンダリング)
+- `static/js/pdf-viewer.js:15-17` (排他制御変数追加)
+- `static/js/pdf-viewer.js:169-171` (ウォーターマーク更新競合回避)
+- `static/js/pdf-viewer.js:299-310` (レンダリング排他制御)
+- `static/js/pdf-viewer.js:417-418` (renderTask管理)
+- `static/js/pdf-viewer.js:431-434` (リソースクリーンアップ)
+
+## 🛠️ 実装内容
+### レンダリング排他制御の実装
+- `isRendering`フラグによる重複実行防止
+- `renderTask`による既存レンダリングタスクの管理・キャンセル
+- レンダリング中のウォーターマーク更新スキップ機能
+
+### 技術仕様
+- **排他制御**: `isRendering`フラグによる単一レンダリング保証
+- **タスク管理**: `renderTask.cancel()`による既存処理のキャンセル  
+- **リソース管理**: `finally`ブロックでのフラグ・タスクリセット
 
 ## 🚨 優先度
 **HIGH** - ユーザビリティに直接影響
 
 ## 📅 ステータス
 - **作成日**: 2025-07-24
-- **状態**: Open
+- **完了日**: 2025-07-24
+- **状態**: Completed
