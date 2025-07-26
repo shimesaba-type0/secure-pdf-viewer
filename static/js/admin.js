@@ -23,6 +23,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // セッション管理機能を初期化
     initializeSessionManagement();
     
+    // PDF セキュリティ設定機能を初期化
+    initializePdfSecuritySettings();
+    
 
     if (fileInput) {
         // File input change event
@@ -1084,5 +1087,269 @@ function emergencyStop() {
             originalBtn.style.opacity = '1';
         }
     });
+}
+
+// PDF セキュリティ設定機能
+function initializePdfSecuritySettings() {
+    console.log('PDF セキュリティ設定機能を初期化中...');
+    
+    // 設定を読み込む
+    loadPdfSecuritySettings();
+    
+    // 機能有効/無効の切り替え
+    const enabledCheckbox = document.getElementById('pdfPreventionEnabled');
+    if (enabledCheckbox) {
+        enabledCheckbox.addEventListener('change', function() {
+            const detailsSection = document.getElementById('pdfSettingsDetails');
+            if (this.checked) {
+                detailsSection.style.display = 'block';
+            } else {
+                detailsSection.style.display = 'none';
+            }
+            updatePdfPreventionStatus();
+        });
+    }
+    
+    // リアルタイム検証
+    const domainsTextarea = document.getElementById('allowedReferrerDomains');
+    if (domainsTextarea) {
+        domainsTextarea.addEventListener('input', debounce(validatePdfSettings, 500));
+    }
+}
+
+function loadPdfSecuritySettings() {
+    console.log('PDF セキュリティ設定を読み込み中...');
+    
+    fetch('/admin/api/pdf-security-settings')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const settings = data.settings;
+                
+                // 各設定値をフォームに反映
+                document.getElementById('pdfPreventionEnabled').checked = settings.enabled || false;
+                
+                // 許可ドメインの処理（文字列または配列に対応）
+                let allowedDomains = settings.allowed_referrer_domains;
+                if (typeof allowedDomains === 'string') {
+                    allowedDomains = allowedDomains.split(',').map(d => d.trim()).filter(d => d);
+                }
+                document.getElementById('allowedReferrerDomains').value = 
+                    Array.isArray(allowedDomains) ? allowedDomains.join(', ') : allowedDomains || '';
+                
+                // ブロックUA の処理（文字列または配列に対応）
+                let blockedAgents = settings.blocked_user_agents;
+                if (typeof blockedAgents === 'string') {
+                    blockedAgents = blockedAgents.split(',').map(a => a.trim()).filter(a => a);
+                }
+                document.getElementById('blockedUserAgents').value = 
+                    Array.isArray(blockedAgents) ? blockedAgents.join(', ') : blockedAgents || '';
+                
+                document.getElementById('pdfStrictMode').checked = settings.strict_mode || false;
+                document.getElementById('pdfUserAgentCheckEnabled').checked = settings.user_agent_check_enabled !== false;
+                document.getElementById('pdfLogBlockedAttempts').checked = settings.log_blocked_attempts !== false;
+                
+                // 現在の設定表示を更新
+                updateCurrentSettingsDisplay(allowedDomains, blockedAgents);
+                
+                // 詳細セクションの表示/非表示
+                const detailsSection = document.getElementById('pdfSettingsDetails');
+                if (settings.enabled) {
+                    detailsSection.style.display = 'block';
+                } else {
+                    detailsSection.style.display = 'none';
+                }
+                
+                updatePdfPreventionStatus();
+                showPdfMessage('設定を読み込みました', 'success');
+            } else {
+                showPdfMessage('設定の読み込みに失敗しました: ' + data.error, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('PDF設定読み込みエラー:', error);
+            showPdfMessage('設定の読み込み中にエラーが発生しました', 'error');
+        });
+}
+
+function savePdfSecuritySettings() {
+    console.log('PDF セキュリティ設定を保存中...');
+    
+    const settings = {
+        enabled: document.getElementById('pdfPreventionEnabled').checked,
+        allowed_referrer_domains: document.getElementById('allowedReferrerDomains').value,
+        blocked_user_agents: document.getElementById('blockedUserAgents').value,
+        strict_mode: document.getElementById('pdfStrictMode').checked,
+        user_agent_check_enabled: document.getElementById('pdfUserAgentCheckEnabled').checked,
+        log_blocked_attempts: document.getElementById('pdfLogBlockedAttempts').checked
+    };
+    
+    fetch('/admin/api/pdf-security-settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showPdfMessage('設定を保存しました', 'success');
+            updatePdfPreventionStatus();
+            // 設定保存後に再読込して表示を更新
+            loadPdfSecuritySettings();
+        } else {
+            let errorMsg = data.error;
+            if (data.details && Array.isArray(data.details)) {
+                errorMsg += '\n詳細: ' + data.details.join(', ');
+            }
+            showPdfMessage('設定の保存に失敗しました: ' + errorMsg, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('PDF設定保存エラー:', error);
+        showPdfMessage('設定の保存中にエラーが発生しました', 'error');
+    });
+}
+
+function validatePdfSettings() {
+    console.log('PDF設定を検証中...');
+    
+    const domains = document.getElementById('allowedReferrerDomains').value;
+    
+    fetch('/admin/api/pdf-security-validate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            allowed_referrer_domains: domains
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const validation = data.validation;
+            const validationDiv = document.getElementById('domainValidation');
+            
+            if (validation.valid) {
+                validationDiv.innerHTML = '<span style="color: green;">✅ 設定は有効です</span>';
+                if (validation.warnings && validation.warnings.length > 0) {
+                    validationDiv.innerHTML += '<br><span style="color: orange;">⚠️ 警告: ' + 
+                        validation.warnings.join(', ') + '</span>';
+                }
+            } else {
+                validationDiv.innerHTML = '<span style="color: red;">❌ エラー: ' + 
+                    validation.errors.join(', ') + '</span>';
+            }
+        } else {
+            showPdfMessage('検証中にエラーが発生しました: ' + data.error, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('PDF設定検証エラー:', error);
+        showPdfMessage('検証中にエラーが発生しました', 'error');
+    });
+}
+
+function updatePdfPreventionStatus() {
+    const enabled = document.getElementById('pdfPreventionEnabled').checked;
+    const statusElement = document.getElementById('pdfPreventionStatus');
+    
+    if (enabled) {
+        statusElement.textContent = '有効';
+        statusElement.style.color = 'green';
+        statusElement.style.fontWeight = 'bold';
+    } else {
+        statusElement.textContent = '無効';
+        statusElement.style.color = 'red';
+        statusElement.style.fontWeight = 'bold';
+    }
+}
+
+function updateCurrentSettingsDisplay(allowedDomains, blockedAgents) {
+    // 許可ドメインの表示
+    const currentDomainsElement = document.getElementById('currentAllowedDomains');
+    if (currentDomainsElement) {
+        if (Array.isArray(allowedDomains) && allowedDomains.length > 0) {
+            let displayHtml = '<ul class="setting-list">';
+            allowedDomains.forEach(domain => {
+                let type = getDomainType(domain);
+                displayHtml += `<li><span class="domain-type">[${type}]</span> <code>${domain}</code></li>`;
+            });
+            displayHtml += '</ul>';
+            currentDomainsElement.innerHTML = displayHtml;
+        } else {
+            currentDomainsElement.innerHTML = '<span class="no-setting">設定なし</span>';
+        }
+    }
+    
+    // ブロックUser-Agentの表示
+    const currentAgentsElement = document.getElementById('currentBlockedAgents');
+    if (currentAgentsElement) {
+        if (Array.isArray(blockedAgents) && blockedAgents.length > 0) {
+            let displayHtml = '<ul class="setting-list">';
+            blockedAgents.forEach(agent => {
+                displayHtml += `<li><code>${agent}</code></li>`;
+            });
+            displayHtml += '</ul>';
+            currentAgentsElement.innerHTML = displayHtml;
+        } else {
+            currentAgentsElement.innerHTML = '<span class="no-setting">設定なし</span>';
+        }
+    }
+}
+
+function getDomainType(domain) {
+    if (!domain) return '不明';
+    
+    // CIDR記法
+    if (domain.includes('/')) {
+        return 'CIDR';
+    }
+    
+    // IP範囲
+    if (domain.includes('-')) {
+        return 'IP範囲';
+    }
+    
+    // IPアドレスかチェック
+    const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (ipPattern.test(domain)) {
+        return 'IP';
+    }
+    
+    // サブドメイン許可
+    if (domain.startsWith('.')) {
+        return 'サブドメイン';
+    }
+    
+    // 通常のドメイン
+    return 'ドメイン';
+}
+
+function showPdfMessage(message, type) {
+    const messageContainer = document.getElementById('pdfSettingsMessage');
+    const className = type === 'success' ? 'message-success' : 'message-error';
+    
+    messageContainer.innerHTML = `<div class="${className}">${message}</div>`;
+    
+    // 3秒後に消去
+    setTimeout(() => {
+        messageContainer.innerHTML = '';
+    }, 3000);
+}
+
+// デバウンス関数（入力中の連続実行を防ぐ）
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 

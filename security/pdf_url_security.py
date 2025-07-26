@@ -193,7 +193,7 @@ class PDFURLSecurity:
         
         return result['signed_url']
     
-    def log_pdf_access(self, filename, session_id, ip_address, success=True, error_message=None):
+    def log_pdf_access(self, filename, session_id, ip_address, success=True, error_message=None, referer=None, user_agent=None):
         """
         PDFアクセスログを記録する
         
@@ -203,6 +203,8 @@ class PDFURLSecurity:
             ip_address (str): IPアドレス
             success (bool): 成功/失敗
             error_message (str): エラーメッセージ（失敗時）
+            referer (str): Referrerヘッダー（オプション）
+            user_agent (str): User-Agentヘッダー（オプション）
         """
         try:
             import sqlite3
@@ -218,16 +220,29 @@ class PDFURLSecurity:
                     ip_address TEXT,
                     success BOOLEAN NOT NULL,
                     error_message TEXT,
+                    referer TEXT,
+                    user_agent TEXT,
                     access_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
+            # 既存テーブルに新しいカラムを追加（存在しない場合）
+            try:
+                cursor.execute('ALTER TABLE pdf_access_logs ADD COLUMN referer TEXT')
+            except:
+                pass  # カラムが既に存在する場合
+            
+            try:
+                cursor.execute('ALTER TABLE pdf_access_logs ADD COLUMN user_agent TEXT')
+            except:
+                pass  # カラムが既に存在する場合
+            
             # ログ記録
             cursor.execute('''
                 INSERT INTO pdf_access_logs 
-                (filename, session_id, ip_address, success, error_message)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (filename, session_id, ip_address, success, error_message))
+                (filename, session_id, ip_address, success, error_message, referer, user_agent)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (filename, session_id, ip_address, success, error_message, referer, user_agent))
             
             conn.commit()
             conn.close()

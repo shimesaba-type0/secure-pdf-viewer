@@ -6,9 +6,12 @@ import pytz
 from werkzeug.utils import secure_filename
 import sqlite3
 import hashlib
+import logging
+from logging.handlers import RotatingFileHandler
 from database.models import get_setting, set_setting
 from auth.passphrase import PassphraseManager
 from security.pdf_url_security import PDFURLSecurity
+from config.pdf_security_settings import get_pdf_security_config, initialize_pdf_security_settings, is_referrer_allowed, set_pdf_security_config, validate_allowed_domains
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import json
@@ -246,6 +249,121 @@ def require_valid_session():
     
     return None
 
+def _check_pdf_download_prevention(filename, session_id, client_ip):
+    """
+    PDF直接ダウンロード防止チェック
+    
+    Args:
+        filename (str): PDFファイル名
+        session_id (str): セッションID
+        client_ip (str): クライアントIP
+    
+    Returns:
+        Response: 拒否時のレスポンス、正常時はNone
+    """
+    # データベースから設定を取得
+    pdf_config = get_pdf_security_config()
+    
+    # 機能が無効化されている場合はスキップ
+    if not pdf_config.get('enabled', True):
+        return None
+    
+    # Referrerヘッダーチェック
+    referer = request.headers.get('Referer', '')
+    if not referer:
+        error_msg = 'Access denied: Invalid referrer (missing)'
+        print(f"PDF access denied: {error_msg} (IP: {client_ip}, Session: {session_id})")
+        
+        if pdf_config.get('log_blocked_attempts', True):
+            pdf_security.log_pdf_access(
+                filename=filename,
+                session_id=session_id,
+                ip_address=client_ip,
+                success=False,
+                error_message='invalid_referrer',
+                referer='NONE',
+                user_agent=request.headers.get('User-Agent', 'NONE')
+            )
+        
+        return jsonify({'error': error_msg}), 403
+    
+    # 許可されたドメインのチェック（IP範囲対応）
+    allowed_domains_raw = pdf_config.get('allowed_referrer_domains', 'localhost,127.0.0.1')
+    if isinstance(allowed_domains_raw, str):
+        allowed_domains = [domain.strip() for domain in allowed_domains_raw.split(',') if domain.strip()]
+    else:
+        allowed_domains = allowed_domains_raw if isinstance(allowed_domains_raw, list) else ['localhost', '127.0.0.1']
+    
+    # 現在のホストも許可リストに追加
+    if request.host not in allowed_domains:
+        allowed_domains.append(request.host)
+    
+    if not is_referrer_allowed(referer, allowed_domains):
+        error_msg = f'Access denied: Invalid referrer ({referer})'
+        print(f"PDF access denied: {error_msg} (IP: {client_ip}, Session: {session_id})")
+        
+        if pdf_config.get('log_blocked_attempts', True):
+            pdf_security.log_pdf_access(
+                filename=filename,
+                session_id=session_id,
+                ip_address=client_ip,
+                success=False,
+                error_message='invalid_referrer',
+                referer=referer,
+                user_agent=request.headers.get('User-Agent', 'NONE')
+            )
+        
+        return jsonify({'error': 'Access denied: Invalid referrer'}), 403
+    
+    # User-Agentヘッダーチェック（設定で有効な場合のみ）
+    if pdf_config.get('user_agent_check_enabled', True):
+        user_agent = request.headers.get('User-Agent', '')
+        if not user_agent:
+            error_msg = 'Access denied: Invalid client (missing user agent)'
+            print(f"PDF access denied: {error_msg} (IP: {client_ip}, Session: {session_id})")
+            
+            if pdf_config.get('log_blocked_attempts', True):
+                pdf_security.log_pdf_access(
+                    filename=filename,
+                    session_id=session_id,
+                    ip_address=client_ip,
+                    success=False,
+                    error_message='blocked_user_agent',
+                    referer=referer,
+                    user_agent='NONE'
+                )
+            
+            return jsonify({'error': 'Access denied: Invalid client'}), 403
+        
+        # ブロックされるUser-Agentのチェック
+        blocked_agents_raw = pdf_config.get('blocked_user_agents', 
+            'wget,curl,python-requests,urllib,httpx,aiohttp,Guzzle,cURL-PHP,Java/,Apache-HttpClient,OkHttp,node-fetch,axios,got,HttpClient,.NET Framework,Go-http-client,Ruby,faraday,httparty,reqwest,ureq,libcurl')
+        if isinstance(blocked_agents_raw, str):
+            blocked_agents = [agent.strip() for agent in blocked_agents_raw.split(',') if agent.strip()]
+        else:
+            blocked_agents = blocked_agents_raw if isinstance(blocked_agents_raw, list) else []
+        
+        for blocked_agent in blocked_agents:
+            if blocked_agent.lower() in user_agent.lower():
+                error_msg = f'Access denied: Blocked user agent ({user_agent})'
+                print(f"PDF access denied: {error_msg} (IP: {client_ip}, Session: {session_id})")
+                
+                if pdf_config.get('log_blocked_attempts', True):
+                    pdf_security.log_pdf_access(
+                        filename=filename,
+                        session_id=session_id,
+                        ip_address=client_ip,
+                        success=False,
+                        error_message='blocked_user_agent',
+                        referer=referer,
+                        user_agent=user_agent
+                    )
+                
+                return jsonify({'error': 'Access denied: Invalid client'}), 403
+    
+    # すべてのチェックをパス
+    return None
+
 def invalidate_all_sessions():
     """
     全てのセッションを無効化する独立関数
@@ -455,6 +573,19 @@ app = Flask(__name__, static_folder='static')
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'dev-secret-key-change-this')
 app.config['UPLOAD_FOLDER'] = 'static/pdfs'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+# ログ設定
+if not os.path.exists('logs'):
+    os.makedirs('logs')
+
+# ログファイルの設定（ローテーション付き）
+file_handler = RotatingFileHandler('logs/app.log', maxBytes=10*1024*1024, backupCount=5)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+))
+file_handler.setLevel(logging.INFO)
+app.logger.addHandler(file_handler)
+app.logger.setLevel(logging.INFO)
 
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -1971,6 +2102,93 @@ def update_session_memo():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/admin/api/pdf-security-settings', methods=['GET'])
+def get_pdf_security_settings():
+    """PDF セキュリティ設定を取得"""
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        config = get_pdf_security_config()
+        return jsonify({
+            'success': True,
+            'settings': config
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/api/pdf-security-settings', methods=['POST'])
+def update_pdf_security_settings():
+    """PDF セキュリティ設定を更新"""
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        data = request.get_json()
+        
+        # 入力検証
+        if 'allowed_referrer_domains' in data:
+            domains = data['allowed_referrer_domains']
+            if isinstance(domains, str):
+                # 文字列の場合はカンマ区切りで分割
+                domains = [d.strip() for d in domains.split(',') if d.strip()]
+                data['allowed_referrer_domains'] = domains
+            
+            # ドメインリストの妥当性チェック
+            validation = validate_allowed_domains(domains)
+            if not validation['valid']:
+                return jsonify({
+                    'error': '不正な設定値が含まれています',
+                    'details': validation['errors']
+                }), 400
+        
+        if 'blocked_user_agents' in data:
+            agents = data['blocked_user_agents']
+            if isinstance(agents, str):
+                # 文字列の場合はカンマ区切りで分割
+                agents = [a.strip() for a in agents.split(',') if a.strip()]
+                data['blocked_user_agents'] = agents
+        
+        # 設定を更新
+        success = set_pdf_security_config(data, 'admin_web')
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'PDF セキュリティ設定を更新しました'
+            })
+        else:
+            return jsonify({'error': '設定の更新に失敗しました'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/api/pdf-security-validate', methods=['POST'])
+def validate_pdf_security_settings():
+    """PDF セキュリティ設定の妥当性チェック"""
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    try:
+        data = request.get_json()
+        domains = data.get('allowed_referrer_domains', [])
+        
+        if isinstance(domains, str):
+            domains = [d.strip() for d in domains.split(',') if d.strip()]
+        
+        validation = validate_allowed_domains(domains)
+        
+        return jsonify({
+            'success': True,
+            'validation': validation
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/secure/pdf/<token>')
 def secure_pdf_delivery(token):
     """セキュアなPDF配信エンドポイント"""
@@ -2022,6 +2240,11 @@ def secure_pdf_delivery(token):
             
             return jsonify({'error': 'セッション不一致によりアクセスが拒否されました'}), 403
         
+        # PDF直接ダウンロード防止チェック
+        prevention_check = _check_pdf_download_prevention(filename, current_session_id, client_ip)
+        if prevention_check:
+            return prevention_check
+        
         # ファイルの存在確認
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if not os.path.exists(file_path):
@@ -2048,7 +2271,9 @@ def secure_pdf_delivery(token):
             filename=filename,
             session_id=current_session_id,
             ip_address=client_ip,
-            success=True
+            success=True,
+            referer=request.headers.get('Referer', 'NONE'),
+            user_agent=request.headers.get('User-Agent', 'NONE')
         )
         
         print(f"PDF access granted: {filename} (IP: {client_ip}, Session: {current_session_id})")
@@ -2072,15 +2297,23 @@ def secure_pdf_delivery(token):
                 'Expires': '0',
                 'X-Content-Type-Options': 'nosniff',
                 'X-Frame-Options': 'DENY',
-                'Referrer-Policy': 'no-referrer'
+                'Referrer-Policy': 'no-referrer',
+                'Content-Security-Policy': "frame-ancestors 'self'",
+                'X-Robots-Tag': 'noindex, nofollow, nosnippet, noarchive'
             }
         )
         
         return response
         
     except Exception as e:
+        import traceback
         error_msg = f'PDF配信エラー: {str(e)}'
+        app.logger.error(f"PDF delivery error: {error_msg} (IP: {client_ip}, Session: {current_session_id})")
+        app.logger.error("Full traceback:")
+        app.logger.error(traceback.format_exc())
         print(f"PDF delivery error: {error_msg} (IP: {client_ip}, Session: {current_session_id})")
+        print("Full traceback:")
+        traceback.print_exc()
         
         pdf_security.log_pdf_access(
             filename='ERROR',
@@ -2384,5 +2617,10 @@ def cleanup_expired_schedules():
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ
     cleanup_expired_schedules()
+    
+    # PDF セキュリティ設定の初期化
+    print("PDF セキュリティ設定を初期化中...")
+    initialize_pdf_security_settings()
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
 
