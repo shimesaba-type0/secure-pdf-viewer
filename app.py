@@ -2997,16 +2997,12 @@ def blocked():
         blocked_until_utc = datetime.strptime(block_info['blocked_until'], '%Y-%m-%d %H:%M:%S')
         blocked_until_jst = pytz.utc.localize(blocked_until_utc).astimezone(JST)
         
-        blocked_since_utc = datetime.strptime(block_info['created_at'], '%Y-%m-%d %H:%M:%S')
-        blocked_since_jst = pytz.utc.localize(blocked_since_utc).astimezone(JST)
-        
         conn.close()
         
         return render_template('blocked.html',
             failure_count=failure_count,
             block_reason=block_info['reason'],
             blocked_until_jst=blocked_until_jst.strftime('%Y年%m月%d日 %H:%M:%S'),
-            blocked_since_jst=blocked_since_jst.strftime('%Y年%m月%d日 %H:%M:%S'),
             incident_id=incident_id
         )
         
@@ -3016,9 +3012,29 @@ def blocked():
             failure_count=5,
             block_reason="認証失敗回数が制限値に達しました",
             blocked_until_jst="不明",
-            blocked_since_jst="不明",
             incident_id=None
         )
+
+@app.route('/blocked/demo')
+def blocked_demo():
+    """開発者用：ブロック画面のデモ表示"""
+    # 開発環境でのみ利用可能
+    if not app.debug:
+        return redirect(url_for('login'))
+    
+    # サンプルデータでブロック画面を表示
+    from datetime import datetime, timedelta
+    import pytz
+    
+    now_jst = datetime.now(JST)
+    blocked_until = now_jst + timedelta(minutes=25)  # 25分後に解除
+    
+    return render_template('blocked.html',
+        failure_count=5,
+        block_reason="レート制限に達しました: 10分間で5回の認証失敗",
+        blocked_until_jst=blocked_until.strftime('%Y年%m月%d日 %H:%M:%S'),
+        incident_id="BLOCK-20250726140530-A4B2"
+    )
 
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ

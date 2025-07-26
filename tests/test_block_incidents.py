@@ -83,7 +83,7 @@ class TestBlockIncidentManager:
         
         manager = BlockIncidentManager(temp_db)
         test_ip = "192.168.1.101"
-        reason = "Rate limit exceeded: 5 failures in 10 minutes"
+        reason = "レート制限に達しました: 10分間で5回の認証失敗"
         
         # インシデント作成
         incident_id = manager.create_incident(test_ip, reason)

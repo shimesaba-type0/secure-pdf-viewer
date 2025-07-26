@@ -20,7 +20,7 @@ def is_ip_blocked(db, ip_address):
     
     return row is not None
 
-def block_ip(db, ip_address, duration_seconds, reason="Rate limit exceeded"):
+def block_ip(db, ip_address, duration_seconds, reason="レート制限に達しました"):
     """IPアドレスをブロック"""
     blocked_until = datetime.utcnow() + timedelta(seconds=duration_seconds)
     
@@ -207,7 +207,7 @@ class RateLimitManager:
         if failure_count >= self.failure_threshold:
             self.apply_ip_block(
                 ip_address, 
-                f"Rate limit exceeded: {failure_count} failures in {self.time_window_minutes} minutes",
+                f"レート制限に達しました: {self.time_window_minutes}分間で{failure_count}回の認証失敗",
                 self.block_duration_minutes
             )
             return True
