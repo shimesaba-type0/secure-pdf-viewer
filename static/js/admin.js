@@ -26,6 +26,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // PDF セキュリティ設定機能を初期化
     initializePdfSecuritySettings();
     
+    // レート制限管理機能を初期化
+    initializeRateLimitManagement();
+    
+    // インシデント管理機能を初期化
+    initializeIncidentManagement();
+    
 
     if (fileInput) {
         // File input change event
@@ -1351,5 +1357,420 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+}
+
+// レート制限管理機能
+let rateLimitAutoRefreshInterval;
+
+function initializeRateLimitManagement() {
+    console.log('Initializing rate limit management');
+    
+    // 初期データロード
+    loadRateLimitStats();
+    loadBlockedIpsList();
+    
+    // 自動更新を開始
+    startAutoRefreshBlockedIps();
+}
+
+function loadRateLimitStats() {
+    fetch('/admin/rate-limit-stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateRateLimitStats(data.stats);
+            } else {
+                console.error('Failed to load rate limit stats:', data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading rate limit stats:', error);
+        });
+}
+
+function updateRateLimitStats(stats) {
+    // 統計情報を更新
+    document.getElementById('activeBlocksCount').textContent = stats.active_blocks_count || 0;
+    document.getElementById('todayFailuresCount').textContent = stats.today_failures_count || 0;
+    document.getElementById('todayBlocksCount').textContent = stats.today_blocks_count || 0;
+    
+    // 設定情報を更新
+    const settings = stats.current_settings || {};
+    document.getElementById('failureThreshold').textContent = settings.failure_threshold || '-';
+    document.getElementById('timeWindow').textContent = settings.time_window_minutes || '-';
+    document.getElementById('blockDuration').textContent = settings.block_duration_minutes || '-';
+}
+
+function loadBlockedIpsList() {
+    fetch('/admin/blocked-ips')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateBlockedIpsTable(data.blocked_ips);
+            } else {
+                console.error('Failed to load blocked IPs:', data.error);
+                updateBlockedIpsTable([]);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading blocked IPs:', error);
+            updateBlockedIpsTable([]);
+        });
+}
+
+function updateBlockedIpsTable(blockedIps) {
+    const tbody = document.getElementById('blockedIpsTableBody');
+    
+    if (!blockedIps || blockedIps.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="no-data">制限されているIPアドレスはありません</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = blockedIps.map(ip => {
+        const isActive = ip.is_active;
+        const statusClass = isActive ? 'status-active' : 'status-expired';
+        const statusText = isActive ? 'アクティブ' : '期限切れ';
+        
+        // 時刻のフォーマット
+        const createdAt = formatDateTime(ip.created_at);
+        const blockedUntil = formatDateTime(ip.blocked_until);
+        
+        return `
+            <tr class="${isActive ? '' : 'expired-row'}">
+                <td class="ip-address">${escapeHtml(ip.ip_address)}</td>
+                <td class="reason" title="${escapeHtml(ip.reason)}">${truncateText(ip.reason, 30)}</td>
+                <td class="datetime">${createdAt}</td>
+                <td class="datetime">${blockedUntil}</td>
+                <td class="status">
+                    <span class="status-badge ${statusClass}">${statusText}</span>
+                </td>
+                <td class="failure-count">${ip.recent_failures || 0}</td>
+                <td class="actions">
+                    ${isActive ? `
+                        <button type="button" class="btn btn-sm btn-warning" 
+                                onclick="unblockIp('${escapeHtml(ip.ip_address)}')"
+                                title="制限を解除">
+                            🔓 解除
+                        </button>
+                    ` : `
+                        <span class="text-muted">期限切れ</span>
+                    `}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function unblockIp(ipAddress) {
+    if (!confirm(`IP ${ipAddress} の制限を解除しますか？`)) {
+        return;
+    }
+    
+    fetch('/admin/unblock-ip', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            ip_address: ipAddress
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showRateLimitMessage(data.message, 'success');
+            // データを再読み込み
+            loadRateLimitStats();
+            loadBlockedIpsList();
+        } else {
+            showRateLimitMessage(data.error || 'IP制限解除に失敗しました', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error unblocking IP:', error);
+        showRateLimitMessage('ネットワークエラーが発生しました', 'error');
+    });
+}
+
+function refreshBlockedIpsList() {
+    console.log('Refreshing blocked IPs list');
+    loadRateLimitStats();
+    loadBlockedIpsList();
+}
+
+function showRateLimitStats() {
+    // 詳細統計表示（将来の拡張用）
+    console.log('Showing detailed rate limit stats');
+    loadRateLimitStats();
+}
+
+function toggleAutoRefreshBlockedIps() {
+    const checkbox = document.getElementById('autoRefreshBlockedIpsCheckbox');
+    if (checkbox.checked) {
+        startAutoRefreshBlockedIps();
+    } else {
+        stopAutoRefreshBlockedIps();
+    }
+}
+
+function startAutoRefreshBlockedIps() {
+    stopAutoRefreshBlockedIps(); // 既存の間隔をクリア
+    rateLimitAutoRefreshInterval = setInterval(() => {
+        console.log('Auto-refreshing blocked IPs');
+        loadRateLimitStats();
+        loadBlockedIpsList();
+    }, 60000); // 60秒間隔
+}
+
+function stopAutoRefreshBlockedIps() {
+    if (rateLimitAutoRefreshInterval) {
+        clearInterval(rateLimitAutoRefreshInterval);
+        rateLimitAutoRefreshInterval = null;
+    }
+}
+
+function formatDateTime(dateTimeString) {
+    if (!dateTimeString) return '-';
+    
+    try {
+        const date = new Date(dateTimeString);
+        return date.toLocaleString('ja-JP', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    } catch (error) {
+        return dateTimeString;
+    }
+}
+
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showRateLimitMessage(message, type) {
+    // メッセージ表示用のコンテナがない場合は作成
+    let messageContainer = document.getElementById('rateLimitMessage');
+    if (!messageContainer) {
+        messageContainer = document.createElement('div');
+        messageContainer.id = 'rateLimitMessage';
+        messageContainer.style.marginTop = '1rem';
+        
+        const rateLimitSection = document.querySelector('.rate-limit-management');
+        if (rateLimitSection) {
+            rateLimitSection.insertBefore(messageContainer, rateLimitSection.firstChild);
+        }
+    }
+    
+    const className = type === 'success' ? 'message-success' : 'message-error';
+    messageContainer.innerHTML = `<div class="${className}">${message}</div>`;
+    
+    // 5秒後に消去
+    setTimeout(() => {
+        messageContainer.innerHTML = '';
+    }, 5000);
+}
+
+// ブロックインシデント管理機能
+function initializeIncidentManagement() {
+    // 初回読み込み
+    refreshIncidentsList();
+    refreshIncidentStats();
+    
+    // 自動更新を開始
+    if (document.getElementById('autoRefreshIncidentsCheckbox').checked) {
+        startIncidentsAutoRefresh();
+    }
+}
+
+function refreshIncidentsList() {
+    fetch('/admin/api/block-incidents')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateIncidentsTable(data.incidents);
+            } else {
+                console.error('Failed to fetch incidents:', data.message);
+                showIncidentMessage('インシデント情報の取得に失敗しました', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching incidents:', error);
+            showIncidentMessage('インシデント情報の取得中にエラーが発生しました', 'error');
+        });
+}
+
+function refreshIncidentStats() {
+    fetch('/admin/api/incident-stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateIncidentStats(data.stats);
+            } else {
+                console.error('Failed to fetch incident stats:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching incident stats:', error);
+        });
+}
+
+function updateIncidentsTable(incidents) {
+    const tbody = document.getElementById('incidentsTableBody');
+    
+    if (!incidents || incidents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="no-data">インシデントはありません</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = incidents.map(incident => {
+        const status = incident.resolved ? '解決済み' : '未解決';
+        const statusClass = incident.resolved ? 'status-resolved' : 'status-pending';
+        const createdAt = formatDateTime(incident.created_at);
+        
+        const actionButton = incident.resolved ? 
+            `<span class="action-disabled">解決済み</span>` :
+            `<button class="btn btn-sm btn-warning" onclick="resolveIncident('${incident.incident_id}')">解除</button>`;
+        
+        return `
+            <tr class="${incident.resolved ? 'incident-resolved' : 'incident-pending'}">
+                <td><code class="incident-id">${escapeHtml(incident.incident_id)}</code></td>
+                <td><code>${escapeHtml(incident.ip_address)}</code></td>
+                <td class="block-reason">${escapeHtml(truncateText(incident.block_reason, 40))}</td>
+                <td class="created-time">${createdAt}</td>
+                <td><span class="status ${statusClass}">${status}</span></td>
+                <td class="action-column">${actionButton}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateIncidentStats(stats) {
+    document.getElementById('pendingIncidentsCount').textContent = stats.pending_incidents || 0;
+    document.getElementById('todayIncidentsCount').textContent = stats.today_incidents || 0;
+    document.getElementById('todayResolvedCount').textContent = stats.today_resolved || 0;
+}
+
+function resolveIncident(incidentId) {
+    if (!confirm(`インシデント ${incidentId} を解除しますか？\nこの操作により関連するIP制限も解除されます。`)) {
+        return;
+    }
+    
+    const adminNotes = prompt('解除理由（任意）:');
+    
+    fetch('/admin/api/resolve-incident', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            incident_id: incidentId,
+            admin_notes: adminNotes
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showIncidentMessage(`インシデント ${incidentId} を解除しました`, 'success');
+            refreshIncidentsList();
+            refreshIncidentStats();
+            // レート制限リストも更新
+            if (typeof refreshBlockedIpsList === 'function') {
+                refreshBlockedIpsList();
+            }
+        } else {
+            showIncidentMessage(`インシデント解除に失敗しました: ${data.message}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error resolving incident:', error);
+        showIncidentMessage('インシデント解除中にエラーが発生しました', 'error');
+    });
+}
+
+function showIncidentStats() {
+    fetch('/admin/api/incident-stats')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const stats = data.stats;
+                const avgTime = stats.avg_resolution_minutes ? Math.round(stats.avg_resolution_minutes) : 0;
+                
+                alert(`インシデント統計詳細:
+
+未解決インシデント: ${stats.pending_incidents}件
+今日のインシデント: ${stats.today_incidents}件
+今日の解決済み: ${stats.today_resolved}件
+平均解決時間: ${avgTime}分 (過去30日)`);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching incident stats:', error);
+            alert('統計情報の取得に失敗しました');
+        });
+}
+
+let incidentsAutoRefreshInterval;
+
+function toggleAutoRefreshIncidents() {
+    const checkbox = document.getElementById('autoRefreshIncidentsCheckbox');
+    if (checkbox.checked) {
+        startIncidentsAutoRefresh();
+    } else {
+        stopIncidentsAutoRefresh();
+    }
+}
+
+function startIncidentsAutoRefresh() {
+    if (incidentsAutoRefreshInterval) {
+        clearInterval(incidentsAutoRefreshInterval);
+    }
+    
+    incidentsAutoRefreshInterval = setInterval(() => {
+        refreshIncidentsList();
+        refreshIncidentStats();
+    }, 60000); // 60秒間隔
+}
+
+function stopIncidentsAutoRefresh() {
+    if (incidentsAutoRefreshInterval) {
+        clearInterval(incidentsAutoRefreshInterval);
+        incidentsAutoRefreshInterval = null;
+    }
+}
+
+function showIncidentMessage(message, type) {
+    // メッセージ表示用のコンテナがない場合は作成
+    let messageContainer = document.getElementById('incidentMessage');
+    if (!messageContainer) {
+        messageContainer = document.createElement('div');
+        messageContainer.id = 'incidentMessage';
+        messageContainer.style.marginTop = '1rem';
+        
+        const incidentSection = document.querySelector('.incident-management');
+        if (incidentSection) {
+            incidentSection.insertBefore(messageContainer, incidentSection.firstChild);
+        }
+    }
+    
+    const className = type === 'success' ? 'message-success' : 'message-error';
+    messageContainer.innerHTML = `<div class="${className}">${message}</div>`;
+    
+    // 5秒後に消去
+    setTimeout(() => {
+        messageContainer.innerHTML = '';
+    }, 5000);
 }
 

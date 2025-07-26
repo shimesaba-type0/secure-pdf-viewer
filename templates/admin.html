@@ -424,6 +424,152 @@
                 </div>
             </div>
         </div>
+        
+        <!-- レート制限管理セクション -->
+        <div class="card">
+            <h3>レート制限管理</h3>
+            <div class="settings-container">
+                <div class="rate-limit-management">
+                    <!-- 統計情報 -->
+                    <div class="form-group">
+                        <h4>制限統計</h4>
+                        <div class="rate-limit-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">現在の制限IP数:</span>
+                                <span class="stat-value" id="activeBlocksCount">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">今日の認証失敗数:</span>
+                                <span class="stat-value" id="todayFailuresCount">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">今日の制限IP数:</span>
+                                <span class="stat-value" id="todayBlocksCount">-</span>
+                            </div>
+                        </div>
+                        
+                        <div class="rate-limit-settings">
+                            <div class="setting-item">
+                                <span class="setting-label">失敗回数制限:</span>
+                                <span class="setting-value" id="failureThreshold">-</span>
+                                <span class="setting-unit">回 / <span id="timeWindow">-</span>分</span>
+                            </div>
+                            <div class="setting-item">
+                                <span class="setting-label">制限時間:</span>
+                                <span class="setting-value" id="blockDuration">-</span>
+                                <span class="setting-unit">分</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 制限IP一覧 -->
+                    <div class="form-group">
+                        <h4>制限IP一覧</h4>
+                        <div class="blocked-ips-container">
+                            <div class="blocked-ips-header">
+                                <div class="blocked-ips-actions">
+                                    <button type="button" class="btn btn-info btn-sm" onclick="refreshBlockedIpsList()">
+                                        🔄 更新
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="showRateLimitStats()">
+                                        📊 詳細統計
+                                    </button>
+                                </div>
+                                <div class="auto-refresh-toggle">
+                                    <label>
+                                        <input type="checkbox" id="autoRefreshBlockedIpsCheckbox" onchange="toggleAutoRefreshBlockedIps()" checked>
+                                        自動更新（60秒間隔）
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="blocked-ips-table-container">
+                                <table class="blocked-ips-table" id="blockedIpsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>IPアドレス</th>
+                                            <th>制限理由</th>
+                                            <th>制限開始</th>
+                                            <th>制限終了</th>
+                                            <th>状態</th>
+                                            <th>失敗回数</th>
+                                            <th>操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="blockedIpsTableBody">
+                                        <tr>
+                                            <td colspan="7" class="loading-row">制限IP情報を読み込み中...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- ブロックインシデント管理 -->
+                    <div class="form-group">
+                        <h4>ブロックインシデント管理</h4>
+                        <div class="incident-management">
+                            <!-- インシデント統計 -->
+                            <div class="incident-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">未解決インシデント:</span>
+                                    <span class="stat-value" id="pendingIncidentsCount">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">今日のインシデント:</span>
+                                    <span class="stat-value" id="todayIncidentsCount">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">今日の解決済み:</span>
+                                    <span class="stat-value" id="todayResolvedCount">-</span>
+                                </div>
+                            </div>
+                            
+                            <!-- インシデント一覧 -->
+                            <div class="incidents-container">
+                                <div class="incidents-header">
+                                    <div class="incidents-actions">
+                                        <button type="button" class="btn btn-info btn-sm" onclick="refreshIncidentsList()">
+                                            🔄 更新
+                                        </button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="showIncidentStats()">
+                                            📊 統計詳細
+                                        </button>
+                                    </div>
+                                    <div class="auto-refresh-toggle">
+                                        <label>
+                                            <input type="checkbox" id="autoRefreshIncidentsCheckbox" onchange="toggleAutoRefreshIncidents()" checked>
+                                            自動更新（60秒間隔）
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="incidents-table-container">
+                                    <table class="incidents-table" id="incidentsTable">
+                                        <thead>
+                                            <tr>
+                                                <th>インシデントID</th>
+                                                <th>IPアドレス</th>
+                                                <th>制限理由</th>
+                                                <th>発生時刻</th>
+                                                <th>状態</th>
+                                                <th>操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="incidentsTableBody">
+                                            <tr>
+                                                <td colspan="6" class="loading-row">インシデント情報を読み込み中...</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     
     <div class="admin-section">

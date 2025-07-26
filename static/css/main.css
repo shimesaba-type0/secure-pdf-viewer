@@ -1935,4 +1935,132 @@ body {
     color: #6c757d;
     font-style: italic;
 }
+
+/* インシデント管理スタイル */
+.incident-management {
+    margin-top: 1rem;
+}
+
+.incident-stats {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.incidents-container {
+    margin-top: 1rem;
+}
+
+.incidents-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.incidents-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.incidents-table-container {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+}
+
+.incidents-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.incidents-table th {
+    background: #f8f9fa;
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.incidents-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: middle;
+}
+
+.incidents-table tr:hover {
+    background: #f8f9fa;
+}
+
+.incident-id {
+    font-family: monospace;
+    font-size: 0.85rem;
+    background: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+}
+
+.incident-pending {
+    background: #fff3cd;
+}
+
+.incident-resolved {
+    background: #d1ecf1;
+    opacity: 0.7;
+}
+
+.status-pending {
+    background: #ffc107;
+    color: #856404;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.status-resolved {
+    background: #28a745;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.action-disabled {
+    color: #6c757d;
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+.message-success {
+    background: #d4edda;
+    color: #155724;
+    padding: 0.75rem;
+    border: 1px solid #c3e6cb;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.message-error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 0.75rem;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
 }

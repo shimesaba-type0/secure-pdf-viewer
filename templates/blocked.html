@@ -1,0 +1,193 @@
+{% extends "layout.html" %}
+
+{% block title %}アクセス制限 - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+.blocked-container {
+    max-width: 600px;
+    margin: 2rem auto;
+    text-align: center;
+}
+
+.blocked-card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    padding: 2rem;
+    border-left: 5px solid #dc3545;
+}
+
+.blocked-icon {
+    font-size: 4rem;
+    color: #dc3545;
+    margin-bottom: 1rem;
+}
+
+.blocked-title {
+    color: #dc3545;
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+.blocked-message {
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+}
+
+.incident-info {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    text-align: left;
+}
+
+.incident-id {
+    font-family: monospace;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: #495057;
+    background: #fff;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    margin: 0.5rem 0;
+    letter-spacing: 1px;
+}
+
+.emergency-contact {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.emergency-title {
+    color: #856404;
+    font-weight: bold;
+    margin-bottom: 1rem;
+}
+
+.emergency-steps {
+    text-align: left;
+    color: #856404;
+}
+
+.emergency-steps ol {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+}
+
+.emergency-steps li {
+    margin: 0.5rem 0;
+}
+
+.block-details {
+    background: #e9ecef;
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1rem 0;
+    text-align: left;
+}
+
+.block-details dt {
+    font-weight: bold;
+    color: #495057;
+    margin-top: 0.5rem;
+}
+
+.block-details dd {
+    color: #6c757d;
+    margin-left: 0;
+    margin-bottom: 0.5rem;
+}
+
+.retry-info {
+    background: #d1ecf1;
+    border: 1px solid #bee5eb;
+    border-radius: 6px;
+    padding: 1rem;
+    margin: 1.5rem 0;
+    color: #0c5460;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-block;
+    margin-top: 1rem;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+    border-color: #545b62;
+    color: #fff;
+    text-decoration: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="blocked-container">
+    <div class="blocked-card">
+        <div class="blocked-icon">🔒</div>
+        <h1 class="blocked-title">アクセスが制限されています</h1>
+        
+        <div class="blocked-message">
+            <p>パスフレーズ認証を<strong>{{ failure_count }}回</strong>失敗しました。</p>
+            <p>セキュリティ保護のため、このIPアドレスからの認証は一定時間制限されます。</p>
+        </div>
+
+        <div class="block-details">
+            <dl>
+                <dt>制限理由:</dt>
+                <dd>{{ block_reason }}</dd>
+                
+                <dt>制限解除予定時刻:</dt>
+                <dd>{{ blocked_until_jst }}</dd>
+                
+                <dt>制限開始時刻:</dt>
+                <dd>{{ blocked_since_jst }}</dd>
+            </dl>
+        </div>
+
+        {% if incident_id %}
+        <div class="incident-info">
+            <h3>インシデント情報</h3>
+            <p>緊急でアクセス制限の解除が必要な場合は、以下の識別コードをお控えください：</p>
+            <div class="incident-id">{{ incident_id }}</div>
+        </div>
+
+        <div class="emergency-contact">
+            <div class="emergency-title">🚨 緊急解除申請について</div>
+            <div class="emergency-steps">
+                <p>業務上の緊急事態などで即座にアクセスが必要な場合は、以下の手順で管理者にご連絡ください：</p>
+                <ol>
+                    <li>メール・電話など、管理者と直接連絡の取れる方法を使用</li>
+                    <li>上記の<strong>識別コード</strong>を必ず添えて連絡</li>
+                    <li>緊急理由と連絡者情報を明記</li>
+                    <li>管理者による確認後、制限が解除されます</li>
+                </ol>
+                <p><strong>注意:</strong> 識別コードなしでの解除申請は受け付けできません。</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="retry-info">
+            <strong>自動解除について</strong><br>
+            制限は上記の時刻に自動的に解除されます。解除後は再度アクセスが可能になります。
+        </div>
+
+        <a href="{{ url_for('login') }}" class="btn btn-secondary">ログインページに戻る</a>
+    </div>
+</div>
+{% endblock %}

@@ -9,6 +9,7 @@ import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
 from database.models import get_setting, set_setting
+from database.utils import RateLimitManager, is_ip_blocked
 from auth.passphrase import PassphraseManager
 from security.pdf_url_security import PDFURLSecurity
 from config.pdf_security_settings import get_pdf_security_config, initialize_pdf_security_settings, is_referrer_allowed, set_pdf_security_config, validate_allowed_domains
@@ -771,10 +772,25 @@ def index():
 @app.route('/auth/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        # クライアントIPを取得
+        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        if client_ip and ',' in client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+        
+        # IP制限チェック
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        if is_ip_blocked(conn, client_ip):
+            conn.close()
+            return render_template('login.html', error='IPアドレスが制限されています。しばらく時間をおいてから再試行してください。')
+        
         password = request.form.get('password')
         
+        # レート制限マネージャーを初期化
+        rate_limiter = RateLimitManager(conn)
+        
         # パスフレーズ認証を実行
-        conn = sqlite3.connect(get_db_path())
         passphrase_manager = PassphraseManager(conn)
         
         try:
@@ -787,8 +803,22 @@ def login():
                 conn.close()
                 return redirect(url_for('email_input'))
             else:
+                # 認証失敗を記録（レート制限チェック）
+                device_type = detect_device_type(request.headers.get('User-Agent', ''))
+                blocked = rate_limiter.record_auth_failure(
+                    ip_address=client_ip,
+                    failure_type='passphrase',
+                    email_attempted=None,
+                    device_type=device_type
+                )
+                
+                conn.commit()
                 conn.close()
-                return render_template('login.html', error='パスフレーズが正しくありません')
+                
+                if blocked:
+                    return redirect(url_for('blocked'))
+                else:
+                    return render_template('login.html', error='パスフレーズが正しくありません')
         except Exception as e:
             conn.close()
             return render_template('login.html', error='認証エラーが発生しました')
@@ -911,9 +941,23 @@ def verify_otp():
             return render_template('verify_otp.html', email=email, error='6桁の数字を入力してください')
         
         try:
+            # クライアントIPを取得
+            client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+            if client_ip and ',' in client_ip:
+                client_ip = client_ip.split(',')[0].strip()
+            
             # データベース接続
             conn = sqlite3.connect(get_db_path())
             conn.row_factory = sqlite3.Row
+            
+            # IP制限チェック
+            if is_ip_blocked(conn, client_ip):
+                conn.close()
+                return render_template('verify_otp.html', email=email, 
+                                     error='IPアドレスが制限されています。しばらく時間をおいてから再試行してください。')
+            
+            # レート制限マネージャーを初期化
+            rate_limiter = RateLimitManager(conn)
             
             # 有効なOTPを検索
             otp_record = conn.execute('''
@@ -925,9 +969,23 @@ def verify_otp():
             ''', (email, otp_code)).fetchone()
             
             if not otp_record:
+                # OTP認証失敗を記録（レート制限チェック）
+                device_type = detect_device_type(request.headers.get('User-Agent', ''))
+                blocked = rate_limiter.record_auth_failure(
+                    ip_address=client_ip,
+                    failure_type='otp',
+                    email_attempted=email,
+                    device_type=device_type
+                )
+                
+                conn.commit()
                 conn.close()
-                return render_template('verify_otp.html', email=email, 
-                                     error='無効なOTPコードです。正しいコードを入力してください。')
+                
+                if blocked:
+                    return redirect(url_for('blocked'))
+                else:
+                    return render_template('verify_otp.html', email=email, 
+                                         error='無効なOTPコードです。正しいコードを入力してください。')
             
             # 有効期限チェック
             import datetime
@@ -2379,6 +2437,127 @@ def sse_stream():
         }
     )
 
+
+@app.route('/admin/blocked-ips')
+def admin_blocked_ips():
+    """制限IP一覧取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        rate_limiter = RateLimitManager(conn)
+        
+        blocked_ips = rate_limiter.get_blocked_ips()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'blocked_ips': blocked_ips
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/admin/unblock-ip', methods=['POST'])
+def admin_unblock_ip():
+    """個別IP制限解除API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.get_json()
+        ip_address = data.get('ip_address')
+        
+        if not ip_address:
+            return jsonify({
+                'success': False,
+                'error': 'IPアドレスが指定されていません'
+            }), 400
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        rate_limiter = RateLimitManager(conn)
+        
+        # 管理者情報（実際の実装では認証情報から取得）
+        admin_user = session.get('email', 'admin')
+        
+        success = rate_limiter.unblock_ip_manual(ip_address, admin_user)
+        
+        if success:
+            conn.commit()
+            conn.close()
+            return jsonify({
+                'success': True,
+                'message': f'IP {ip_address} の制限を解除しました'
+            })
+        else:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': '指定されたIPアドレスは制限されていません'
+            }), 404
+            
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/admin/rate-limit-stats')
+def admin_rate_limit_stats():
+    """レート制限統計情報取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        rate_limiter = RateLimitManager(conn)
+        
+        stats = rate_limiter.get_rate_limit_stats()
+        
+        # 期限切れIP制限を自動クリーンアップ
+        cleanup_count = rate_limiter.cleanup_expired_blocks()
+        stats['cleanup_count'] = cleanup_count
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'pdf'
 
@@ -2613,6 +2792,233 @@ def cleanup_expired_schedules():
         conn.close()
     except Exception as e:
         print(f"Error during schedule cleanup: {e}")
+
+# ブロックインシデント管理API
+@app.route('/admin/api/block-incidents')
+def get_block_incidents():
+    """ブロックインシデント一覧取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        from database.utils import BlockIncidentManager
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        incident_manager = BlockIncidentManager(conn)
+        
+        # 最新50件のインシデントを取得（未解決を優先）
+        all_incidents = incident_manager.get_all_incidents(50)
+        
+        # UTCからJSTに変換
+        for incident in all_incidents:
+            if incident.get('created_at'):
+                try:
+                    # UTCとして解釈してJSTに変換
+                    utc_time = datetime.strptime(incident['created_at'], '%Y-%m-%d %H:%M:%S')
+                    jst_time = pytz.utc.localize(utc_time).astimezone(JST)
+                    incident['created_at'] = jst_time.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    pass  # 変換エラーの場合は元の値を保持
+            
+            if incident.get('resolved_at'):
+                try:
+                    utc_time = datetime.strptime(incident['resolved_at'], '%Y-%m-%d %H:%M:%S')
+                    jst_time = pytz.utc.localize(utc_time).astimezone(JST)
+                    incident['resolved_at'] = jst_time.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    pass
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'incidents': all_incidents
+        })
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/admin/api/incident-stats')
+def get_incident_stats():
+    """インシデント統計情報取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        from database.utils import BlockIncidentManager
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        incident_manager = BlockIncidentManager(conn)
+        
+        stats = incident_manager.get_incident_stats()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'stats': stats
+        })
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/admin/api/resolve-incident', methods=['POST'])
+def resolve_incident():
+    """インシデント解除API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data or 'incident_id' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'インシデントIDが必要です'
+            }), 400
+        
+        incident_id = data['incident_id']
+        admin_notes = data.get('admin_notes', '')
+        admin_user = session.get('email', 'admin')
+        
+        from database.utils import BlockIncidentManager, RateLimitManager
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        incident_manager = BlockIncidentManager(conn)
+        rate_limiter = RateLimitManager(conn)
+        
+        # インシデント情報を取得
+        incident = incident_manager.get_incident_by_id(incident_id)
+        if not incident:
+            conn.close()
+            return jsonify({
+                'status': 'error',
+                'message': 'インシデントが見つかりません'
+            }), 404
+        
+        if incident['resolved']:
+            conn.close()
+            return jsonify({
+                'status': 'error',
+                'message': 'このインシデントは既に解決済みです'
+            }), 400
+        
+        # インシデントを解除
+        success = incident_manager.resolve_incident(incident_id, admin_user, admin_notes)
+        if not success:
+            conn.close()
+            return jsonify({
+                'status': 'error',
+                'message': 'インシデントの解除に失敗しました'
+            }), 500
+        
+        # 関連するIP制限も解除
+        ip_address = incident['ip_address']
+        rate_limiter.unblock_ip_manual(ip_address, admin_user)
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'インシデント {incident_id} を解除しました'
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/blocked')
+def blocked():
+    """IP制限時のブロック表示画面"""
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+    
+    try:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        # IP制限情報を取得
+        block_info = conn.execute('''
+            SELECT blocked_until, reason, created_at FROM ip_blocks 
+            WHERE ip_address = ? AND datetime(blocked_until) > datetime('now')
+        ''', (client_ip,)).fetchone()
+        
+        if not block_info:
+            # 制限されていない場合はログインページにリダイレクト
+            conn.close()
+            return redirect(url_for('login'))
+        
+        # 認証失敗回数を取得
+        from database.utils import check_auth_failures
+        failure_count = check_auth_failures(conn, client_ip, 10)
+        
+        # インシデントIDを取得（最新の未解決インシデント）
+        incident_id = None
+        from database.utils import BlockIncidentManager
+        incident_manager = BlockIncidentManager(conn)
+        incidents = incident_manager.get_incidents_by_ip(client_ip)
+        for incident in incidents:
+            if not incident['resolved']:
+                incident_id = incident['incident_id']
+                break
+        
+        # 時刻をJSTに変換
+        blocked_until_utc = datetime.strptime(block_info['blocked_until'], '%Y-%m-%d %H:%M:%S')
+        blocked_until_jst = pytz.utc.localize(blocked_until_utc).astimezone(JST)
+        
+        blocked_since_utc = datetime.strptime(block_info['created_at'], '%Y-%m-%d %H:%M:%S')
+        blocked_since_jst = pytz.utc.localize(blocked_since_utc).astimezone(JST)
+        
+        conn.close()
+        
+        return render_template('blocked.html',
+            failure_count=failure_count,
+            block_reason=block_info['reason'],
+            blocked_until_jst=blocked_until_jst.strftime('%Y年%m月%d日 %H:%M:%S'),
+            blocked_since_jst=blocked_since_jst.strftime('%Y年%m月%d日 %H:%M:%S'),
+            incident_id=incident_id
+        )
+        
+    except Exception as e:
+        print(f"Error in blocked route: {e}")
+        return render_template('blocked.html',
+            failure_count=5,
+            block_reason="認証失敗回数が制限値に達しました",
+            blocked_until_jst="不明",
+            blocked_since_jst="不明",
+            incident_id=None
+        )
 
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ
