@@ -462,49 +462,11 @@
                         </div>
                     </div>
                     
-                    <!-- 制限IP一覧 -->
-                    <div class="form-group">
-                        <h4>制限IP一覧</h4>
-                        <div class="blocked-ips-container">
-                            <div class="blocked-ips-header">
-                                <div class="blocked-ips-actions">
-                                    <button type="button" class="btn btn-info btn-sm" onclick="refreshBlockedIpsList()">
-                                        🔄 更新
-                                    </button>
-                                    <button type="button" class="btn btn-secondary btn-sm" onclick="showRateLimitStats()">
-                                        📊 詳細統計
-                                    </button>
-                                </div>
-                                <div class="auto-refresh-toggle">
-                                    <label>
-                                        <input type="checkbox" id="autoRefreshBlockedIpsCheckbox" onchange="toggleAutoRefreshBlockedIps()" checked>
-                                        自動更新（60秒間隔）
-                                    </label>
-                                </div>
-                            </div>
-                            
-                            <div class="blocked-ips-table-container">
-                                <table class="blocked-ips-table" id="blockedIpsTable">
-                                    <thead>
-                                        <tr>
-                                            <th>IPアドレス</th>
-                                            <th>制限理由</th>
-                                            <th>制限開始</th>
-                                            <th>制限終了</th>
-                                            <th>状態</th>
-                                            <th>失敗回数</th>
-                                            <th>操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="blockedIpsTableBody">
-                                        <tr>
-                                            <td colspan="7" class="loading-row">制限IP情報を読み込み中...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+                    <!-- 制限IP一覧は非表示（統計情報による概要把握に特化） -->
+                    <!-- 
+                    大量の制限IPレコードが生成される可能性があるため、
+                    一覧表示は廃止し、統計情報とインシデント検索による個別対応に特化
+                    -->
                     
                     <!-- ブロックインシデント管理 -->
                     <div class="form-group">

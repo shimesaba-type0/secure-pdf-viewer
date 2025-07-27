@@ -1359,18 +1359,17 @@ function debounce(func, wait) {
     };
 }
 
-// レート制限管理機能
+// レート制限管理機能（統計特化版）
 let rateLimitAutoRefreshInterval;
 
 function initializeRateLimitManagement() {
-    console.log('Initializing rate limit management');
+    console.log('Initializing rate limit management - stats only');
     
-    // 初期データロード
+    // 統計情報のみロード（制限IP一覧は廃止）
     loadRateLimitStats();
-    loadBlockedIpsList();
     
-    // 自動更新を開始
-    startAutoRefreshBlockedIps();
+    // 制限IP一覧の自動更新は廃止（統計情報のみ提供）
+    console.log('Rate limit management: 統計情報特化モード');
 }
 
 function loadRateLimitStats() {
@@ -1401,133 +1400,28 @@ function updateRateLimitStats(stats) {
     document.getElementById('blockDuration').textContent = settings.block_duration_minutes || '-';
 }
 
-function loadBlockedIpsList() {
-    fetch('/admin/blocked-ips')
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                updateBlockedIpsTable(data.blocked_ips);
-            } else {
-                console.error('Failed to load blocked IPs:', data.error);
-                updateBlockedIpsTable([]);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading blocked IPs:', error);
-            updateBlockedIpsTable([]);
-        });
-}
+// 制限IP一覧管理機能は廃止（統計情報による概要把握に特化）
+// function loadBlockedIpsList() - 削除済み
+// function updateBlockedIpsTable() - 削除済み
+// function unblockIp() - 削除済み
+// function refreshBlockedIpsList() - 削除済み
 
-function updateBlockedIpsTable(blockedIps) {
-    const tbody = document.getElementById('blockedIpsTableBody');
-    
-    if (!blockedIps || blockedIps.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="no-data">制限されているIPアドレスはありません</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = blockedIps.map(ip => {
-        const isActive = ip.is_active;
-        const statusClass = isActive ? 'status-active' : 'status-expired';
-        const statusText = isActive ? 'アクティブ' : '期限切れ';
-        
-        // 時刻のフォーマット
-        const createdAt = formatDateTime(ip.created_at);
-        const blockedUntil = formatDateTime(ip.blocked_until);
-        
-        return `
-            <tr class="${isActive ? '' : 'expired-row'}">
-                <td class="ip-address">${escapeHtml(ip.ip_address)}</td>
-                <td class="reason" title="${escapeHtml(ip.reason)}">${truncateText(ip.reason, 30)}</td>
-                <td class="datetime">${createdAt}</td>
-                <td class="datetime">${blockedUntil}</td>
-                <td class="status">
-                    <span class="status-badge ${statusClass}">${statusText}</span>
-                </td>
-                <td class="failure-count">${ip.recent_failures || 0}</td>
-                <td class="actions">
-                    ${isActive ? `
-                        <button type="button" class="btn btn-sm btn-warning" 
-                                onclick="unblockIp('${escapeHtml(ip.ip_address)}')"
-                                title="制限を解除">
-                            🔓 解除
-                        </button>
-                    ` : `
-                        <span class="text-muted">期限切れ</span>
-                    `}
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-function unblockIp(ipAddress) {
-    if (!confirm(`IP ${ipAddress} の制限を解除しますか？`)) {
-        return;
-    }
-    
-    fetch('/admin/unblock-ip', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            ip_address: ipAddress
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showRateLimitMessage(data.message, 'success');
-            // データを再読み込み
-            loadRateLimitStats();
-            loadBlockedIpsList();
-        } else {
-            showRateLimitMessage(data.error || 'IP制限解除に失敗しました', 'error');
-        }
-    })
-    .catch(error => {
-        console.error('Error unblocking IP:', error);
-        showRateLimitMessage('ネットワークエラーが発生しました', 'error');
-    });
-}
-
-function refreshBlockedIpsList() {
-    console.log('Refreshing blocked IPs list');
-    loadRateLimitStats();
-    loadBlockedIpsList();
-}
+// 注: IP制限の個別解除が必要な場合は、インシデント検索機能で
+//     対応するインシデントを検索し、インシデント解除を通じて
+//     IP制限も同時に解除される仕組みを利用してください
 
 function showRateLimitStats() {
-    // 詳細統計表示（将来の拡張用）
-    console.log('Showing detailed rate limit stats');
+    // 統計情報更新のみ（制限IP一覧は廃止）
+    console.log('Updating rate limit stats only');
     loadRateLimitStats();
+    showRateLimitMessage('統計情報を更新しました', 'info');
 }
 
-function toggleAutoRefreshBlockedIps() {
-    const checkbox = document.getElementById('autoRefreshBlockedIpsCheckbox');
-    if (checkbox.checked) {
-        startAutoRefreshBlockedIps();
-    } else {
-        stopAutoRefreshBlockedIps();
-    }
-}
-
-function startAutoRefreshBlockedIps() {
-    stopAutoRefreshBlockedIps(); // 既存の間隔をクリア
-    rateLimitAutoRefreshInterval = setInterval(() => {
-        console.log('Auto-refreshing blocked IPs');
-        loadRateLimitStats();
-        loadBlockedIpsList();
-    }, 60000); // 60秒間隔
-}
-
-function stopAutoRefreshBlockedIps() {
-    if (rateLimitAutoRefreshInterval) {
-        clearInterval(rateLimitAutoRefreshInterval);
-        rateLimitAutoRefreshInterval = null;
-    }
-}
+// 制限IP一覧関連の関数は廃止
+// function toggleAutoRefreshBlockedIps() - 削除済み
+// function startAutoRefreshBlockedIps() - 削除済み  
+// function stopAutoRefreshBlockedIps() - 削除済み
+// function refreshBlockedIpsList() - 削除済み
 
 function formatDateTime(dateTimeString) {
     if (!dateTimeString) return '-';
