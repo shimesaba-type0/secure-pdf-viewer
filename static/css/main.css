@@ -2063,4 +2063,66 @@ body {
     border-radius: 4px;
     margin-bottom: 1rem;
 }
+
+/* インシデント検索結果のスタイル */
+.search-result-card {
+    border: 2px solid #28a745;
+    border-radius: 8px;
+    padding: 1.5rem;
+    background: #f8fff8;
+    margin-top: 1rem;
+}
+
+.search-result-card h6 {
+    color: #28a745;
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.incident-details-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+}
+
+.incident-details-table th,
+.incident-details-table td {
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    text-align: left;
+    vertical-align: top;
+}
+
+.incident-details-table th {
+    background: #f8f9fa;
+    font-weight: bold;
+    width: 150px;
+    color: #495057;
+}
+
+.incident-details-table td {
+    background: #fff;
+}
+
+.incident-details-table .incident-id {
+    font-family: monospace;
+    font-size: 0.9rem;
+    background: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid #ced4da;
+}
+
+.incident-details-table code {
+    background: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.9rem;
+    border: 1px solid #ced4da;
+}
+
+.search-results {
+    margin-top: 1rem;
+}
 }

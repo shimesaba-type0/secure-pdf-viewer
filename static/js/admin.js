@@ -1583,34 +1583,18 @@ function showRateLimitMessage(message, type) {
     }, 5000);
 }
 
-// ブロックインシデント管理機能
+// ブロックインシデント管理機能（検索特化版）
 function initializeIncidentManagement() {
-    // 初回読み込み
-    refreshIncidentsList();
+    // インシデント統計のみ読み込み（一覧表示は廃止）
     refreshIncidentStats();
     
-    // 自動更新を開始
-    if (document.getElementById('autoRefreshIncidentsCheckbox').checked) {
-        startIncidentsAutoRefresh();
-    }
+    // 一覧テーブルの自動更新は廃止（検索機能のみ提供）
+    console.log('インシデント管理初期化: 検索機能特化モード');
 }
 
-function refreshIncidentsList() {
-    fetch('/admin/api/block-incidents')
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                updateIncidentsTable(data.incidents);
-            } else {
-                console.error('Failed to fetch incidents:', data.message);
-                showIncidentMessage('インシデント情報の取得に失敗しました', 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching incidents:', error);
-            showIncidentMessage('インシデント情報の取得中にエラーが発生しました', 'error');
-        });
-}
+// インシデント一覧機能は廃止（検索機能に特化）
+// function refreshIncidentsList() - 削除済み
+// function updateIncidentsTable() - 削除済み
 
 function refreshIncidentStats() {
     fetch('/admin/api/incident-stats')
@@ -1625,36 +1609,6 @@ function refreshIncidentStats() {
         .catch(error => {
             console.error('Error fetching incident stats:', error);
         });
-}
-
-function updateIncidentsTable(incidents) {
-    const tbody = document.getElementById('incidentsTableBody');
-    
-    if (!incidents || incidents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="no-data">インシデントはありません</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = incidents.map(incident => {
-        const status = incident.resolved ? '解決済み' : '未解決';
-        const statusClass = incident.resolved ? 'status-resolved' : 'status-pending';
-        const createdAt = formatDateTime(incident.created_at);
-        
-        const actionButton = incident.resolved ? 
-            `<span class="action-disabled">解決済み</span>` :
-            `<button class="btn btn-sm btn-warning" onclick="resolveIncident('${incident.incident_id}')">解除</button>`;
-        
-        return `
-            <tr class="${incident.resolved ? 'incident-resolved' : 'incident-pending'}">
-                <td><code class="incident-id">${escapeHtml(incident.incident_id)}</code></td>
-                <td><code>${escapeHtml(incident.ip_address)}</code></td>
-                <td class="block-reason">${escapeHtml(truncateText(incident.block_reason, 40))}</td>
-                <td class="created-time">${createdAt}</td>
-                <td><span class="status ${statusClass}">${status}</span></td>
-                <td class="action-column">${actionButton}</td>
-            </tr>
-        `;
-    }).join('');
 }
 
 function updateIncidentStats(stats) {
@@ -1698,6 +1652,160 @@ function resolveIncident(incidentId) {
         console.error('Error resolving incident:', error);
         showIncidentMessage('インシデント解除中にエラーが発生しました', 'error');
     });
+}
+
+// インシデント検索機能
+function searchIncident() {
+    const incidentId = document.getElementById('incidentIdSearch').value.trim();
+    const resultsDiv = document.getElementById('incidentSearchResults');
+    
+    if (!incidentId) {
+        showIncidentMessage('インシデントIDを入力してください', 'error');
+        return;
+    }
+    
+    // インシデントID形式の簡易チェック
+    const incidentIdPattern = /^BLOCK-\d{14}-[A-Z0-9]{4}$/;
+    if (!incidentIdPattern.test(incidentId)) {
+        showIncidentMessage('無効なインシデントID形式です。正しい形式: BLOCK-YYYYMMDDHHMMSS-XXXX', 'error');
+        return;
+    }
+    
+    // 検索実行
+    fetch(`/admin/api/incident-search?incident_id=${encodeURIComponent(incidentId)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayIncidentSearchResult(data.incident);
+                showIncidentMessage('インシデントが見つかりました', 'success');
+            } else {
+                clearIncidentSearchResults();
+                showIncidentMessage(data.error, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Incident search error:', error);
+            clearIncidentSearchResults();
+            showIncidentMessage('検索エラーが発生しました', 'error');
+        });
+}
+
+function displayIncidentSearchResult(incident) {
+    const resultsDiv = document.getElementById('incidentSearchResults');
+    
+    const status = incident.resolved ? '解決済み' : '未解決';
+    const statusClass = incident.resolved ? 'status-resolved' : 'status-pending';
+    const createdAt = formatDateTime(incident.created_at);
+    const resolvedAt = incident.resolved_at ? formatDateTime(incident.resolved_at) : '-';
+    
+    const actionButton = incident.resolved ? 
+        `<span class="action-disabled">解決済み</span>` :
+        `<button class="btn btn-warning btn-sm" onclick="resolveIncident('${incident.incident_id}')">解除</button>`;
+    
+    resultsDiv.innerHTML = `
+        <div class="search-result-card">
+            <h6>検索結果</h6>
+            <table class="incident-details-table">
+                <tr>
+                    <th>インシデントID:</th>
+                    <td><code class="incident-id">${escapeHtml(incident.incident_id)}</code></td>
+                </tr>
+                <tr>
+                    <th>IPアドレス:</th>
+                    <td><code>${escapeHtml(incident.ip_address)}</code></td>
+                </tr>
+                <tr>
+                    <th>制限理由:</th>
+                    <td class="block-reason">${escapeHtml(incident.block_reason)}</td>
+                </tr>
+                <tr>
+                    <th>発生時刻:</th>
+                    <td class="created-time">${createdAt}</td>
+                </tr>
+                <tr>
+                    <th>状態:</th>
+                    <td><span class="status ${statusClass}">${status}</span></td>
+                </tr>
+                <tr>
+                    <th>解決時刻:</th>
+                    <td>${resolvedAt}</td>
+                </tr>
+                ${incident.resolved_by ? `
+                <tr>
+                    <th>解決者:</th>
+                    <td>${escapeHtml(incident.resolved_by)}</td>
+                </tr>
+                ` : ''}
+                ${incident.admin_notes ? `
+                <tr>
+                    <th>管理者メモ:</th>
+                    <td>${escapeHtml(incident.admin_notes)}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                    <th>操作:</th>
+                    <td>${actionButton}</td>
+                </tr>
+            </table>
+        </div>
+    `;
+    
+    resultsDiv.style.display = 'block';
+}
+
+function clearIncidentSearch() {
+    document.getElementById('incidentIdSearch').value = '';
+    clearIncidentSearchResults();
+    showIncidentMessage('検索をクリアしました', 'info');
+}
+
+function clearIncidentSearchResults() {
+    const resultsDiv = document.getElementById('incidentSearchResults');
+    resultsDiv.innerHTML = '';
+    resultsDiv.style.display = 'none';
+}
+
+function showIncidentMessage(message, type) {
+    // 既存のメッセージ表示機能を流用または新規作成
+    if (typeof showMessage === 'function') {
+        showMessage(message, type);
+    } else {
+        // 簡易的なメッセージ表示
+        console.log(`${type.toUpperCase()}: ${message}`);
+        
+        // 一時的なメッセージ表示エリアを作成
+        let messageDiv = document.getElementById('incidentMessage');
+        if (!messageDiv) {
+            messageDiv = document.createElement('div');
+            messageDiv.id = 'incidentMessage';
+            messageDiv.style.cssText = 'margin: 10px 0; padding: 10px; border-radius: 4px; font-size: 14px;';
+            const searchSection = document.querySelector('.incident-search-section');
+            if (searchSection) {
+                searchSection.appendChild(messageDiv);
+            }
+        }
+        
+        // メッセージスタイル設定
+        const colors = {
+            'success': { bg: '#d4edda', border: '#c3e6cb', text: '#155724' },
+            'error': { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24' },
+            'info': { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460' }
+        };
+        
+        const color = colors[type] || colors['info'];
+        messageDiv.style.backgroundColor = color.bg;
+        messageDiv.style.borderColor = color.border;
+        messageDiv.style.color = color.text;
+        messageDiv.style.border = `1px solid ${color.border}`;
+        messageDiv.textContent = message;
+        
+        // 3秒後に自動削除
+        setTimeout(() => {
+            if (messageDiv && messageDiv.parentNode) {
+                messageDiv.parentNode.removeChild(messageDiv);
+            }
+        }, 3000);
+    }
 }
 
 function showIncidentStats() {

@@ -510,6 +510,25 @@
                     <div class="form-group">
                         <h4>ブロックインシデント管理</h4>
                         <div class="incident-management">
+                            <!-- インシデント検索 -->
+                            <div class="incident-search-section">
+                                <h5>インシデント検索</h5>
+                                <div class="search-form">
+                                    <div class="search-input-group">
+                                        <input type="text" id="incidentIdSearch" 
+                                               placeholder="BLOCK-20250727140530-A4B2" 
+                                               maxlength="25" class="form-control">
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="searchIncident()">検索</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearIncidentSearch()">クリア</button>
+                                    </div>
+                                    <small class="form-help">インシデントIDで特定のブロックインシデントを検索します</small>
+                                </div>
+                                
+                                <div id="incidentSearchResults" class="search-results" style="display: none;">
+                                    <!-- 検索結果表示エリア（初期状態は非表示） -->
+                                </div>
+                            </div>
+                            
                             <!-- インシデント統計 -->
                             <div class="incident-stats">
                                 <div class="stat-item">
@@ -526,45 +545,11 @@
                                 </div>
                             </div>
                             
-                            <!-- インシデント一覧 -->
-                            <div class="incidents-container">
-                                <div class="incidents-header">
-                                    <div class="incidents-actions">
-                                        <button type="button" class="btn btn-info btn-sm" onclick="refreshIncidentsList()">
-                                            🔄 更新
-                                        </button>
-                                        <button type="button" class="btn btn-secondary btn-sm" onclick="showIncidentStats()">
-                                            📊 統計詳細
-                                        </button>
-                                    </div>
-                                    <div class="auto-refresh-toggle">
-                                        <label>
-                                            <input type="checkbox" id="autoRefreshIncidentsCheckbox" onchange="toggleAutoRefreshIncidents()" checked>
-                                            自動更新（60秒間隔）
-                                        </label>
-                                    </div>
-                                </div>
-                                
-                                <div class="incidents-table-container">
-                                    <table class="incidents-table" id="incidentsTable">
-                                        <thead>
-                                            <tr>
-                                                <th>インシデントID</th>
-                                                <th>IPアドレス</th>
-                                                <th>制限理由</th>
-                                                <th>発生時刻</th>
-                                                <th>状態</th>
-                                                <th>操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="incidentsTableBody">
-                                            <tr>
-                                                <td colspan="6" class="loading-row">インシデント情報を読み込み中...</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
+                            <!-- インシデント一覧は非表示（検索機能に特化） -->
+                            <!-- 
+                            大量のインシデントレコードが生成される可能性があるため、
+                            一覧表示は廃止し、インシデントID検索による個別対応に特化
+                            -->
                         </div>
                     </div>
                 </div>

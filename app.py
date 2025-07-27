@@ -2881,6 +2881,70 @@ def get_incident_stats():
             'message': str(e)
         }), 500
 
+@app.route('/admin/api/incident-search', methods=['GET'])
+def api_incident_search():
+    """インシデントID検索API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        import re
+        
+        # インシデントIDパラメータ取得
+        incident_id = request.args.get('incident_id', '').strip()
+        
+        if not incident_id:
+            return jsonify({
+                'success': False,
+                'error': 'インシデントIDが指定されていません'
+            })
+        
+        # インシデントID形式検証
+        if not re.match(r'^BLOCK-\d{14}-[A-Z0-9]{4}$', incident_id):
+            return jsonify({
+                'success': False,
+                'error': '無効なインシデントID形式です'
+            })
+        
+        # データベース接続
+        from database.utils import BlockIncidentManager
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        incident_manager = BlockIncidentManager(conn)
+        
+        # インシデント検索
+        incident = incident_manager.get_incident_by_id(incident_id)
+        
+        if not incident:
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'インシデントが見つかりません'
+            })
+        
+        # 結果をdict形式に変換
+        incident_data = dict(incident)
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'incident': incident_data
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'success': False,
+            'error': f'検索エラーが発生しました: {str(e)}'
+        }), 500
+
 @app.route('/admin/api/resolve-incident', methods=['POST'])
 def resolve_incident():
     """インシデント解除API"""
@@ -3035,6 +3099,41 @@ def blocked_demo():
         blocked_until_jst=blocked_until.strftime('%Y年%m月%d日 %H:%M:%S'),
         incident_id="BLOCK-20250726140530-A4B2"
     )
+
+@app.route('/admin/incident-search-demo')
+def incident_search_demo():
+    """インシデント検索機能のデモページ"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    try:
+        from database.utils import BlockIncidentManager
+        
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        incident_manager = BlockIncidentManager(conn)
+        
+        # サンプルインシデント一覧を取得（最新10件）
+        incidents = incident_manager.get_all_incidents(limit=10)
+        
+        # デバッグ用ログ
+        print(f"Demo page: Found {len(incidents)} incidents")
+        for incident in incidents:
+            print(f"  - {incident['incident_id']} | {incident['ip_address']}")
+        conn.close()
+        
+        return render_template('incident_search_demo.html', 
+                             sample_incidents=incidents)
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return f"Error loading demo page: {str(e)}", 500
 
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ
