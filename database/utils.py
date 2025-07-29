@@ -6,6 +6,10 @@ import hashlib
 import time
 from datetime import datetime, timedelta
 from .models import get_setting, set_setting, log_access, log_event, log_auth_failure
+from config.timezone import (
+    get_app_now, get_app_datetime_string, localize_datetime,
+    to_app_timezone, add_app_timedelta, compare_app_datetimes
+)
 
 def hash_email(email):
     """メールアドレスをハッシュ化（プライバシー保護）"""
@@ -22,7 +26,7 @@ def is_ip_blocked(db, ip_address):
 
 def block_ip(db, ip_address, duration_seconds, reason="レート制限に達しました"):
     """IPアドレスをブロック"""
-    blocked_until = datetime.utcnow() + timedelta(seconds=duration_seconds)
+    blocked_until = add_app_timedelta(get_app_now(), seconds=duration_seconds)
     
     db.execute('''
         INSERT OR REPLACE INTO ip_blocks (ip_address, blocked_until, reason)
@@ -35,18 +39,19 @@ def unblock_ip(db, ip_address):
 
 def check_auth_failures(db, ip_address, time_window_minutes=10):
     """指定時間内の認証失敗回数をチェック"""
-    since_time = datetime.utcnow() - timedelta(minutes=time_window_minutes)
+    since_time = add_app_timedelta(get_app_now(), minutes=-time_window_minutes)
+    since_time_str = since_time.strftime('%Y-%m-%d %H:%M:%S')
     
     row = db.execute('''
         SELECT COUNT(*) as count FROM auth_failures 
         WHERE ip_address = ? AND attempt_time > ?
-    ''', (ip_address, since_time.strftime('%Y-%m-%d %H:%M:%S'))).fetchone()
+    ''', (ip_address, since_time_str)).fetchone()
     
     return row['count']
 
 def cleanup_old_logs(db, retention_days=90):
     """古いログを削除"""
-    cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+    cutoff_date = add_app_timedelta(get_app_now(), days=-retention_days)
     
     # 古いアクセスログを削除
     access_deleted = db.execute('''
@@ -101,7 +106,7 @@ def get_recent_access_logs(db, limit=50):
 def get_system_stats(db):
     """システム統計情報を取得"""
     # 今日のアクセス数
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    today = get_app_now().strftime('%Y-%m-%d')
     today_access = db.execute('''
         SELECT COUNT(*) as count FROM access_logs 
         WHERE DATE(access_time) = ?
@@ -358,7 +363,7 @@ class RateLimitManager:
         ''').fetchone()
         
         # 今日の認証失敗数
-        today = datetime.utcnow().strftime('%Y-%m-%d')
+        today = get_app_now().strftime('%Y-%m-%d')
         today_failures = self.db.execute('''
             SELECT COUNT(*) as count FROM auth_failures 
             WHERE DATE(attempt_time) = ?
@@ -435,7 +440,7 @@ class BlockIncidentManager:
             str: ブロックインシデントID（例: BLOCK-20250726153045-A4B2）
         """
         # マイクロ秒も含めて一意性を確保
-        now = datetime.utcnow()
+        now = get_app_now()
         timestamp = now.strftime('%Y%m%d%H%M%S')
         microsec = now.microsecond
         
@@ -567,7 +572,7 @@ class BlockIncidentManager:
         Returns:
             int: 削除されたインシデント数
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff_date = add_app_timedelta(get_app_now(), days=-retention_days)
         
         result = self.db.execute('''
             DELETE FROM block_incidents 
@@ -589,7 +594,7 @@ class BlockIncidentManager:
         ''').fetchone()
         
         # 今日のインシデント数
-        today = datetime.utcnow().strftime('%Y-%m-%d')
+        today = get_app_now().strftime('%Y-%m-%d')
         today_count = self.db.execute('''
             SELECT COUNT(*) as count FROM block_incidents 
             WHERE DATE(created_at) = ?

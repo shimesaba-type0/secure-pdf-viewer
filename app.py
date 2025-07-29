@@ -3,6 +3,11 @@ import os
 import uuid
 from datetime import datetime, timedelta
 import pytz
+from config.timezone import (
+    get_app_now, get_app_datetime_string, localize_datetime, 
+    to_app_timezone, parse_datetime_local, format_for_display,
+    get_app_timezone, compare_app_datetimes, add_app_timedelta
+)
 from werkzeug.utils import secure_filename
 import sqlite3
 import hashlib
@@ -20,8 +25,8 @@ import time
 import threading
 from queue import Queue, Empty
 
-# JST timezone
-JST = pytz.timezone('Asia/Tokyo')
+# タイムゾーン統一管理システムを使用
+# JST = pytz.timezone('Asia/Tokyo')  # 廃止: config.timezoneを使用
 
 def get_consistent_hash(text):
     """
@@ -145,13 +150,18 @@ def is_session_expired():
         return True
     
     try:
-        # ISO形式の日時文字列をパース
+        # ISO形式の日時文字列をパース（naive datetime想定）
         auth_time = datetime.fromisoformat(auth_time_str)
-        now = datetime.now()
+        # アプリタイムゾーンで解釈
+        auth_time = localize_datetime(auth_time)
+        now = get_app_now()
         
         # 72時間（259200秒）の有効期限をチェック
         try:
-            session_timeout = get_setting('session_timeout', 259200)  # デフォルト72時間
+            from database.models import get_setting as db_get_setting
+            conn = sqlite3.connect(get_db_path())
+            session_timeout = db_get_setting(conn, 'session_timeout', 259200)  # デフォルト72時間
+            conn.close()
         except:
             session_timeout = 259200  # エラー時のフォールバック
         time_diff = (now - auth_time).total_seconds()
@@ -453,7 +463,7 @@ def cleanup_expired_sessions():
             session_timeout = get_setting('session_timeout', 259200)  # デフォルト72時間
         except:
             session_timeout = 259200  # エラー時のフォールバック
-        cutoff_time = datetime.now() - timedelta(seconds=session_timeout)
+        cutoff_time = add_app_timedelta(get_app_now(), seconds=-session_timeout)
         cutoff_timestamp = int(cutoff_time.timestamp())
         
         # 古いセッション統計を削除
@@ -465,7 +475,7 @@ def cleanup_expired_sessions():
         deleted_sessions = cursor.rowcount
         
         # 古いOTPトークンも一緒にクリーンアップ（24時間以上古いもの）
-        old_otp_cutoff = datetime.now() - timedelta(hours=24)
+        old_otp_cutoff = add_app_timedelta(get_app_now(), hours=-24)
         cursor.execute('''
             DELETE FROM otp_tokens 
             WHERE created_at < ?
@@ -498,16 +508,13 @@ def setup_session_invalidation_scheduler(datetime_str):
         # 日時文字列をdatetimeオブジェクトに変換
         target_datetime = datetime.fromisoformat(datetime_str)
         
-        # JSTタイムゾーンに変換
-        if target_datetime.tzinfo is None:
-            target_datetime = JST.localize(target_datetime)
-        else:
-            target_datetime = target_datetime.astimezone(JST)
+        # アプリタイムゾーンに変換
+        target_datetime = localize_datetime(target_datetime)
         
-        # 現在時刻（JST）と比較して過去の日時でないかチェック（5分の猶予を追加）
-        now_jst = datetime.now(JST)
+        # 現在時刻と比較して過去の日時でないかチェック（5分の猶予を追加）
+        now_app = get_app_now()
         grace_period = timedelta(minutes=5)
-        if target_datetime <= (now_jst - grace_period):
+        if target_datetime <= add_app_timedelta(now_app, minutes=-5):
             raise ValueError("過去の日時は設定できません")
         
         # 指定日時に一度だけ実行するスケジュールを追加
@@ -527,10 +534,13 @@ def setup_session_invalidation_scheduler(datetime_str):
 
 def get_jst_now():
     """現在のJST時刻を取得"""
-    return datetime.now(JST)
+    # 旧版本との互換性のためにget_app_now()を使用
+    return get_app_now()
 
 def get_jst_datetime_string():
     """現在のJST時刻を文字列で取得（データベース保存用）"""
+    # 旧版本との互換性のためにget_app_datetime_string()を使用
+    return get_app_datetime_string()
     return get_jst_now().strftime('%Y-%m-%d %H:%M:%S')
 
 # SSE用のクライアント管理
@@ -641,7 +651,7 @@ def auto_unpublish_all_pdfs():
         conn.commit()
         conn.close()
         
-        print(f"Auto-unpublish completed at {datetime.now()}")
+        print(f"Auto-unpublish completed at {get_app_now()}")
         
         # SSEで全クライアントに通知
         broadcast_sse_event('pdf_unpublished', {
@@ -679,9 +689,8 @@ def restore_scheduled_unpublish():
         
         if publish_end_str:
             publish_end_dt = datetime.fromisoformat(publish_end_str)
-            # データベースからの値がoffset-awareでない場合はJSTとして扱う
-            if publish_end_dt.tzinfo is None:
-                publish_end_dt = JST.localize(publish_end_dt)
+            # データベースからの値をアプリタイムゾーンで解釈
+            publish_end_dt = localize_datetime(publish_end_dt)
             
             # 設定時刻がまだ未来の場合のみスケジュールを復元
             if publish_end_dt > get_jst_now():
@@ -706,9 +715,8 @@ def check_and_handle_expired_publish():
         
         if publish_end_str:
             publish_end_dt = datetime.fromisoformat(publish_end_str)
-            # データベースからの値がoffset-awareでない場合はJSTとして扱う
-            if publish_end_dt.tzinfo is None:
-                publish_end_dt = JST.localize(publish_end_dt)
+            # データベースからの値をアプリタイムゾーンで解釈
+            publish_end_dt = localize_datetime(publish_end_dt)
             
             # 公開終了時刻が過去の場合は自動停止を実行
             if publish_end_dt <= get_jst_now():
@@ -798,7 +806,7 @@ def login():
                 # パスフレーズ認証成功時に古いセッション情報を完全にクリア
                 session.clear()
                 session['passphrase_verified'] = True
-                session['login_time'] = datetime.now().isoformat()
+                session['login_time'] = get_app_now().isoformat()
                 print(f"DEBUG: login - passphrase verified, session cleared and reset")
                 conn.close()
                 return redirect(url_for('email_input'))
@@ -870,7 +878,7 @@ def email_input():
             
             # 有効期限設定（10分後）
             import datetime
-            expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
+            expires_at = add_app_timedelta(get_app_now(), minutes=10)
             
             # 古いOTPを無効化（同じメールアドレスの未使用OTP）
             conn.execute('''
@@ -1022,7 +1030,7 @@ def verify_otp():
             # 認証完了
             session['authenticated'] = True
             session['email'] = email
-            session['auth_completed_at'] = datetime.datetime.now().isoformat()
+            session['auth_completed_at'] = get_app_now().isoformat()
             
             # セッション統計を更新
             session_id = session.get('session_id', str(uuid.uuid4()))
@@ -1085,7 +1093,7 @@ def resend_otp():
         
         # 有効期限設定（10分後）
         import datetime
-        expires_at = datetime.datetime.now() + datetime.timedelta(minutes=10)
+        expires_at = add_app_timedelta(get_app_now(), minutes=10)
         
         # 古いOTPを無効化（同じメールアドレスの未使用OTP）
         conn.execute('''
@@ -1151,12 +1159,11 @@ def admin():
     if publish_end_str:
         try:
             publish_end_dt = datetime.fromisoformat(publish_end_str)
-            # データベースからの値がoffset-awareでない場合はJSTとして扱う
-            if publish_end_dt.tzinfo is None:
-                publish_end_dt = JST.localize(publish_end_dt)
+            # データベースからの値をアプリタイムゾーンで解釈
+            publish_end_dt = localize_datetime(publish_end_dt)
             
-            # JSTに変換してからフォーマット
-            publish_end_jst = publish_end_dt.astimezone(JST)
+            # アプリタイムゾーンに変換してからフォーマット
+            publish_end_jst = to_app_timezone(publish_end_dt)
             # datetime-local input format: YYYY-MM-DDTHH:MM
             publish_end_datetime = publish_end_jst.strftime('%Y-%m-%dT%H:%M')
             # Display format
@@ -1181,8 +1188,8 @@ def admin():
         try:
             published_dt = datetime.fromisoformat(current_published_pdf['published_date'])
             if published_dt.tzinfo is None:
-                published_dt = JST.localize(published_dt)
-            published_jst = published_dt.astimezone(JST)
+                published_dt = localize_datetime(published_dt)
+            published_jst = to_app_timezone(published_dt)
             publish_start_formatted = published_jst.strftime('%Y年%m月%d日 %H:%M')
         except (ValueError, TypeError):
             publish_start_formatted = None
@@ -1194,8 +1201,8 @@ def admin():
                 try:
                     unpublished_dt = datetime.fromisoformat(pdf['unpublished_date'])
                     if unpublished_dt.tzinfo is None:
-                        unpublished_dt = JST.localize(unpublished_dt)
-                    unpublished_jst = unpublished_dt.astimezone(JST)
+                        unpublished_dt = localize_datetime(unpublished_dt)
+                    unpublished_jst = to_app_timezone(unpublished_dt)
                     last_unpublish_formatted = unpublished_jst.strftime('%Y年%m月%d日 %H:%M')
                     break  # 最初に見つかった（最新の）停止日時を使用
                 except (ValueError, TypeError):
@@ -1214,14 +1221,11 @@ def admin():
         try:
             target_dt = datetime.fromisoformat(scheduled_invalidation_datetime_str)
             
-            # JSTタイムゾーンに変換
-            if target_dt.tzinfo is None:
-                target_jst = JST.localize(target_dt)
-            else:
-                target_jst = target_dt.astimezone(JST)
+            # アプリタイムゾーンに変換
+            target_jst = localize_datetime(target_dt)
             
-            # 現在時刻（JST）と比較して過去の設定かチェック
-            now_jst = datetime.now(JST)
+            # 現在時刻と比較して過去の設定かチェック
+            now_jst = get_app_now()
             if target_jst <= now_jst:
                 # 過去の設定なので削除
                 conn_cleanup = sqlite3.connect('instance/database.db')
@@ -1333,10 +1337,10 @@ def session_detail(session_id):
         
         # 開始時刻を日本時間に変換
         start_dt = datetime.fromtimestamp(start_time)
-        start_jst = start_dt.astimezone(JST)
+        start_jst = to_app_timezone(start_dt)
         
         # 残り時間と経過時間を計算
-        now = datetime.now(JST)
+        now = get_app_now()
         elapsed = now - start_jst
         elapsed_hours = round(elapsed.total_seconds() / 3600, 1)
         
@@ -1587,9 +1591,8 @@ def update_publish_end():
         
         if publish_end_datetime:
             # Convert datetime-local format to JST aware datetime
-            # datetime-localはタイムゾーン情報なしなので、JSTとして扱う
-            publish_end_naive = datetime.fromisoformat(publish_end_datetime)
-            publish_end_dt = JST.localize(publish_end_naive)
+            # datetime-localをアプリタイムゾーンで解釈
+            publish_end_dt = parse_datetime_local(publish_end_datetime)
             
             # Validate that the datetime is in the future
             if publish_end_dt <= get_jst_now():
@@ -1866,7 +1869,7 @@ def schedule_session_invalidation():
             target_datetime = datetime.fromisoformat(complete_datetime_str)
             
             # 過去の日時チェック
-            now = datetime.now()
+            now = get_app_now()
             if target_datetime <= now:
                 flash('過去の日時は設定できません。未来の日時を指定してください。', 'error')
                 return redirect(url_for('admin'))
@@ -1881,10 +1884,7 @@ def schedule_session_invalidation():
             setup_session_invalidation_scheduler(complete_datetime_str)
             
             # 表示用に日時をフォーマット
-            if target_datetime.tzinfo is None:
-                target_jst = JST.localize(target_datetime)
-            else:
-                target_jst = target_datetime.astimezone(JST)
+            target_jst = localize_datetime(target_datetime)
             formatted_datetime = target_jst.strftime('%Y年%m月%d日 %H:%M:%S')
             
             flash(f'設定時刻セッション無効化を {formatted_datetime} に設定しました', 'success')
@@ -2026,7 +2026,7 @@ def get_active_sessions():
             session_timeout = 259200  # エラー時のフォールバック
         
         # 有効期限内のセッションのみ取得
-        cutoff_timestamp = int((datetime.now() - timedelta(seconds=session_timeout)).timestamp())
+        cutoff_timestamp = int(add_app_timedelta(get_app_now(), seconds=-session_timeout).timestamp())
         
         cursor.execute('''
             SELECT 
@@ -2066,14 +2066,14 @@ def get_active_sessions():
             
             # 開始時刻を日本時間に変換
             start_dt = datetime.fromtimestamp(start_time)
-            start_jst = start_dt.astimezone(JST)
+            start_jst = to_app_timezone(start_dt)
             
             # 最終更新時刻がある場合は変換（文字列形式での格納を想定）
             last_updated_formatted = None
             if last_updated:
                 try:
                     last_updated_dt = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
-                    last_updated_jst = last_updated_dt.astimezone(JST)
+                    last_updated_jst = to_app_timezone(last_updated_dt)
                     last_updated_formatted = last_updated_jst.strftime('%Y-%m-%d %H:%M:%S')
                 except:
                     last_updated_formatted = last_updated
@@ -2596,8 +2596,8 @@ def get_pdf_files():
                 try:
                     unpublished_dt = datetime.fromisoformat(file['unpublished_date'])
                     if unpublished_dt.tzinfo is None:
-                        unpublished_dt = JST.localize(unpublished_dt)
-                    unpublished_jst = unpublished_dt.astimezone(JST)
+                        unpublished_dt = localize_datetime(unpublished_dt)
+                    unpublished_jst = to_app_timezone(unpublished_dt)
                     unpublished_formatted = unpublished_jst.strftime('%Y年%m月%d日 %H:%M')
                 except (ValueError, TypeError):
                     unpublished_formatted = None
@@ -2724,7 +2724,7 @@ def initialize_scheduled_tasks():
             # 過去の日時でないかチェック
             try:
                 target_dt = datetime.fromisoformat(scheduled_datetime)
-                now = datetime.now()
+                now = get_app_now()
                 # 5分以上前の場合のみ期限切れとして削除
                 time_diff = (target_dt - now).total_seconds()
                 if time_diff > -300:  # 5分前まではまだ有効とみなす
@@ -2821,7 +2821,7 @@ def get_block_incidents():
                 try:
                     # UTCとして解釈してJSTに変換
                     utc_time = datetime.strptime(incident['created_at'], '%Y-%m-%d %H:%M:%S')
-                    jst_time = pytz.utc.localize(utc_time).astimezone(JST)
+                    jst_time = to_app_timezone(pytz.utc.localize(utc_time))
                     incident['created_at'] = jst_time.strftime('%Y-%m-%d %H:%M:%S')
                 except Exception:
                     pass  # 変換エラーの場合は元の値を保持
@@ -2829,7 +2829,7 @@ def get_block_incidents():
             if incident.get('resolved_at'):
                 try:
                     utc_time = datetime.strptime(incident['resolved_at'], '%Y-%m-%d %H:%M:%S')
-                    jst_time = pytz.utc.localize(utc_time).astimezone(JST)
+                    jst_time = to_app_timezone(pytz.utc.localize(utc_time))
                     incident['resolved_at'] = jst_time.strftime('%Y-%m-%d %H:%M:%S')
                 except Exception:
                     pass
@@ -3059,7 +3059,7 @@ def blocked():
         
         # 時刻をJSTに変換
         blocked_until_utc = datetime.strptime(block_info['blocked_until'], '%Y-%m-%d %H:%M:%S')
-        blocked_until_jst = pytz.utc.localize(blocked_until_utc).astimezone(JST)
+        blocked_until_jst = to_app_timezone(pytz.utc.localize(blocked_until_utc))
         
         conn.close()
         
@@ -3090,8 +3090,8 @@ def blocked_demo():
     from datetime import datetime, timedelta
     import pytz
     
-    now_jst = datetime.now(JST)
-    blocked_until = now_jst + timedelta(minutes=25)  # 25分後に解除
+    now_app = get_app_now()
+    blocked_until = add_app_timedelta(now_app, minutes=25)  # 25分後に解除
     
     return render_template('blocked.html',
         failure_count=5,

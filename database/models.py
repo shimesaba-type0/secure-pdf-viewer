@@ -2,6 +2,74 @@
 データベースモデル定義とテーブル作成
 """
 import sqlite3
+import hashlib
+from datetime import datetime
+from config.timezone import get_app_now, get_app_datetime_string, localize_datetime
+
+def insert_with_app_timestamp(db, table, columns, values, timestamp_columns=None):
+    """
+    アプリタイムゾーンの時刻でINSERTを実行
+    
+    Args:
+        db: データベース接続
+        table: テーブル名
+        columns: カラム名のリスト
+        values: 値のリスト
+        timestamp_columns: 時刻を自動設定するカラム名のリスト（デフォルト: ['created_at']）
+    """
+    if timestamp_columns is None:
+        timestamp_columns = ['created_at']
+    
+    # 時刻カラムを追加
+    current_time = get_app_datetime_string()
+    final_columns = list(columns)
+    final_values = list(values)
+    
+    for ts_col in timestamp_columns:
+        if ts_col not in final_columns:
+            final_columns.append(ts_col)
+            final_values.append(current_time)
+    
+    # SQL生成
+    placeholders = ', '.join(['?'] * len(final_columns))
+    columns_str = ', '.join(final_columns)
+    sql = f'INSERT INTO {table} ({columns_str}) VALUES ({placeholders})'
+    
+    return db.execute(sql, final_values)
+
+def update_with_app_timestamp(db, table, set_columns, set_values, where_clause, where_values=None, timestamp_columns=None):
+    """
+    アプリタイムゾーンの時刻でUPDATEを実行
+    
+    Args:
+        db: データベース接続
+        table: テーブル名
+        set_columns: 更新するカラム名のリスト
+        set_values: 更新する値のリスト
+        where_clause: WHERE句
+        where_values: WHERE句の値のリスト
+        timestamp_columns: 時刻を自動設定するカラム名のリスト（デフォルト: ['updated_at']）
+    """
+    if timestamp_columns is None:
+        timestamp_columns = ['updated_at']
+    if where_values is None:
+        where_values = []
+    
+    # 時刻カラムを追加
+    current_time = get_app_datetime_string()
+    final_columns = list(set_columns)
+    final_values = list(set_values)
+    
+    for ts_col in timestamp_columns:
+        if ts_col not in final_columns:
+            final_columns.append(ts_col)
+            final_values.append(current_time)
+    
+    # SQL生成
+    set_clause = ', '.join([f'{col} = ?' for col in final_columns])
+    sql = f'UPDATE {table} SET {set_clause} WHERE {where_clause}'
+    
+    return db.execute(sql, final_values + where_values)
 
 def create_tables(db):
     """全てのテーブルを作成"""
@@ -280,15 +348,16 @@ def set_setting(db, key, value, updated_by='system'):
         # 既存設定の更新
         db.execute('''
             UPDATE settings 
-            SET value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+            SET value = ?, updated_at = ?, updated_by = ?
             WHERE key = ?
-        ''', (str(value), updated_by, key))
+        ''', (str(value), get_app_datetime_string(), updated_by, key))
     else:
         # 新規設定の追加
+        now_str = get_app_datetime_string()
         db.execute('''
             INSERT INTO settings (key, value, value_type, description, category, created_at, updated_at, updated_by)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
-        ''', (key, str(value), 'string', f'動的設定: {key}', 'session', updated_by))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (key, str(value), 'string', f'動的設定: {key}', 'session', now_str, now_str, updated_by))
     
     # 履歴に記録
     db.execute('''
@@ -300,25 +369,24 @@ def set_setting(db, key, value, updated_by='system'):
 def log_access(db, session_id, email_hash, ip_address, user_agent, endpoint, method, status_code, device_type=None, screen_resolution=None):
     """アクセスログを記録"""
     db.execute('''
-        INSERT INTO access_logs (session_id, email_hash, ip_address, user_agent, device_type, screen_resolution, endpoint, method, status_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (session_id, email_hash, ip_address, user_agent, device_type, screen_resolution, endpoint, method, status_code))
+        INSERT INTO access_logs (session_id, email_hash, ip_address, user_agent, device_type, screen_resolution, endpoint, method, status_code, access_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (session_id, email_hash, ip_address, user_agent, device_type, screen_resolution, endpoint, method, status_code, get_app_datetime_string()))
 
 
 def log_event(db, session_id, email_hash, event_type, event_data, ip_address, device_info=None):
     """イベントログを記録"""
     import json
-    import time
     
     db.execute('''
-        INSERT INTO event_logs (session_id, email_hash, event_type, event_data, timestamp, ip_address, device_info)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (session_id, email_hash, event_type, json.dumps(event_data), int(time.time()), ip_address, json.dumps(device_info) if device_info else None))
+        INSERT INTO event_logs (session_id, email_hash, event_type, event_data, timestamp, ip_address, device_info, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (session_id, email_hash, event_type, json.dumps(event_data), int(get_app_now().timestamp()), ip_address, json.dumps(device_info) if device_info else None, get_app_datetime_string()))
 
 
 def log_auth_failure(db, ip_address, failure_type, email_attempted=None, device_type=None):
     """認証失敗ログを記録"""
     db.execute('''
-        INSERT INTO auth_failures (ip_address, failure_type, email_attempted, device_type)
-        VALUES (?, ?, ?, ?)
-    ''', (ip_address, failure_type, email_attempted, device_type))
+        INSERT INTO auth_failures (ip_address, failure_type, email_attempted, device_type, attempt_time)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (ip_address, failure_type, email_attempted, device_type, get_app_datetime_string()))
