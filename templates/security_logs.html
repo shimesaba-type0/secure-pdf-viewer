@@ -1,0 +1,502 @@
+{% extends "layout.html" %}
+
+{% block title %}セキュリティログ分析 - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+    .security-logs-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+
+    .page-header {
+        margin-bottom: 2rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .page-header h1 {
+        color: #495057;
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .overview-section {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        overflow: hidden;
+    }
+
+    .section-header {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: 600;
+        color: #495057;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .section-content {
+        padding: 1.5rem;
+    }
+
+    .chart-container {
+        height: 300px;
+        margin-bottom: 1rem;
+    }
+
+    .chart-legend {
+        display: flex;
+        justify-content: center;
+        gap: 2rem;
+        margin-top: 1rem;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    .legend-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 2px;
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .metric-card {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: transform 0.2s ease;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .metric-card.high-risk {
+        border-left: 4px solid #dc3545;
+    }
+
+    .metric-card.medium-risk {
+        border-left: 4px solid #ffc107;
+    }
+
+    .metric-card.low-risk {
+        border-left: 4px solid #28a745;
+    }
+
+    .metric-card.total {
+        border-left: 4px solid #007bff;
+    }
+
+    .metric-number {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #495057;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+    }
+
+    .metric-label {
+        font-size: 0.9rem;
+        color: #6c757d;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .metric-change {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+    }
+
+    .metric-change.positive {
+        color: #dc3545;
+    }
+
+    .metric-change.negative {
+        color: #28a745;
+    }
+
+    .analysis-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .time-range-selector {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .time-range-btn {
+        padding: 0.5rem 1rem;
+        border: 1px solid #dee2e6;
+        background: white;
+        color: #495057;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
+
+    .time-range-btn:hover {
+        background: #f8f9fa;
+    }
+
+    .time-range-btn.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+    }
+
+    .event-type-selector {
+        min-width: 200px;
+    }
+
+    .event-type-selector select {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .event-timeline {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 2rem;
+    }
+
+    .timeline-item {
+        padding: 1rem;
+        border-bottom: 1px solid #f8f9fa;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .timeline-item:last-child {
+        border-bottom: none;
+    }
+
+    .timeline-time {
+        font-size: 0.8rem;
+        color: #6c757d;
+        min-width: 120px;
+    }
+
+    .timeline-event {
+        flex: 1;
+    }
+
+    .timeline-event-type {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+
+    .timeline-event-details {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+
+    .alert-section {
+        background: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .alert-section.high-risk {
+        background: #f8d7da;
+        border-color: #f1aeb5;
+    }
+
+    .alert-title {
+        font-weight: bold;
+        color: #856404;
+        margin-bottom: 0.5rem;
+    }
+
+    .alert-section.high-risk .alert-title {
+        color: #721c24;
+    }
+
+    /* レスポンシブ対応 */
+    @media (max-width: 768px) {
+        .security-logs-container {
+            padding: 1rem;
+        }
+
+        .metrics-grid {
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
+
+        .analysis-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .metric-number {
+            font-size: 2rem;
+        }
+
+        .chart-container {
+            height: 250px;
+        }
+
+        .chart-legend {
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .time-range-selector {
+            justify-content: center;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/security-logs.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="security-logs-container">
+    <div class="page-header">
+        <h1>🛡️ セキュリティログ分析</h1>
+    </div>
+
+    <!-- アラートセクション -->
+    <div id="alertSection" style="display: none;">
+        <!-- 動的に生成 -->
+    </div>
+
+    <!-- メトリクス概要 -->
+    <div class="metrics-grid">
+        <div class="metric-card total">
+            <div class="metric-number" id="totalEvents">-</div>
+            <div class="metric-label">総イベント数</div>
+            <div class="metric-change" id="totalEventsChange"></div>
+        </div>
+        <div class="metric-card high-risk">
+            <div class="metric-number" id="highRiskEvents">-</div>
+            <div class="metric-label">高リスク</div>
+            <div class="metric-change" id="highRiskEventsChange"></div>
+        </div>
+        <div class="metric-card medium-risk">
+            <div class="metric-number" id="mediumRiskEvents">-</div>
+            <div class="metric-label">中リスク</div>
+            <div class="metric-change" id="mediumRiskEventsChange"></div>
+        </div>
+        <div class="metric-card low-risk">
+            <div class="metric-number" id="lowRiskEvents">-</div>
+            <div class="metric-label">低リスク</div>
+            <div class="metric-change" id="lowRiskEventsChange"></div>
+        </div>
+    </div>
+
+    <!-- 時間範囲選択 -->
+    <div class="time-range-selector">
+        <span style="margin-right: 1rem; align-self: center; font-weight: 500;">期間:</span>
+        <button class="time-range-btn active" data-range="24h">過去24時間</button>
+        <button class="time-range-btn" data-range="7d">過去7日間</button>
+        <button class="time-range-btn" data-range="30d">過去30日間</button>
+        <button class="time-range-btn" data-range="90d">過去90日間</button>
+        <button class="time-range-btn" data-range="custom">カスタム</button>
+    </div>
+
+    <!-- カスタム日付範囲選択（非表示） -->
+    <div id="customDateRange" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <label>開始日: <input type="date" id="customStartDate" class="form-control" style="display: inline-block; width: auto;"></label>
+            <label>終了日: <input type="date" id="customEndDate" class="form-control" style="display: inline-block; width: auto;"></label>
+            <button class="btn btn-primary btn-sm" onclick="applyCustomDateRange()">適用</button>
+        </div>
+    </div>
+
+    <!-- 分析グラフ -->
+    <div class="analysis-grid">
+        <div class="overview-section">
+            <div class="section-header">
+                <span>📊 リスクレベル別分布</span>
+                <div class="auto-refresh-toggle">
+                    <label style="font-weight: normal; margin: 0;">
+                        <input type="checkbox" id="autoRefreshCharts" onchange="toggleChartsAutoRefresh()" checked>
+                        自動更新（30秒）
+                    </label>
+                </div>
+            </div>
+            <div class="section-content">
+                <div class="chart-container">
+                    <canvas id="riskLevelChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="overview-section">
+            <div class="section-header">
+                <span>📈 イベント種別増加傾向</span>
+                <div class="event-type-selector">
+                    <select id="eventTypeSelector" class="form-control" onchange="updateSelectedEventTrend()">
+                        <option value="unauthorized_action">不正操作</option>
+                        <option value="download_attempt">ダウンロード試行</option>
+                        <option value="pdf_view">PDF閲覧</option>
+                        <option value="print_attempt">印刷試行</option>
+                        <option value="devtools_open">開発者ツール</option>
+                        <option value="direct_access">直接アクセス</option>
+                        <option value="copy_attempt">コピー試行</option>
+                        <option value="page_leave">ページ離脱</option>
+                    </select>
+                </div>
+            </div>
+            <div class="section-content">
+                <div class="chart-container">
+                    <canvas id="eventTrendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 時系列グラフ -->
+    <div class="overview-section">
+        <div class="section-header">
+            <span>📅 時系列分析</span>
+        </div>
+        <div class="section-content">
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="timeSeriesChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最近のイベント -->
+    <div class="overview-section">
+        <div class="section-header">
+            <span>🔍 最近のセキュリティイベント</span>
+            <div>
+                <button class="btn btn-sm btn-primary" onclick="refreshRecentEvents()">
+                    🔄 更新
+                </button>
+                <button type="button" class="btn btn-sm btn-info" onclick="showAdvancedFilters()">
+                    🎛️ 詳細フィルター
+                </button>
+            </div>
+        </div>
+        <div class="section-content">
+            <!-- 詳細フィルター（非表示） -->
+            <div id="advancedFilters" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+                <div class="log-filters-grid">
+                    <div class="filter-group">
+                        <label for="userEmailFilter">ユーザー:</label>
+                        <input type="text" id="userEmailFilter" class="form-control" placeholder="メールアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="eventTypeFilter">イベント種別:</label>
+                        <select id="eventTypeFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="pdf_view">PDF閲覧</option>
+                            <option value="download_attempt">ダウンロード試行</option>
+                            <option value="print_attempt">印刷試行</option>
+                            <option value="devtools_open">開発者ツール</option>
+                            <option value="direct_access">直接アクセス</option>
+                            <option value="page_leave">ページ離脱</option>
+                            <option value="copy_attempt">コピー試行</option>
+                            <option value="screenshot_attempt">スクリーンショット</option>
+                            <option value="unauthorized_action">不正操作</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="riskLevelFilter">リスクレベル:</label>
+                        <select id="riskLevelFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="high">高リスク</option>
+                            <option value="medium">中リスク</option>
+                            <option value="low">低リスク</option>
+                        </select>
+                    </div>
+                    <div class="filter-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="applyAdvancedFilters()">
+                            🔍 検索
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearAdvancedFilters()">
+                            🗑️ クリア
+                        </button>
+                        <button type="button" class="btn btn-success btn-sm" onclick="exportSecurityLogs()">
+                            📊 エクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="log-table-wrapper">
+                <table class="security-log-table" id="securityLogTable">
+                    <thead>
+                        <tr>
+                            <th>時刻</th>
+                            <th>ユーザー</th>
+                            <th>イベント種別</th>
+                            <th>リスク</th>
+                            <th>詳細</th>
+                            <th>IPアドレス</th>
+                        </tr>
+                    </thead>
+                    <tbody id="securityLogTableBody">
+                        <tr>
+                            <td colspan="6" class="loading-row">セキュリティログを読み込み中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ページネーション -->
+            <div class="log-pagination" id="logPagination">
+                <div class="pagination-info" id="logPaginationInfo">
+                    - / - 件を表示中
+                </div>
+                <div>
+                    <button type="button" class="btn btn-sm btn-secondary" id="logPrevBtn" onclick="loadPreviousLogPage()" disabled>
+                        ← 前へ
+                    </button>
+                    <span class="pagination-info" id="logCurrentPage">
+                        ページ 1
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" id="logNextBtn" onclick="loadNextLogPage()" disabled>
+                        次へ →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

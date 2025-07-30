@@ -616,24 +616,140 @@
     </div>
 
     <div class="admin-section">
-        <h3>最近のアクセスログ</h3>
-        <div class="log-container">
-            <table class="log-table">
-                <thead>
-                    <tr>
-                        <th>時刻</th>
-                        <th>IPアドレス</th>
-                        <th>アクション</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>{{ session.login_time }}</td>
-                        <td>127.0.0.1</td>
-                        <td>ログイン</td>
-                    </tr>
-                </tbody>
-            </table>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">セキュリティイベントログ</h3>
+            <a href="/admin/security-logs" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+                📊 詳細分析画面
+            </a>
+        </div>
+        <div class="log-management-container">
+            <!-- 統計情報 -->
+            <div class="log-stats-container">
+                <div class="log-stats-grid">
+                    <div class="log-stat-item">
+                        <span class="log-stat-number" id="totalEvents">-</span>
+                        <span class="log-stat-label">総イベント数</span>
+                    </div>
+                    <div class="log-stat-item high-risk">
+                        <span class="log-stat-number" id="highRiskEvents">-</span>
+                        <span class="log-stat-label">高リスク</span>
+                    </div>
+                    <div class="log-stat-item medium-risk">
+                        <span class="log-stat-number" id="mediumRiskEvents">-</span>
+                        <span class="log-stat-label">中リスク</span>
+                    </div>
+                    <div class="log-stat-item low-risk">
+                        <span class="log-stat-number" id="lowRiskEvents">-</span>
+                        <span class="log-stat-label">低リスク</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="log-filters-container">
+                <div class="log-filters-grid">
+                    <div class="filter-group">
+                        <label for="userEmailFilter">ユーザー:</label>
+                        <input type="text" id="userEmailFilter" class="form-control" placeholder="メールアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="eventTypeFilter">イベント種別:</label>
+                        <select id="eventTypeFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="pdf_view">PDF閲覧</option>
+                            <option value="download_attempt">ダウンロード試行</option>
+                            <option value="print_attempt">印刷試行</option>
+                            <option value="devtools_open">開発者ツール</option>
+                            <option value="direct_access">直接アクセス</option>
+                            <option value="page_leave">ページ離脱</option>
+                            <option value="copy_attempt">コピー試行</option>
+                            <option value="screenshot_attempt">スクリーンショット</option>
+                            <option value="unauthorized_action">不正操作</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="riskLevelFilter">リスクレベル:</label>
+                        <select id="riskLevelFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="high">高リスク</option>
+                            <option value="medium">中リスク</option>
+                            <option value="low">低リスク</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="startDateFilter">開始日:</label>
+                        <input type="date" id="startDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-group">
+                        <label for="endDateFilter">終了日:</label>
+                        <input type="date" id="endDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="applySecurityLogFilters()">
+                            🔍 検索
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearSecurityLogFilters()">
+                            🗑️ クリア
+                        </button>
+                        <button type="button" class="btn btn-success btn-sm" onclick="exportSecurityLogs()">
+                            📊 エクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- イベントログテーブル -->
+            <div class="log-table-container">
+                <div class="log-table-header">
+                    <div class="log-table-actions">
+                        <button type="button" class="btn btn-info btn-sm" onclick="refreshSecurityLogs()">
+                            🔄 更新
+                        </button>
+                        <span class="log-pagination-info" id="logPaginationInfo">
+                            - / - 件を表示中
+                        </span>
+                    </div>
+                    <div class="log-auto-refresh">
+                        <label>
+                            <input type="checkbox" id="logAutoRefreshCheckbox" onchange="toggleLogAutoRefresh()">
+                            自動更新（30秒）
+                        </label>
+                    </div>
+                </div>
+
+                <div class="log-table-wrapper">
+                    <table class="security-log-table" id="securityLogTable">
+                        <thead>
+                            <tr>
+                                <th>時刻</th>
+                                <th>ユーザー</th>
+                                <th>イベント種別</th>
+                                <th>リスク</th>
+                                <th>詳細</th>
+                                <th>IPアドレス</th>
+                            </tr>
+                        </thead>
+                        <tbody id="securityLogTableBody">
+                            <tr>
+                                <td colspan="6" class="loading-row">セキュリティログを読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ページネーション -->
+                <div class="log-pagination" id="logPagination">
+                    <button type="button" class="btn btn-sm btn-secondary" id="logPrevBtn" onclick="loadPreviousLogPage()" disabled>
+                        ← 前へ
+                    </button>
+                    <span class="pagination-info" id="logCurrentPage">
+                        ページ 1
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" id="logNextBtn" onclick="loadNextLogPage()" disabled>
+                        次へ →
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>

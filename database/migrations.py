@@ -145,6 +145,95 @@ def run_migration_001(db):
         raise
 
 
+def run_migration_002(db):
+    """
+    Migration 002: セキュリティイベントログ機能追加
+    """
+    print("Running Migration 002: Security Event Logging")
+    
+    try:
+        # トランザクション開始
+        db.execute('BEGIN TRANSACTION')
+        
+        # access_logs テーブルに新しいカラムを追加
+        try:
+            db.execute('ALTER TABLE access_logs ADD COLUMN user_email TEXT')
+            print("Added user_email column to access_logs")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            print("user_email column already exists in access_logs")
+        
+        try:
+            db.execute('ALTER TABLE access_logs ADD COLUMN duration_seconds INTEGER')
+            print("Added duration_seconds column to access_logs")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            print("duration_seconds column already exists in access_logs")
+        
+        try:
+            db.execute('ALTER TABLE access_logs ADD COLUMN pdf_file_path TEXT')
+            print("Added pdf_file_path column to access_logs")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            print("pdf_file_path column already exists in access_logs")
+        
+        # security_events テーブルを作成
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS security_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_email TEXT NOT NULL,
+                event_type TEXT NOT NULL CHECK (event_type IN (
+                    'pdf_view', 'download_attempt', 'print_attempt', 
+                    'direct_access', 'devtools_open', 'unauthorized_action', 
+                    'page_leave', 'screenshot_attempt', 'copy_attempt'
+                )),
+                event_details JSON,
+                risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')) DEFAULT 'low',
+                ip_address TEXT,
+                user_agent TEXT,
+                occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                pdf_file_path TEXT,
+                session_id TEXT
+            )
+        ''')
+        print("Created security_events table")
+        
+        # インデックス作成
+        indexes = [
+            'CREATE INDEX IF NOT EXISTS idx_security_events_user_email ON security_events(user_email)',
+            'CREATE INDEX IF NOT EXISTS idx_security_events_event_type ON security_events(event_type)',
+            'CREATE INDEX IF NOT EXISTS idx_security_events_risk_level ON security_events(risk_level)',
+            'CREATE INDEX IF NOT EXISTS idx_security_events_occurred_at ON security_events(occurred_at)',
+            'CREATE INDEX IF NOT EXISTS idx_security_events_pdf_file_path ON security_events(pdf_file_path)',
+            'CREATE INDEX IF NOT EXISTS idx_security_events_session_id ON security_events(session_id)',
+            'CREATE INDEX IF NOT EXISTS idx_access_logs_user_email ON access_logs(user_email)',
+            'CREATE INDEX IF NOT EXISTS idx_access_logs_pdf_file_path ON access_logs(pdf_file_path)'
+        ]
+        
+        for index_sql in indexes:
+            db.execute(index_sql)
+        print("Created security event indexes")
+        
+        # マイグレーション実行記録
+        db.execute('''
+            INSERT OR REPLACE INTO migrations (name, description)
+            VALUES (?, ?)
+        ''', ('002_security_event_logging', 'Add security event logging tables and indexes'))
+        
+        # コミット
+        db.execute('COMMIT')
+        print("Migration 002 completed successfully")
+        
+    except Exception as e:
+        # ロールバック
+        db.execute('ROLLBACK')
+        print(f"Migration 002 failed: {str(e)}")
+        raise
+
+
 def get_applied_migrations(db):
     """適用済みマイグレーションを取得"""
     try:
@@ -162,6 +251,7 @@ def run_all_migrations(db):
     # 利用可能なマイグレーション
     available_migrations = [
         ('001_password_to_passphrase', run_migration_001),
+        ('002_security_event_logging', run_migration_002),
     ]
     
     for migration_name, migration_func in available_migrations:

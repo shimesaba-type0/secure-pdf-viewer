@@ -2198,4 +2198,309 @@ body {
     font-size: 0.85rem;
     color: #6c757d;
 }
+
+/* セキュリティログ管理スタイル */
+.log-management-container {
+    margin-top: 1rem;
+}
+
+.log-stats-container {
+    margin-bottom: 1.5rem;
+}
+
+.log-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.log-stat-item {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.log-stat-item.high-risk {
+    border-left: 4px solid #dc3545;
+}
+
+.log-stat-item.medium-risk {
+    border-left: 4px solid #ffc107;
+}
+
+.log-stat-item.low-risk {
+    border-left: 4px solid #28a745;
+}
+
+.log-stat-number {
+    display: block;
+    font-size: 2rem;
+    font-weight: bold;
+    color: #495057;
+    line-height: 1;
+}
+
+.log-stat-label {
+    display: block;
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+}
+
+.log-filters-container {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.log-filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    align-items: end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.filter-group label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #495057;
+    margin-bottom: 0.25rem;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.log-table-container {
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    overflow: hidden;
+}
+
+.log-table-header {
+    padding: 1rem;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.log-table-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.log-pagination-info {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.log-auto-refresh {
+    font-size: 0.9rem;
+}
+
+.log-auto-refresh label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.log-table-wrapper {
+    overflow-x: auto;
+}
+
+.security-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.security-log-table th,
+.security-log-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: middle;
+}
+
+.security-log-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.security-log-table tr:hover {
+    background: #f8f9fa;
+}
+
+.security-log-table .no-data {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    padding: 2rem;
+}
+
+.security-log-table .loading-row {
+    text-align: center;
+    color: #6c757d;
+    padding: 2rem;
+}
+
+/* リスクレベル別の行スタイル */
+.security-log-table .risk-high {
+    border-left: 3px solid #dc3545;
+    background: rgba(220, 53, 69, 0.02);
+}
+
+.security-log-table .risk-medium {
+    border-left: 3px solid #ffc107;
+    background: rgba(255, 193, 7, 0.02);
+}
+
+.security-log-table .risk-low {
+    border-left: 3px solid #28a745;
+    background: rgba(40, 167, 69, 0.02);
+}
+
+/* リスクバッジ */
+.risk-badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.risk-badge.risk-high {
+    background: #dc3545;
+    color: white;
+}
+
+.risk-badge.risk-medium {
+    background: #ffc107;
+    color: #856404;
+}
+
+.risk-badge.risk-low {
+    background: #28a745;
+    color: white;
+}
+
+/* イベント詳細カラム */
+.event-details {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+
+/* ページネーション */
+.log-pagination {
+    padding: 1rem;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-info {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .log-stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    
+    .log-filters-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .filter-actions {
+        grid-column: 1;
+        justify-content: stretch;
+    }
+    
+    .filter-actions .btn {
+        flex: 1;
+        text-align: center;
+    }
+    
+    .log-table-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+    
+    .log-table-actions {
+        justify-content: space-between;
+    }
+    
+    .security-log-table {
+        font-size: 0.8rem;
+    }
+    
+    .security-log-table th,
+    .security-log-table td {
+        padding: 0.5rem;
+    }
+    
+    .event-details {
+        max-width: 120px;
+    }
+    
+    .log-pagination {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .log-stat-number {
+        font-size: 1.5rem;
+    }
+    
+    .security-log-table th,
+    .security-log-table td {
+        padding: 0.4rem;
+    }
+    
+    .event-details {
+        max-width: 80px;
+    }
+    
+    .risk-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+    }
+}
 }

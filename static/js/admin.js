@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // インシデント管理機能を初期化
     initializeIncidentManagement();
     
+    // セキュリティログ管理機能を初期化
+    initializeSecurityLogManagement();
+    
 
     if (fileInput) {
         // File input change event
@@ -1774,5 +1777,375 @@ function showIncidentMessage(message, type) {
     setTimeout(() => {
         messageContainer.innerHTML = '';
     }, 5000);
+}
+
+// セキュリティログ管理機能
+let securityLogAutoRefreshInterval = null;
+let currentSecurityLogPage = 1;
+const securityLogPageSize = 20;
+let currentSecurityLogFilters = {};
+
+function initializeSecurityLogManagement() {
+    console.log('セキュリティログ管理初期化開始');
+    
+    // 初期データ読み込み
+    refreshSecurityLogStats();
+    refreshSecurityLogs();
+    
+    // 初期日付設定（過去7日間）
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 7);
+    
+    const startDateInput = document.getElementById('startDateFilter');
+    const endDateInput = document.getElementById('endDateFilter');
+    
+    if (startDateInput) startDateInput.value = formatDate(startDate);
+    if (endDateInput) endDateInput.value = formatDate(endDate);
+    
+    console.log('セキュリティログ管理初期化完了');
+}
+
+function formatDate(date) {
+    return date.toISOString().split('T')[0];
+}
+
+function refreshSecurityLogStats() {
+    const filters = getSecurityLogFilters();
+    const params = new URLSearchParams();
+    
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    
+    fetch(`/api/logs/security-events/stats?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateSecurityLogStats(data.data);
+            } else {
+                console.error('統計取得エラー:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('統計取得エラー:', error);
+            updateSecurityLogStats({
+                total: 0,
+                risk_levels: {},
+                event_types: {}
+            });
+        });
+}
+
+function updateSecurityLogStats(stats) {
+    document.getElementById('totalEvents').textContent = stats.total || 0;
+    document.getElementById('highRiskEvents').textContent = stats.risk_levels.high || 0;
+    document.getElementById('mediumRiskEvents').textContent = stats.risk_levels.medium || 0;
+    document.getElementById('lowRiskEvents').textContent = stats.risk_levels.low || 0;
+}
+
+function getSecurityLogFilters() {
+    return {
+        user_email: document.getElementById('userEmailFilter')?.value.trim() || null,
+        event_type: document.getElementById('eventTypeFilter')?.value || null,
+        risk_level: document.getElementById('riskLevelFilter')?.value || null,
+        start_date: document.getElementById('startDateFilter')?.value || null,
+        end_date: document.getElementById('endDateFilter')?.value || null
+    };
+}
+
+function refreshSecurityLogs() {
+    const filters = getSecurityLogFilters();
+    currentSecurityLogFilters = filters;
+    
+    const params = new URLSearchParams();
+    if (filters.user_email) params.append('user_email', filters.user_email);
+    if (filters.event_type) params.append('event_type', filters.event_type);
+    if (filters.risk_level) params.append('risk_level', filters.risk_level);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    params.append('page', currentSecurityLogPage.toString());
+    params.append('limit', securityLogPageSize.toString());
+    
+    fetch(`/api/logs/security-events?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateSecurityLogTable(data.data.events);
+                updateSecurityLogPagination(data.data.pagination);
+            } else {
+                console.error('ログ取得エラー:', data.message);
+                showSecurityLogError('ログの取得に失敗しました: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('ログ取得エラー:', error);
+            showSecurityLogError('ログの取得中にエラーが発生しました');
+        });
+}
+
+function updateSecurityLogTable(events) {
+    const tbody = document.getElementById('securityLogTableBody');
+    if (!tbody) return;
+    
+    if (events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="no-data">該当するログがありません</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = events.map(event => {
+        const riskClass = `risk-${event.risk_level}`;
+        const eventTypeDisplay = getEventTypeDisplay(event.event_type);
+        const riskDisplay = getRiskLevelDisplay(event.risk_level);
+        
+        // イベント詳細の整形
+        let eventDetails = '-';
+        if (event.event_details) {
+            try {
+                const details = JSON.parse(event.event_details);
+                eventDetails = formatEventDetails(event.event_type, details);
+            } catch (e) {
+                eventDetails = event.event_details.substring(0, 50) + '...';
+            }
+        }
+        
+        return `
+            <tr class="${riskClass}">
+                <td>${formatTimestamp(event.occurred_at)}</td>
+                <td>${escapeHtml(event.user_email || '-')}</td>
+                <td>${eventTypeDisplay}</td>
+                <td><span class="risk-badge ${riskClass}">${riskDisplay}</span></td>
+                <td class="event-details" title="${escapeHtml(event.event_details || '')}">${eventDetails}</td>
+                <td>${escapeHtml(event.ip_address || '-')}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function getEventTypeDisplay(eventType) {
+    const types = {
+        'pdf_view': 'PDF閲覧',
+        'download_attempt': 'ダウンロード試行',
+        'print_attempt': '印刷試行',
+        'devtools_open': '開発者ツール',
+        'direct_access': '直接アクセス',
+        'page_leave': 'ページ離脱',
+        'copy_attempt': 'コピー試行',
+        'screenshot_attempt': 'スクリーンショット',
+        'unauthorized_action': '不正操作'
+    };
+    return types[eventType] || eventType;
+}
+
+function getRiskLevelDisplay(riskLevel) {
+    const levels = {
+        'high': '高',
+        'medium': '中',
+        'low': '低'
+    };
+    return levels[riskLevel] || riskLevel;
+}
+
+function formatEventDetails(eventType, details) {
+    if (!details) return '-';
+    
+    switch (eventType) {
+        case 'download_attempt':
+            return `${details.method || ''} ${details.prevented ? '(阻止)' : ''}`.trim();
+        case 'print_attempt':
+            return `${details.method || ''} ${details.prevented ? '(阻止)' : ''}`.trim();
+        case 'devtools_open':
+            return details.method || '-';
+        case 'copy_attempt':
+            return `${details.method || ''} (${details.selection_length || 0}文字)`;
+        case 'page_leave':
+            return `${details.method || ''} (${Math.round((details.duration_ms || 0) / 1000)}秒)`;
+        default:
+            if (details.action) return details.action;
+            if (details.method) return details.method;
+            return '詳細情報';
+    }
+}
+
+function formatTimestamp(timestamp) {
+    if (!timestamp) return '-';
+    
+    try {
+        const date = new Date(timestamp);
+        return date.toLocaleString('ja-JP', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    } catch (e) {
+        return timestamp;
+    }
+}
+
+function updateSecurityLogPagination(pagination) {
+    document.getElementById('logPaginationInfo').textContent = 
+        `${((pagination.page - 1) * pagination.limit) + 1} - ${Math.min(pagination.page * pagination.limit, pagination.total)} / ${pagination.total} 件を表示中`;
+    
+    document.getElementById('logCurrentPage').textContent = `ページ ${pagination.page}`;
+    
+    document.getElementById('logPrevBtn').disabled = pagination.page <= 1;
+    document.getElementById('logNextBtn').disabled = !pagination.has_more;
+}
+
+function applySecurityLogFilters() {
+    currentSecurityLogPage = 1;
+    refreshSecurityLogStats();
+    refreshSecurityLogs();
+}
+
+function clearSecurityLogFilters() {
+    document.getElementById('userEmailFilter').value = '';
+    document.getElementById('eventTypeFilter').value = '';
+    document.getElementById('riskLevelFilter').value = '';
+    document.getElementById('startDateFilter').value = '';
+    document.getElementById('endDateFilter').value = '';
+    
+    applySecurityLogFilters();
+}
+
+function loadPreviousLogPage() {
+    if (currentSecurityLogPage > 1) {
+        currentSecurityLogPage--;
+        refreshSecurityLogs();
+    }
+}
+
+function loadNextLogPage() {
+    currentSecurityLogPage++;
+    refreshSecurityLogs();
+}
+
+function exportSecurityLogs() {
+    const filters = getSecurityLogFilters();
+    const params = new URLSearchParams();
+    
+    if (filters.user_email) params.append('user_email', filters.user_email);
+    if (filters.event_type) params.append('event_type', filters.event_type);
+    if (filters.risk_level) params.append('risk_level', filters.risk_level);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    params.append('limit', '1000'); // 最大1000件
+    
+    fetch(`/api/logs/security-events?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                downloadSecurityLogsCSV(data.data.events);
+            } else {
+                showSecurityLogError('エクスポートに失敗しました: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('エクスポートエラー:', error);
+            showSecurityLogError('エクスポート中にエラーが発生しました');
+        });
+}
+
+function downloadSecurityLogsCSV(events) {
+    const headers = ['時刻', 'ユーザー', 'イベント種別', 'リスクレベル', '詳細', 'IPアドレス', 'セッションID'];
+    
+    const rows = events.map(event => {
+        let eventDetails = '';
+        if (event.event_details) {
+            try {
+                const details = JSON.parse(event.event_details);
+                eventDetails = formatEventDetails(event.event_type, details);
+            } catch (e) {
+                eventDetails = event.event_details;
+            }
+        }
+        
+        return [
+            formatTimestamp(event.occurred_at),
+            event.user_email || '',
+            getEventTypeDisplay(event.event_type),
+            getRiskLevelDisplay(event.risk_level),
+            eventDetails,
+            event.ip_address || '',
+            event.session_id || ''
+        ];
+    });
+    
+    const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+    
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `security_events_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showSecurityLogMessage('セキュリティログをエクスポートしました', 'success');
+}
+
+function toggleLogAutoRefresh() {
+    const checkbox = document.getElementById('logAutoRefreshCheckbox');
+    
+    if (checkbox.checked) {
+        startSecurityLogAutoRefresh();
+    } else {
+        stopSecurityLogAutoRefresh();
+    }
+}
+
+function startSecurityLogAutoRefresh() {
+    if (securityLogAutoRefreshInterval) return;
+    
+    securityLogAutoRefreshInterval = setInterval(() => {
+        refreshSecurityLogStats();
+        refreshSecurityLogs();
+    }, 30000); // 30秒間隔
+    
+    console.log('セキュリティログ自動更新を開始しました');
+}
+
+function stopSecurityLogAutoRefresh() {
+    if (securityLogAutoRefreshInterval) {
+        clearInterval(securityLogAutoRefreshInterval);
+        securityLogAutoRefreshInterval = null;
+        console.log('セキュリティログ自動更新を停止しました');
+    }
+}
+
+function showSecurityLogMessage(message, type) {
+    const className = type === 'success' ? 'message-success' : 'message-error';
+    const messageContainer = document.createElement('div');
+    messageContainer.className = className;
+    messageContainer.textContent = message;
+    messageContainer.style.marginBottom = '1rem';
+    
+    const logContainer = document.querySelector('.log-management-container');
+    if (logContainer) {
+        logContainer.insertBefore(messageContainer, logContainer.firstChild);
+        
+        setTimeout(() => {
+            messageContainer.remove();
+        }, 5000);
+    }
+}
+
+function showSecurityLogError(message) {
+    showSecurityLogMessage(message, 'error');
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 

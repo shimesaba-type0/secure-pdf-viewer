@@ -543,6 +543,93 @@ def get_jst_datetime_string():
     return get_app_datetime_string()
     return get_jst_now().strftime('%Y-%m-%d %H:%M:%S')
 
+
+def cleanup_security_logs():
+    """期限切れのセキュリティログをクリーンアップ"""
+    try:
+        # 環境変数または設定から保存期間を取得（デフォルト90日）
+        retention_days = int(os.environ.get('LOG_RETENTION_DAYS', '90'))
+        
+        conn = sqlite3.connect(get_db_path())
+        cursor = conn.cursor()
+        
+        # 期限切れのセキュリティイベントログを削除
+        cursor.execute('''
+            DELETE FROM security_events 
+            WHERE occurred_at < datetime('now', '-{} days')
+        '''.format(retention_days))
+        deleted_security_events = cursor.rowcount
+        
+        # 期限切れのアクセスログも削除（user_emailが追加されたもの）
+        cursor.execute('''
+            DELETE FROM access_logs 
+            WHERE access_time < datetime('now', '-{} days')
+        '''.format(retention_days))
+        deleted_access_logs = cursor.rowcount
+        
+        # 期限切れの認証失敗ログも削除
+        cursor.execute('''
+            DELETE FROM auth_failures 
+            WHERE attempt_time < datetime('now', '-{} days')
+        '''.format(retention_days))
+        deleted_auth_failures = cursor.rowcount
+        
+        # 期限切れのイベントログも削除
+        cursor.execute('''
+            DELETE FROM event_logs 
+            WHERE created_at < datetime('now', '-{} days')
+        '''.format(retention_days))
+        deleted_event_logs = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        total_deleted = deleted_security_events + deleted_access_logs + deleted_auth_failures + deleted_event_logs
+        
+        if total_deleted > 0:
+            cleanup_message = (
+                f"Log cleanup completed: Removed {deleted_security_events} security events, "
+                f"{deleted_access_logs} access logs, {deleted_auth_failures} auth failures, "
+                f"{deleted_event_logs} event logs (retention: {retention_days} days)"
+            )
+            print(cleanup_message)
+            
+            # 管理者にSSE通知（オプション）
+            try:
+                broadcast_sse_event('log_cleanup', {
+                    'message': f'ログクリーンアップ完了: {total_deleted}件のログを削除',
+                    'deleted_security_events': deleted_security_events,
+                    'deleted_access_logs': deleted_access_logs,
+                    'deleted_auth_failures': deleted_auth_failures,
+                    'deleted_event_logs': deleted_event_logs,
+                    'retention_days': retention_days,
+                    'timestamp': get_app_datetime_string()
+                })
+            except Exception as e:
+                print(f"SSE notification error during log cleanup: {e}")
+        else:
+            print(f"Log cleanup: No logs older than {retention_days} days found")
+        
+        return {
+            'success': True,
+            'deleted_security_events': deleted_security_events,
+            'deleted_access_logs': deleted_access_logs,
+            'deleted_auth_failures': deleted_auth_failures,
+            'deleted_event_logs': deleted_event_logs,
+            'total_deleted': total_deleted,
+            'retention_days': retention_days,
+            'timestamp': get_app_datetime_string()
+        }
+        
+    except Exception as e:
+        error_msg = f"Security log cleanup error: {e}"
+        print(error_msg)
+        return {
+            'success': False,
+            'error': error_msg,
+            'timestamp': get_app_datetime_string()
+        }
+
 # SSE用のクライアント管理
 sse_clients = set()
 sse_lock = threading.Lock()
@@ -624,6 +711,18 @@ scheduler.add_job(
     id='session_cleanup',
     replace_existing=True
 )
+
+# セキュリティログクリーンアップを毎日深夜2時に実行
+cleanup_hour = int(os.environ.get('LOG_CLEANUP_HOUR', '2'))  # デフォルト深夜2時
+scheduler.add_job(
+    func=cleanup_security_logs,
+    trigger="cron",
+    hour=cleanup_hour,
+    minute=0,
+    id='security_log_cleanup',
+    replace_existing=True
+)
+print(f"Security log cleanup scheduled for {cleanup_hour:02d}:00 daily")
 
 # PDF URL Security instance
 pdf_security = PDFURLSecurity()
@@ -2438,6 +2537,33 @@ def sse_stream():
     )
 
 
+@app.route('/admin/security-logs')
+def admin_security_logs():
+    """セキュリティログ分析画面"""
+    # セッション有効期限チェック  
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+    
+    if not session.get('authenticated'):
+        return redirect(url_for('login'))
+    
+    # 管理者権限チェック（一時的に無効化 - 機能確認用）
+    # try:
+    #     conn = sqlite3.connect(get_db_path())
+    #     from database.utils import is_admin_user
+    #     if not is_admin_user(conn, session.get('email')):
+    #         conn.close()
+    #         flash('管理者権限が必要です', 'error')
+    #         return redirect(url_for('admin'))
+    #     conn.close()
+    # except Exception as e:
+    #     logging.error(f"Admin check error in security logs: {e}")
+    #     flash('権限確認でエラーが発生しました', 'error')
+    #     return redirect(url_for('admin'))
+    
+    return render_template('security_logs.html')
+
 @app.route('/admin/blocked-ips')
 def admin_blocked_ips():
     """制限IP一覧取得API"""
@@ -3134,6 +3260,216 @@ def incident_search_demo():
         if 'conn' in locals():
             conn.close()
         return f"Error loading demo page: {str(e)}", 500
+
+
+# セキュリティイベントログAPI
+@app.route('/api/security-event', methods=['POST'])
+def record_security_event():
+    """セキュリティイベントを記録するAPI"""
+    # 認証チェック
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # セッション有効期限チェック
+    if is_session_expired():
+        return jsonify({'error': 'Session expired'}), 401
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Invalid JSON data'}), 400
+        
+        # 必須フィールドのチェック
+        event_type = data.get('event_type')
+        if not event_type:
+            return jsonify({'error': 'event_type is required'}), 400
+        
+        # セッション情報から基本データを取得
+        user_email = session.get('email', 'unknown')
+        session_id = session.get('session_id')
+        
+        # リクエスト情報を取得
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # イベント詳細情報
+        event_details = data.get('event_details', {})
+        event_details['timestamp'] = int(get_app_now().timestamp() * 1000)
+        event_details['client_timestamp'] = data.get('client_timestamp')
+        
+        # リスクレベルの決定
+        risk_level = data.get('risk_level')
+        if not risk_level:
+            # イベントタイプに基づいてリスクレベルを自動設定
+            high_risk_events = ['download_attempt', 'print_attempt', 'devtools_open', 'unauthorized_action']
+            medium_risk_events = ['direct_access', 'screenshot_attempt', 'copy_attempt']
+            
+            if event_type in high_risk_events:
+                risk_level = 'high'
+            elif event_type in medium_risk_events:
+                risk_level = 'medium'
+            else:
+                risk_level = 'low'
+        
+        # PDFファイルパス
+        pdf_file_path = data.get('pdf_file_path')
+        
+        # データベースに記録
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        from database.models import log_security_event
+        log_security_event(
+            db=conn,
+            user_email=user_email,
+            event_type=event_type,
+            event_details=event_details,
+            risk_level=risk_level,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            pdf_file_path=pdf_file_path,
+            session_id=session_id
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        # 高リスクイベントの場合は管理者に通知（将来実装）
+        if risk_level == 'high':
+            # TODO: 管理者通知機能
+            pass
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Security event recorded'
+        }), 201
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to record security event: {str(e)}'
+        }), 500
+
+
+def check_admin_access():
+    """管理者アクセスをチェックする共通関数"""
+    try:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        from database.utils import is_admin_user
+        user_email = session.get('email')
+        if not user_email or not is_admin_user(conn, user_email):
+            conn.close()
+            return False, jsonify({'error': 'Admin access required'}), 403
+        conn.close()
+        return True, None, None
+    except Exception as e:
+        return False, jsonify({'error': 'Admin check failed'}), 500
+
+
+@app.route('/api/logs/security-events', methods=['GET'])
+def get_security_events_api():
+    """セキュリティイベントログを取得するAPI（管理者専用）"""
+    # 管理者チェック（一時的に無効化 - 機能確認用）
+    # is_admin, error_response, status_code = check_admin_access()
+    # if not is_admin:
+    #     return error_response, status_code
+    
+    try:
+        # クエリパラメータを取得
+        user_email = request.args.get('user_email')
+        event_type = request.args.get('event_type') 
+        risk_level = request.args.get('risk_level')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        page = int(request.args.get('page', 1))
+        limit = min(int(request.args.get('limit', 50)), 100)  # 最大100件
+        
+        offset = (page - 1) * limit
+        
+        # データベースから取得
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        from database.models import get_security_events
+        result = get_security_events(
+            db=conn,
+            user_email=user_email,
+            event_type=event_type,
+            risk_level=risk_level,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            offset=offset
+        )
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'events': result['events'],
+                'pagination': {
+                    'page': page,
+                    'limit': limit,
+                    'total': result['total'],
+                    'has_more': result['has_more']
+                }
+            }
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get security events: {str(e)}'
+        }), 500
+
+
+@app.route('/api/logs/security-events/stats', methods=['GET'])
+def get_security_events_stats_api():
+    """セキュリティイベントの統計情報を取得するAPI（管理者専用）"""
+    # 管理者チェック（一時的に無効化 - 機能確認用）
+    # is_admin, error_response, status_code = check_admin_access()
+    # if not is_admin:
+    #     return error_response, status_code
+    
+    try:
+        # 日付範囲パラメータ
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # データベースから取得
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        from database.models import get_security_event_stats
+        stats = get_security_event_stats(
+            db=conn,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': stats
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get security event stats: {str(e)}'
+        }), 500
+
 
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ

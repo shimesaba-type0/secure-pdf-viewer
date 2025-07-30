@@ -390,3 +390,145 @@ def log_auth_failure(db, ip_address, failure_type, email_attempted=None, device_
         INSERT INTO auth_failures (ip_address, failure_type, email_attempted, device_type, attempt_time)
         VALUES (?, ?, ?, ?, ?)
     ''', (ip_address, failure_type, email_attempted, device_type, get_app_datetime_string()))
+
+
+def log_security_event(db, user_email, event_type, event_details, risk_level='low', ip_address=None, user_agent=None, pdf_file_path=None, session_id=None):
+    """セキュリティイベントログを記録"""
+    import json
+    
+    # リスクレベルの検証
+    valid_risk_levels = ['low', 'medium', 'high']
+    if risk_level not in valid_risk_levels:
+        risk_level = 'low'
+    
+    # イベントタイプの検証
+    valid_event_types = [
+        'pdf_view', 'download_attempt', 'print_attempt', 
+        'direct_access', 'devtools_open', 'unauthorized_action', 
+        'page_leave', 'screenshot_attempt', 'copy_attempt'
+    ]
+    if event_type not in valid_event_types:
+        event_type = 'unauthorized_action'
+        risk_level = 'high'
+    
+    db.execute('''
+        INSERT INTO security_events 
+        (user_email, event_type, event_details, risk_level, ip_address, user_agent, occurred_at, pdf_file_path, session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_email, 
+        event_type, 
+        json.dumps(event_details) if event_details else None,
+        risk_level,
+        ip_address,
+        user_agent,
+        get_app_datetime_string(),
+        pdf_file_path,
+        session_id
+    ))
+
+
+def get_security_events(db, user_email=None, event_type=None, risk_level=None, start_date=None, end_date=None, limit=50, offset=0):
+    """セキュリティイベントログを取得"""
+    db.row_factory = sqlite3.Row
+    
+    # WHERE句の構築
+    where_conditions = []
+    params = []
+    
+    if user_email:
+        where_conditions.append("user_email = ?")
+        params.append(user_email)
+    
+    if event_type:
+        where_conditions.append("event_type = ?")
+        params.append(event_type)
+    
+    if risk_level:
+        where_conditions.append("risk_level = ?")
+        params.append(risk_level)
+    
+    if start_date:
+        where_conditions.append("occurred_at >= ?")
+        params.append(start_date)
+    
+    if end_date:
+        where_conditions.append("occurred_at <= ?")
+        params.append(end_date)
+    
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+    
+    # クエリ実行
+    query = f'''
+        SELECT * FROM security_events
+        {where_clause}
+        ORDER BY occurred_at DESC
+        LIMIT ? OFFSET ?
+    '''
+    params.extend([limit, offset])
+    
+    events = db.execute(query, params).fetchall()
+    
+    # 総件数も取得
+    count_query = f'SELECT COUNT(*) as total FROM security_events{where_clause}'
+    count_params = params[:-2]  # LIMIT, OFFSETを除く
+    total = db.execute(count_query, count_params).fetchone()['total']
+    
+    return {
+        'events': [dict(event) for event in events],
+        'total': total,
+        'has_more': total > offset + len(events)
+    }
+
+
+def get_security_event_stats(db, start_date=None, end_date=None):
+    """セキュリティイベントの統計情報を取得"""
+    db.row_factory = sqlite3.Row
+    
+    where_conditions = []
+    params = []
+    
+    if start_date:
+        where_conditions.append("occurred_at >= ?")
+        params.append(start_date)
+    
+    if end_date:
+        where_conditions.append("occurred_at <= ?")
+        params.append(end_date)
+    
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+    
+    # リスクレベル別統計
+    risk_stats = db.execute(f'''
+        SELECT risk_level, COUNT(*) as count
+        FROM security_events
+        {where_clause}
+        GROUP BY risk_level
+        ORDER BY 
+            CASE risk_level 
+                WHEN 'high' THEN 1
+                WHEN 'medium' THEN 2
+                WHEN 'low' THEN 3
+            END
+    ''', params).fetchall()
+    
+    # イベントタイプ別統計
+    event_stats = db.execute(f'''
+        SELECT event_type, COUNT(*) as count
+        FROM security_events
+        {where_clause}
+        GROUP BY event_type
+        ORDER BY count DESC
+    ''', params).fetchall()
+    
+    # 総件数
+    total = db.execute(f'''
+        SELECT COUNT(*) as total FROM security_events
+        {where_clause}
+    ''', params).fetchone()['total']
+    
+    return {
+        'total': total,
+        'risk_levels': {row['risk_level']: row['count'] for row in risk_stats},
+        'event_types': {row['event_type']: row['count'] for row in event_stats}
+    }
