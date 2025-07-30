@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // セキュリティログ管理機能を初期化
     initializeSecurityLogManagement();
     
+    // アクセスログ管理機能を初期化
+    initializeAccessLogManagement();
+    
 
     if (fileInput) {
         // File input change event
@@ -2147,5 +2150,314 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// アクセスログ管理機能
+let accessLogCurrentPage = 1;
+let accessLogCurrentFilters = {};
+let accessLogAutoRefreshInterval = null;
+
+function initializeAccessLogManagement() {
+    console.log('アクセスログ管理機能を初期化中...');
+    
+    // 初期データ読み込み
+    refreshAccessLogStats();
+    refreshAccessLogs();
+    
+    console.log('アクセスログ管理機能の初期化完了');
+}
+
+function refreshAccessLogStats() {
+    const filters = getAccessLogDateFilters();
+    const params = new URLSearchParams(filters);
+    
+    fetch(`/api/logs/access-logs/stats?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateAccessLogStats(data.data);
+            } else {
+                console.error('アクセスログ統計取得エラー:', data.message);
+            }
+        })
+        .catch(error => {
+            console.error('アクセスログ統計取得エラー:', error);
+        });
+}
+
+function updateAccessLogStats(stats) {
+    document.getElementById('totalAccessLogs').textContent = stats.total || 0;
+    
+    // ステータスコード別統計
+    const statusCodes = stats.status_codes || {};
+    let successCount = 0;
+    let redirectCount = 0;
+    let errorCount = 0;
+    
+    Object.keys(statusCodes).forEach(code => {
+        const count = statusCodes[code];
+        const codeNum = parseInt(code);
+        
+        if (codeNum >= 200 && codeNum < 300) {
+            successCount += count;
+        } else if (codeNum >= 300 && codeNum < 400) {
+            redirectCount += count;
+        } else if (codeNum >= 400) {
+            errorCount += count;
+        }
+    });
+    
+    document.getElementById('successfulAccess').textContent = successCount;
+    document.getElementById('redirectAccess').textContent = redirectCount;
+    document.getElementById('errorAccess').textContent = errorCount;
+}
+
+function refreshAccessLogs() {
+    const filters = getAccessLogFilters();
+    const params = new URLSearchParams(filters);
+    params.append('page', accessLogCurrentPage.toString());
+    params.append('limit', '20');
+    
+    fetch(`/api/logs/access-logs?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                updateAccessLogTable(data.data.logs);
+                updateAccessLogPagination(data.data.pagination);
+            } else {
+                console.error('アクセスログ取得エラー:', data.message);
+                showAccessLogError('アクセスログの取得に失敗しました: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('アクセスログ取得エラー:', error);
+            showAccessLogError('アクセスログの取得中にエラーが発生しました');
+        });
+}
+
+function updateAccessLogTable(logs) {
+    const tbody = document.getElementById('accessLogTableBody');
+    if (!tbody) return;
+    
+    if (logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="no-data">該当するアクセスログがありません</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = logs.map(log => {
+        const statusClass = getStatusClass(log.status_code);
+        const durationDisplay = log.duration_seconds ? `${log.duration_seconds}秒` : '-';
+        
+        return `
+            <tr>
+                <td>${formatAccessTimestamp(log.access_time)}</td>
+                <td title="${escapeHtml(log.user_email || '')}">${escapeHtml(log.user_email || '-')}</td>
+                <td>${escapeHtml(log.ip_address || '-')}</td>
+                <td title="${escapeHtml(log.endpoint || '')}">${escapeHtml(truncateText(log.endpoint || '-', 30))}</td>
+                <td>${escapeHtml(log.method || '-')}</td>
+                <td><span class="status-badge ${statusClass}">${log.status_code || '-'}</span></td>
+                <td>${durationDisplay}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateAccessLogPagination(pagination) {
+    document.getElementById('accessLogPaginationInfo').textContent = 
+        `${((pagination.page - 1) * pagination.limit) + 1} - ${Math.min(pagination.page * pagination.limit, pagination.total)} / ${pagination.total} 件を表示中`;
+    
+    document.getElementById('accessLogCurrentPage').textContent = `ページ ${pagination.page}`;
+    
+    document.getElementById('accessLogPrevBtn').disabled = pagination.page <= 1;
+    document.getElementById('accessLogNextBtn').disabled = !pagination.has_more;
+}
+
+function getStatusClass(statusCode) {
+    if (!statusCode) return '';
+    
+    const code = parseInt(statusCode);
+    if (code >= 200 && code < 300) return 'status-success';
+    if (code >= 300 && code < 400) return 'status-redirect';
+    if (code >= 400 && code < 500) return 'status-client-error';
+    if (code >= 500) return 'status-server-error';
+    return '';
+}
+
+function getAccessLogFilters() {
+    const filters = { ...accessLogCurrentFilters };
+    
+    // 日付フィルターを追加
+    const dateFilters = getAccessLogDateFilters();
+    Object.assign(filters, dateFilters);
+    
+    return filters;
+}
+
+function getAccessLogDateFilters() {
+    const filters = {};
+    
+    const startDate = document.getElementById('accessStartDateFilter')?.value;
+    const endDate = document.getElementById('accessEndDateFilter')?.value;
+    
+    if (startDate) filters.start_date = startDate;
+    if (endDate) filters.end_date = endDate;
+    
+    return filters;
+}
+
+function applyAccessLogFilters() {
+    accessLogCurrentFilters = {
+        user_email: document.getElementById('accessUserEmailFilter')?.value?.trim() || null,
+        ip_address: document.getElementById('accessIpFilter')?.value?.trim() || null,
+        endpoint: document.getElementById('accessEndpointFilter')?.value?.trim() || null
+    };
+    
+    // null値を除去
+    Object.keys(accessLogCurrentFilters).forEach(key => {
+        if (!accessLogCurrentFilters[key]) {
+            delete accessLogCurrentFilters[key];
+        }
+    });
+    
+    accessLogCurrentPage = 1;
+    refreshAccessLogStats();
+    refreshAccessLogs();
+}
+
+function clearAccessLogFilters() {
+    document.getElementById('accessUserEmailFilter').value = '';
+    document.getElementById('accessIpFilter').value = '';
+    document.getElementById('accessEndpointFilter').value = '';
+    document.getElementById('accessStartDateFilter').value = '';
+    document.getElementById('accessEndDateFilter').value = '';
+    
+    accessLogCurrentFilters = {};
+    accessLogCurrentPage = 1;
+    refreshAccessLogStats();
+    refreshAccessLogs();
+}
+
+function loadPreviousAccessLogPage() {
+    if (accessLogCurrentPage > 1) {
+        accessLogCurrentPage--;
+        refreshAccessLogs();
+    }
+}
+
+function loadNextAccessLogPage() {
+    accessLogCurrentPage++;
+    refreshAccessLogs();
+}
+
+function exportAccessLogs() {
+    const filters = getAccessLogFilters();
+    const params = new URLSearchParams(filters);
+    params.append('limit', '1000');
+    
+    fetch(`/api/logs/access-logs?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                downloadAccessLogsCSV(data.data.logs);
+            } else {
+                alert('エクスポートに失敗しました: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('エクスポートエラー:', error);
+            alert('エクスポート中にエラーが発生しました');
+        });
+}
+
+function downloadAccessLogsCSV(logs) {
+    const headers = ['時刻', 'ユーザー', 'IPアドレス', 'エンドポイント', 'メソッド', 'ステータス', '滞在時間', 'セッションID'];
+    
+    const rows = logs.map(log => [
+        formatAccessTimestamp(log.access_time),
+        log.user_email || '',
+        log.ip_address || '',
+        log.endpoint || '',
+        log.method || '',
+        log.status_code || '',
+        log.duration_seconds ? `${log.duration_seconds}秒` : '',
+        log.session_id || ''
+    ]);
+    
+    const csvContent = [headers, ...rows]
+        .map(row => row.map(cell => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+    
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `access_logs_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    alert('アクセスログをエクスポートしました');
+}
+
+function toggleAccessLogAutoRefresh() {
+    const checkbox = document.getElementById('accessLogAutoRefreshCheckbox');
+    
+    if (checkbox.checked) {
+        startAccessLogAutoRefresh();
+    } else {
+        stopAccessLogAutoRefresh();
+    }
+}
+
+function startAccessLogAutoRefresh() {
+    if (accessLogAutoRefreshInterval) return;
+    
+    accessLogAutoRefreshInterval = setInterval(() => {
+        refreshAccessLogStats();
+        refreshAccessLogs();
+    }, 30000); // 30秒間隔
+    
+    console.log('アクセスログ自動更新を開始しました');
+}
+
+function stopAccessLogAutoRefresh() {
+    if (accessLogAutoRefreshInterval) {
+        clearInterval(accessLogAutoRefreshInterval);
+        accessLogAutoRefreshInterval = null;
+        console.log('アクセスログ自動更新を停止しました');
+    }
+}
+
+function showAccessLogError(message) {
+    const tbody = document.getElementById('accessLogTableBody');
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" class="loading-row" style="color: #dc3545;">${message}</td></tr>`;
+    }
+}
+
+function truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function formatAccessTimestamp(timestamp) {
+    if (!timestamp) return '-';
+    
+    try {
+        const date = new Date(timestamp);
+        return date.toLocaleString('ja-JP', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    } catch (e) {
+        return timestamp;
+    }
 }
 

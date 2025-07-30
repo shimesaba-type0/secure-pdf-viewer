@@ -532,3 +532,130 @@ def get_security_event_stats(db, start_date=None, end_date=None):
         'risk_levels': {row['risk_level']: row['count'] for row in risk_stats},
         'event_types': {row['event_type']: row['count'] for row in event_stats}
     }
+
+
+def get_access_logs(db, filters=None, page=1, limit=20):
+    """アクセスログを取得（フィルタ・ページネーション対応）"""
+    where_conditions = []
+    params = []
+    
+    if filters:
+        if filters.get('user_email'):
+            where_conditions.append('user_email LIKE ?')
+            params.append(f"%{filters['user_email']}%")
+        
+        if filters.get('ip_address'):
+            where_conditions.append('ip_address LIKE ?')
+            params.append(f"%{filters['ip_address']}%")
+        
+        if filters.get('start_date'):
+            where_conditions.append('access_time >= ?')
+            params.append(f"{filters['start_date']} 00:00:00")
+        
+        if filters.get('end_date'):
+            where_conditions.append('access_time <= ?')
+            params.append(f"{filters['end_date']} 23:59:59")
+        
+        if filters.get('endpoint'):
+            where_conditions.append('endpoint LIKE ?')
+            params.append(f"%{filters['endpoint']}%")
+    
+    where_clause = 'WHERE ' + ' AND '.join(where_conditions) if where_conditions else ''
+    
+    # 総件数を取得
+    total_query = f'SELECT COUNT(*) as total FROM access_logs {where_clause}'
+    total = db.execute(total_query, params).fetchone()['total']
+    
+    # ページネーション計算
+    offset = (page - 1) * limit
+    has_more = total > offset + limit
+    
+    # ログを取得
+    logs_query = f'''
+        SELECT 
+            session_id,
+            email_hash,
+            user_email,
+            ip_address,
+            user_agent,
+            endpoint,
+            method,
+            status_code,
+            access_time,
+            duration_seconds,
+            pdf_file_path
+        FROM access_logs 
+        {where_clause}
+        ORDER BY access_time DESC
+        LIMIT ? OFFSET ?
+    '''
+    
+    logs = db.execute(logs_query, params + [limit, offset]).fetchall()
+    
+    return {
+        'logs': [dict(log) for log in logs],
+        'pagination': {
+            'page': page,
+            'limit': limit,
+            'total': total,
+            'has_more': has_more
+        }
+    }
+
+
+def get_access_logs_stats(db, filters=None):
+    """アクセスログの統計情報を取得"""
+    where_conditions = []
+    params = []
+    
+    if filters:
+        if filters.get('start_date'):
+            where_conditions.append('access_time >= ?')
+            params.append(f"{filters['start_date']} 00:00:00")
+        
+        if filters.get('end_date'):
+            where_conditions.append('access_time <= ?')  
+            params.append(f"{filters['end_date']} 23:59:59")
+    
+    where_clause = 'WHERE ' + ' AND '.join(where_conditions) if where_conditions else ''
+    
+    # エンドポイント別統計
+    endpoint_stats = db.execute(f'''
+        SELECT endpoint, COUNT(*) as count
+        FROM access_logs
+        {where_clause}
+        GROUP BY endpoint
+        ORDER BY count DESC
+        LIMIT 10
+    ''', params).fetchall()
+    
+    # ステータスコード別統計
+    status_stats = db.execute(f'''
+        SELECT status_code, COUNT(*) as count
+        FROM access_logs
+        {where_clause}
+        GROUP BY status_code
+        ORDER BY count DESC  
+    ''', params).fetchall()
+    
+    # メソッド別統計
+    method_stats = db.execute(f'''
+        SELECT method, COUNT(*) as count
+        FROM access_logs
+        {where_clause}
+        GROUP BY method
+        ORDER BY count DESC
+    ''', params).fetchall()
+    
+    # 総件数
+    total = db.execute(f'''
+        SELECT COUNT(*) as total FROM access_logs
+        {where_clause}
+    ''', params).fetchone()['total']
+    
+    return {
+        'total': total,
+        'endpoints': {row['endpoint']: row['count'] for row in endpoint_stats},
+        'status_codes': {str(row['status_code']): row['count'] for row in status_stats},
+        'methods': {row['method']: row['count'] for row in method_stats}
+    }

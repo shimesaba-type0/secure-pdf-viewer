@@ -618,6 +618,23 @@ body {
     background-color: #95a5a6;
 }
 
+.status-badge.status-success {
+    background-color: #28a745;
+}
+
+.status-badge.status-redirect {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+.status-badge.status-client-error {
+    background-color: #fd7e14;
+}
+
+.status-badge.status-server-error {
+    background-color: #dc3545;
+}
+
 .status-detail {
     margin: 0.25rem 0;
     color: #666;

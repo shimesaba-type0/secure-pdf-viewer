@@ -617,6 +617,128 @@
 
     <div class="admin-section">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">アクセスログ</h3>
+            <div>
+                <button type="button" class="btn btn-info btn-sm" onclick="refreshAccessLogs()">
+                    🔄 更新
+                </button>
+            </div>
+        </div>
+        <div class="log-management-container">
+            <!-- 統計情報 -->
+            <div class="log-stats-container">
+                <div class="log-stats-grid">
+                    <div class="log-stat-item">
+                        <span class="log-stat-number" id="totalAccessLogs">-</span>
+                        <span class="log-stat-label">総アクセス数</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #17a2b8;">
+                        <span class="log-stat-number" id="successfulAccess">-</span>
+                        <span class="log-stat-label">成功 (200)</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #ffc107;">
+                        <span class="log-stat-number" id="redirectAccess">-</span>
+                        <span class="log-stat-label">リダイレクト (3xx)</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #dc3545;">
+                        <span class="log-stat-number" id="errorAccess">-</span>
+                        <span class="log-stat-label">エラー (4xx/5xx)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="log-filters-container">
+                <div class="log-filters-grid">
+                    <div class="filter-group">
+                        <label for="accessUserEmailFilter">ユーザー:</label>
+                        <input type="text" id="accessUserEmailFilter" class="form-control" placeholder="メールアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessIpFilter">IPアドレス:</label>
+                        <input type="text" id="accessIpFilter" class="form-control" placeholder="IPアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessEndpointFilter">エンドポイント:</label>
+                        <input type="text" id="accessEndpointFilter" class="form-control" placeholder="/viewer など">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessStartDateFilter">開始日:</label>
+                        <input type="date" id="accessStartDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessEndDateFilter">終了日:</label>
+                        <input type="date" id="accessEndDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="applyAccessLogFilters()">
+                            🔍 検索
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearAccessLogFilters()">
+                            🗑️ クリア
+                        </button>
+                        <button type="button" class="btn btn-success btn-sm" onclick="exportAccessLogs()">
+                            📊 エクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- アクセスログテーブル -->
+            <div class="log-table-container">
+                <div class="log-table-header">
+                    <div class="log-table-actions">
+                        <span class="log-pagination-info" id="accessLogPaginationInfo">
+                            - / - 件を表示中
+                        </span>
+                    </div>
+                    <div class="log-auto-refresh">
+                        <label>
+                            <input type="checkbox" id="accessLogAutoRefreshCheckbox" onchange="toggleAccessLogAutoRefresh()">
+                            自動更新（30秒）
+                        </label>
+                    </div>
+                </div>
+
+                <div class="log-table-wrapper">
+                    <table class="security-log-table" id="accessLogTable">
+                        <thead>
+                            <tr>
+                                <th>時刻</th>
+                                <th>ユーザー</th>
+                                <th>IPアドレス</th>
+                                <th>エンドポイント</th>
+                                <th>メソッド</th>
+                                <th>ステータス</th>
+                                <th>滞在時間</th>
+                            </tr>
+                        </thead>
+                        <tbody id="accessLogTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-row">アクセスログを読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ページネーション -->
+                <div class="log-pagination" id="accessLogPagination">
+                    <button type="button" class="btn btn-sm btn-secondary" id="accessLogPrevBtn" onclick="loadPreviousAccessLogPage()" disabled>
+                        ← 前へ
+                    </button>
+                    <span class="pagination-info" id="accessLogCurrentPage">
+                        ページ 1
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" id="accessLogNextBtn" onclick="loadNextAccessLogPage()" disabled>
+                        次へ →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <h3 style="margin: 0;">セキュリティイベントログ</h3>
             <a href="/admin/security-logs" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
                 📊 詳細分析画面

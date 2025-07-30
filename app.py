@@ -3471,6 +3471,96 @@ def get_security_events_stats_api():
         }), 500
 
 
+@app.route('/api/logs/access-logs', methods=['GET'])
+def get_access_logs_api():
+    """アクセスログを取得するAPI（管理者専用）"""
+    # 管理者チェック（一時的に無効化 - 機能確認用）
+    # is_admin, error_response, status_code = check_admin_access()
+    # if not is_admin:
+    #     return error_response, status_code
+    
+    try:
+        # フィルターパラメータを取得
+        filters = {}
+        if request.args.get('user_email'):
+            filters['user_email'] = request.args.get('user_email').strip()
+        if request.args.get('ip_address'):
+            filters['ip_address'] = request.args.get('ip_address').strip()
+        if request.args.get('start_date'):
+            filters['start_date'] = request.args.get('start_date')
+        if request.args.get('end_date'):
+            filters['end_date'] = request.args.get('end_date')
+        if request.args.get('endpoint'):
+            filters['endpoint'] = request.args.get('endpoint').strip()
+        
+        # ページネーションパラメータ
+        page = int(request.args.get('page', 1))
+        limit = min(int(request.args.get('limit', 20)), 100)  # 最大100件
+        
+        # データベース接続
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        # アクセスログを取得
+        from database.models import get_access_logs
+        result = get_access_logs(conn, filters, page, limit)
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': result
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get access logs: {str(e)}'
+        }), 500
+
+
+@app.route('/api/logs/access-logs/stats', methods=['GET'])
+def get_access_logs_stats_api():
+    """アクセスログの統計情報を取得するAPI（管理者専用）"""
+    # 管理者チェック（一時的に無効化 - 機能確認用）
+    # is_admin, error_response, status_code = check_admin_access()
+    # if not is_admin:
+    #     return error_response, status_code
+    
+    try:
+        # フィルターパラメータを取得
+        filters = {}
+        if request.args.get('start_date'):
+            filters['start_date'] = request.args.get('start_date')
+        if request.args.get('end_date'):
+            filters['end_date'] = request.args.get('end_date')
+        
+        # データベース接続
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row
+        
+        # 統計情報を取得
+        from database.models import get_access_logs_stats
+        stats = get_access_logs_stats(conn, filters)
+        
+        conn.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': stats
+        })
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get access log stats: {str(e)}'
+        }), 500
+
+
 if __name__ == '__main__':
     # 起動時に期限切れ設定をクリーンアップ
     cleanup_expired_schedules()

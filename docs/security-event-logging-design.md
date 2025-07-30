@@ -203,23 +203,30 @@ REALTIME_LOG_UPDATES=true
 
 #### データベース層
 - `database/migrations.py`: マイグレーション機能（`run_migration_002()`）
-- `database/models.py`: セキュリティイベント記録関数群
-  - `log_security_event()`: イベント記録
-  - `get_security_events()`: フィルタ付きイベント取得
-  - `get_security_event_stats()`: 統計情報取得
+- `database/models.py`: ログ記録・取得関数群
+  - `log_security_event()`: セキュリティイベント記録
+  - `get_security_events()`: セキュリティイベント・フィルタ付き取得
+  - `get_security_event_stats()`: セキュリティイベント統計情報取得
+  - `get_access_logs()`: アクセスログ・フィルタ付き取得
+  - `get_access_logs_stats()`: アクセスログ統計情報取得
 
 #### バックエンド（Flask）
 - `app.py`: APIエンドポイント群
   - `POST /api/security-event`: イベント記録API
   - `GET /api/logs/security-events`: イベント一覧取得API
   - `GET /api/logs/security-events/stats`: 統計情報取得API
+  - `GET /api/logs/access-logs`: アクセスログ一覧取得API
+  - `GET /api/logs/access-logs/stats`: アクセスログ統計情報取得API
   - `GET /admin/security-logs`: 専用分析画面ルート
   - `cleanup_security_logs()`: 定期クリーンアップ機能
 
 #### フロントエンド
 - `templates/security_logs.html`: 専用分析画面テンプレート
-- `static/js/security-logs.js`: 分析画面JavaScript（888行）
+- `templates/admin.html`: 管理画面（アクセスログセクション追加）
+- `static/js/security-logs.js`: 分析画面JavaScript（918行）
+- `static/js/admin.js`: 管理画面JavaScript（アクセスログ管理機能300行追加）
 - `static/js/security-event-detector.js`: イベント検知スクリプト
+- `static/css/main.css`: ステータスバッジスタイル追加
 
 ### 技術スタック
 - **バックエンド**: Flask + SQLite + APScheduler
@@ -237,6 +244,14 @@ REALTIME_LOG_UPDATES=true
 5. **自動クリーンアップ**: 定期実行（毎日02:00）
 6. **CSV エクスポート**: フィルタ条件対応
 7. **レスポンシブデザイン**: モバイル対応
+
+#### ✅ 追加実装済み（アクセスログ管理機能）
+1. **アクセスログ表示機能**: 管理画面での基本アクセスログ表示
+2. **アクセスログ統計**: ステータスコード別（成功/リダイレクト/エラー）統計
+3. **アクセスログフィルター**: ユーザー、IP、エンドポイント、日付範囲フィルター
+4. **アクセスログページネーション**: 20件単位の表示切り替え
+5. **アクセスログCSVエクスポート**: フィルタ条件対応エクスポート
+6. **アクセスログ自動更新**: 30秒間隔の自動更新機能
 
 #### 🔄 部分実装済み
 1. **リアルタイム更新**: 30秒間隔の自動更新（SSE未使用）
@@ -258,16 +273,27 @@ python -m pytest tests/test_security_event_logging.py -v
 # セキュリティAPI テスト  
 python -m pytest tests/test_security_api.py -v
 ======================== 7 passed, 1 warning ========================
+
+# アクセスログ機能テスト
+python -m pytest tests/test_access_logs.py -v
+======================== 9 passed, 1 warning ========================
+
+# アクセスログ機能統合テスト
+python -m pytest tests/test_access_logs_simple.py -v
+======================== 1 passed, 1 warning ========================
 ```
 
 **テストファイル:**
-- `tests/test_security_event_logging.py`: データベース機能テスト（10テスト）
-- `tests/test_security_api.py`: API エンドポイントテスト（7テスト）
+- `tests/test_security_event_logging.py`: セキュリティイベントDB機能（10テスト）
+- `tests/test_security_api.py`: セキュリティAPI エンドポイント（7テスト）
+- `tests/test_access_logs.py`: アクセスログDB機能（9テスト）
+- `tests/test_access_logs_simple.py`: アクセスログ統合機能（1テスト）
 
 **テスト項目:**
-- イベント記録機能
+- セキュリティイベント記録・取得機能
+- アクセスログ記録・取得機能
 - データ取得・フィルタリング機能
-- 統計情報取得機能
+- 統計情報取得機能（セキュリティ・アクセス両対応）
 - ページネーション機能
 - データ検証機能
 
@@ -324,22 +350,25 @@ python -m pytest tests/test_security_api.py -v
 4. **📱 レスポンシブ対応**: PC・タブレット・スマートフォン全対応
 5. **🔍 高度フィルタリング**: 複数条件による詳細検索
 6. **📈 時系列分析**: リスクレベル別・イベント種別の傾向分析
+7. **📋 アクセスログ管理**: 管理画面での統合アクセスログ表示・フィルター機能
 
 ### 技術的ハイライト
 - **別タブ表示**: 管理画面から独立した専用分析画面
 - **Chart.js 統合**: 3種類のインタラクティブグラフ
-- **888行のJavaScript**: 高機能な分析UI
+- **1,200行超のJavaScript**: 高機能な分析UI + アクセスログ管理UI
 - **455件のサンプルデータ**: 実用的な動作確認環境
+- **デュアルログ管理**: セキュリティイベント + アクセスログの統合管理
 
 ### 品質保証
-- **17個のテストケース全合格**
+- **27個のテストケース全合格** (セキュリティ17個 + アクセスログ10個)
 - **構文検証完了** (JavaScript, HTML, Python)
 - **統合テスト完了**
 - **実データ動作確認完了**
+- **DATABASE_PATH問題修正完了**
 
 **実装期間**: 2025-07-30 1日集中開発  
-**実装ファイル数**: 8ファイル（新規5、更新3）  
-**実装行数**: 約1,500行（コメント含む）
+**実装ファイル数**: 10ファイル（新規7、更新3）  
+**実装行数**: 約2,000行（コメント含む）
 
 ### 次のステップ（推奨）
 1. **権限管理の再有効化** (機能確認完了後)
