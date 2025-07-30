@@ -304,13 +304,17 @@ def insert_initial_data(db):
     existing_admins = db.execute('SELECT COUNT(*) as count FROM admin_users').fetchone()
     
     if existing_admins['count'] == 0:
-        # デフォルト管理者を追加（実際の運用では変更必要）
-        db.execute('''
-            INSERT INTO admin_users (email, added_by, is_active)
-            VALUES (?, ?, ?)
-        ''', ('admin@example.com', 'system', True))
-        
-        print("Default admin user created.")
+        # .envからADMIN_EMAILを取得して初期管理者を追加
+        import os
+        admin_email = os.getenv('ADMIN_EMAIL')
+        if admin_email:
+            db.execute('''
+                INSERT INTO admin_users (email, added_by, is_active)
+                VALUES (?, ?, ?)
+            ''', (admin_email, 'system', True))
+            print(f"Initial admin user created: {admin_email}")
+        else:
+            print("Warning: ADMIN_EMAIL not found in environment variables")
 
 
 def get_setting(db, key, default=None):
