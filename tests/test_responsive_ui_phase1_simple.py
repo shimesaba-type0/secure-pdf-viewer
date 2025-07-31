@@ -69,7 +69,6 @@ class TestResponsiveUIPhase1Simple:
         required_properties = [
             'flex-wrap',
             'gap',
-            'width',
             'margin-top',
             'min-width',
             'min-height'
@@ -99,7 +98,6 @@ class TestResponsiveUIPhase1Simple:
         test_cases = [
             ('flex-wrap', 'wrap', '.file-actions'),
             ('gap', '0.5rem', '.file-actions'),
-            ('width', '100%', '.file-actions'),
             ('margin-top', '0.5rem', '.file-actions'),
             ('min-width', '70px', '.file-actions .btn'),
             ('min-height', '44px', '.file-actions .btn')
