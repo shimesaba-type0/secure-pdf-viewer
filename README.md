@@ -171,13 +171,13 @@
 #### 方法1: 自動生成（推奨）
 ```bash
 # 32文字のランダムパスフレーズを自動生成
-python setup_initial_passphrase.py
+python scripts/setup/setup_initial_passphrase.py
 ```
 
 #### 方法2: カスタムパスフレーズ設定
 ```bash
 # 独自のパスフレーズを設定
-python setup_initial_passphrase.py --custom
+python scripts/setup/setup_initial_passphrase.py --custom
 ```
 
 **パスフレーズ要件:**
