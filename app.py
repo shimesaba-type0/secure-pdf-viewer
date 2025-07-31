@@ -1509,6 +1509,53 @@ def upload_pdf():
     
     return redirect(url_for('admin'))
 
+@app.route('/admin/preview-pdf/<int:pdf_id>')
+def admin_preview_pdf(pdf_id):
+    """管理画面用PDFプレビュー - 署名付きURLにリダイレクト"""
+    if not session.get('authenticated'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        conn = sqlite3.connect(get_db_path())
+        conn.row_factory = sqlite3.Row  
+        cursor = conn.cursor()
+        
+        pdf_info = cursor.execute(
+            'SELECT stored_filename FROM pdf_files WHERE id = ?', (pdf_id,)
+        ).fetchone()
+        
+        if not pdf_info:
+            conn.close()
+            return jsonify({'error': 'ファイルが見つかりません'}), 404
+        
+        # 管理者向けの署名付きURL生成（セッションIDを使用）
+        session_id = session.get('session_id')
+        if not session_id:
+            conn.close()
+            return jsonify({'error': 'セッションIDが見つかりません'}), 400
+        
+        try:
+            url_result = pdf_security.generate_signed_url(
+                filename=pdf_info['stored_filename'],
+                session_id=session_id,
+                conn=conn
+            )
+            
+            conn.close()
+            
+            if 'signed_url' in url_result:
+                # 署名付きURLにリダイレクト
+                return redirect(url_result['signed_url'])
+            else:
+                return jsonify({'error': 'URLの生成に失敗しました'}), 500
+                
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'署名付きURL生成エラー: {str(e)}'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/admin/delete-pdf/<int:pdf_id>', methods=['POST'])
 def delete_pdf(pdf_id):
     if not session.get('authenticated'):
@@ -2712,8 +2759,8 @@ def get_pdf_files():
                 try:
                     published_dt = datetime.fromisoformat(file['published_date'])
                     if published_dt.tzinfo is None:
-                        published_dt = JST.localize(published_dt)
-                    published_jst = published_dt.astimezone(JST)
+                        published_dt = localize_datetime(published_dt)
+                    published_jst = to_app_timezone(published_dt)
                     published_formatted = published_jst.strftime('%Y年%m月%d日 %H:%M')
                 except (ValueError, TypeError):
                     published_formatted = None

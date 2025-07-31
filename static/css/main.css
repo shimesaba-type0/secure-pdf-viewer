@@ -569,8 +569,17 @@ body {
     }
     
     .file-actions {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
         align-self: stretch;
         justify-content: center;
+    }
+    
+    .file-actions .btn {
+        flex: 1 1 auto;
+        min-width: 70px;
+        min-height: 44px;
     }
     
     .container {
@@ -2519,5 +2528,4 @@ body {
         font-size: 0.7rem;
         padding: 0.2rem 0.4rem;
     }
-}
 }

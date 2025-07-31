@@ -151,7 +151,7 @@
                                 {% endif %}
                             </div>
                             <div class="file-actions">
-                                <button class="btn btn-info btn-sm" onclick="previewPDF('{{ file.path }}')">プレビュー</button>
+                                <button class="btn btn-info btn-sm" onclick="previewPDF('/admin/preview-pdf/{{ file.id }}')">プレビュー</button>
                                 {% if file.is_published %}
                                 <button class="btn btn-warning btn-sm" onclick="unpublishPDF('{{ file.id }}')">公開停止</button>
                                 {% else %}
