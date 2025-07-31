@@ -2544,6 +2544,12 @@ body {
         padding: 12px 16px;       /* 内側余白調整 */
         font-size: 16px;          /* iOS zoom防止 */
     }
+    
+    /* Phase 3: 管理セクション余白調整 */
+    .admin-section {
+        margin-bottom: 1rem;      /* セクション間隔を削減 */
+        padding: 1rem;            /* 内側余白を削減 (1.5rem → 1rem) */
+    }
 }
 
 /* 320px幅対応: 超小画面での表示改善 */

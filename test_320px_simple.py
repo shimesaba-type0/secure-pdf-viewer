@@ -22,6 +22,8 @@ def validate_320px_simple():
     
     # 基本チェック
     checks = [
+        ("Phase 2: form-actions対応", "@media (max-width: 768px)"),
+        ("Phase 3: admin-section対応", ".admin-section {\n        margin-bottom: 1rem;"),
         ("320px幅対応コメント", "320px幅対応: 超小画面での表示改善"),
         ("480px以下メディアクエリ", "@media (max-width: 480px)"),
         (".card padding修正", ".card {\n        padding: 0.75rem;"),
@@ -64,6 +66,8 @@ def print_test_summary():
     
     print("\n📱 対応内容:")
     fixes = [
+        "Phase 2: .form-actions を768px以下で縦配置・フル幅ボタン",
+        "Phase 3: .admin-section の余白調整 (1.5rem → 1rem)",
         ".card: padding を 1.5rem (24px) → 0.75rem (12px) に削減",
         "rate-limit-stats: grid を 1カラムに変更",
         "rate-limit-settings: grid を 1カラムに変更", 
