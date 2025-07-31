@@ -71,38 +71,65 @@ tar.gz形式でまとめて圧縮
 
 ## 実装方針
 
-### Phase 1: 基本バックアップ機能
-1. **バックアップコア機能**
-   ```python
-   # database/backup.py
-   class BackupManager:
-       def create_backup(self):
-           # SQLite安全バックアップ
-           # ファイル収集・アーカイブ化
-           # メタデータ記録
-   ```
+### 設計ドキュメント
+詳細な技術設計は `docs/backup-system-design.md` を参照
 
-2. **管理画面UI**
-   - バックアップセクション追加
-   - 手動実行ボタン
-   - 進行状況表示（SSE使用）
+### 実装フェーズ分割
 
-### Phase 2: スケジューリング・世代管理
-1. **定期実行機能**
-   ```python
-   # バックグラウンドタスク
-   from apscheduler import BackgroundScheduler
-   ```
+#### Phase 1A: コア機能基盤（1-2時間）
+**目標**: バックアップコア機能の実装と基本テスト
+- `database/backup.py` の BackupManager クラス実装
+- SQLite安全バックアップ、ファイル収集、アーカイブ化
+- 単体テスト作成・実行
+- lint・formatter実行
 
-2. **世代管理**
-   - 古いバックアップ自動削除
-   - 設定可能な保持期間
+**成果物**:
+- 動作する BackupManager クラス
+- 単体テストの成功
+- SQLite、PDFファイル、ログのバックアップ確認
 
-### Phase 3: 復旧機能
-1. **復旧システム**
-   - バックアップファイル検証
-   - 段階的復旧プロセス
-   - ロールバック機能
+#### Phase 1B: API実装（1-2時間）  
+**目標**: Flask APIエンドポイントの実装とテスト
+- `app.py` にバックアップAPIエンドポイント追加
+  - POST /admin/backup/create
+  - GET /admin/backup/list  
+  - GET /admin/backup/download
+  - DELETE /admin/backup/delete
+  - GET /admin/backup/status（SSE）
+- APIテスト作成・実行
+- エラーハンドリング・セキュリティ検証
+
+**成果物**:
+- 動作するAPIエンドポイント
+- APIテストの成功
+- セキュリティチェック完了
+
+#### Phase 1C: UI実装（1-2時間）
+**目標**: 管理画面UIとフロントエンド処理の実装
+- `templates/admin.html` にバックアップセクション追加
+- `static/js/backup.js` フロントエンド処理実装
+- `static/css/main.css` レスポンシブスタイル追加
+- UI操作テスト
+
+**成果物**:
+- バックアップセクション付き管理画面
+- 動作するフロントエンド機能
+- レスポンシブデザイン確認
+
+#### Phase 1D: 統合・動作確認（1時間）
+**目標**: エンドツーエンド動作確認と最終検証
+- 統合テスト実行
+- ブラウザでの動作確認
+- セキュリティ検証
+- パフォーマンステスト
+
+**成果物**:
+- 完全に動作するバックアップシステム
+- 全テスト成功
+- 本番レディ状態
+
+### Phase 2以降: スケジューリング・復旧機能
+Phase 1完了後、別セッションで実装予定
 
 ## 技術詳細
 
