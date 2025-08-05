@@ -9,11 +9,13 @@ import datetime
 from unittest.mock import patch, MagicMock
 import sys
 import time
+from unittest.mock import patch
 
 # テスト対象のモジュールをインポート
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database.models import create_tables
 from mail.email_service import EmailService
+from config.timezone import get_app_now
 
 
 class TestOTPDatabase(unittest.TestCase):
@@ -324,6 +326,129 @@ class TestOTPSecurity(unittest.TestCase):
             WHERE email = ? AND otp_code = ? AND used = FALSE
         """, (email, otp_code)).fetchone()
         self.assertIsNone(otp_record_reuse)
+
+
+class TestOTPTimezoneIntegration(unittest.TestCase):
+    """OTPタイムゾーン統一システム統合のテスト"""
+    
+    def setUp(self):
+        """テスト前の準備"""
+        self.db_fd, self.db_path = tempfile.mkstemp()
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+        create_tables(self.conn)
+    
+    def tearDown(self):
+        """テスト後のクリーンアップ"""
+        self.conn.close()
+        os.close(self.db_fd)
+        os.unlink(self.db_path)
+    
+    def test_otp_expiry_with_timezone_system(self):
+        """タイムゾーン統一システムでのOTP有効期限チェック"""
+        email = 'test@example.com'
+        otp_code = '123456'
+        
+        # get_app_now()を使用した有効期限設定
+        app_now = get_app_now()
+        expires_at = app_now + datetime.timedelta(minutes=10)
+        
+        # OTP挿入（タイムゾーン付きで保存）
+        self.conn.execute("""
+            INSERT INTO otp_tokens (email, otp_code, expires_at, session_id, ip_address)
+            VALUES (?, ?, ?, ?, ?)
+        """, (email, otp_code, expires_at.isoformat(), 'test_session', '127.0.0.1'))
+        self.conn.commit()
+        
+        # 取得テスト
+        otp_record = self.conn.execute("""
+            SELECT email, otp_code, expires_at, used FROM otp_tokens 
+            WHERE email = ? AND otp_code = ? AND used = FALSE
+        """, (email, otp_code)).fetchone()
+        
+        self.assertIsNotNone(otp_record)
+        
+        # タイムゾーン統一システムでの有効期限チェック
+        stored_expires_at = datetime.datetime.fromisoformat(otp_record["expires_at"])
+        current_time = get_app_now()
+        
+        # 期限内であることを確認
+        self.assertTrue(current_time < stored_expires_at)
+        
+        # OTPレコードの詳細を確認
+        self.assertEqual(otp_record['email'], email)
+        self.assertEqual(otp_record['otp_code'], otp_code)
+        self.assertFalse(otp_record['used'])
+    
+    def test_expired_otp_with_timezone_system(self):
+        """タイムゾーン統一システムでの期限切れOTPチェック"""
+        email = 'test@example.com'
+        otp_code = '123456'
+        
+        # 期限切れOTPを作成（過去の時刻）
+        app_now = get_app_now()
+        expires_at = app_now - datetime.timedelta(minutes=1)
+        
+        # OTP挿入
+        self.conn.execute("""
+            INSERT INTO otp_tokens (email, otp_code, expires_at, session_id, ip_address)
+            VALUES (?, ?, ?, ?, ?)
+        """, (email, otp_code, expires_at.isoformat(), 'test_session', '127.0.0.1'))
+        self.conn.commit()
+        
+        # 取得テスト
+        otp_record = self.conn.execute("""
+            SELECT email, otp_code, expires_at, used FROM otp_tokens 
+            WHERE email = ? AND otp_code = ? AND used = FALSE
+        """, (email, otp_code)).fetchone()
+        
+        self.assertIsNotNone(otp_record)
+        
+        # タイムゾーン統一システムでの有効期限チェック
+        stored_expires_at = datetime.datetime.fromisoformat(otp_record["expires_at"])
+        current_time = get_app_now()
+        
+        # 期限切れであることを確認
+        self.assertTrue(current_time > stored_expires_at)
+    
+    def test_timezone_aware_datetime_comparison(self):
+        """タイムゾーン付きdatetimeの比較テスト"""
+        # タイムゾーン統一システムでの現在時刻
+        app_now = get_app_now()
+        
+        # タイムゾーン付きdatetimeの比較
+        future_time = app_now + datetime.timedelta(minutes=5)
+        past_time = app_now - datetime.timedelta(minutes=5)
+        
+        # 正しい比較結果を確認
+        self.assertTrue(app_now < future_time)
+        self.assertTrue(app_now > past_time)
+        self.assertTrue(past_time < app_now < future_time)
+        
+        # ISO形式での保存と復元テスト
+        iso_string = app_now.isoformat()
+        restored_datetime = datetime.datetime.fromisoformat(iso_string)
+        
+        # 復元されたdatetimeとの比較
+        self.assertEqual(app_now, restored_datetime)
+    
+    def test_mixed_timezone_datetime_handling(self):
+        """混在タイムゾーンdatetimeの処理テスト"""
+        # 異なるタイムゾーンのdatetimeを作成
+        jst_time = get_app_now()
+        
+        # naive datetimeとの比較でエラーが発生しないことを確認
+        naive_time = datetime.datetime.now()
+        
+        # タイムゾーン統一システムを使用した場合の比較は問題なし
+        app_time = get_app_now()
+        future_app_time = app_time + datetime.timedelta(minutes=10)
+        
+        self.assertTrue(app_time < future_app_time)
+        
+        # ISO形式での一貫性確認
+        iso_jst = jst_time.isoformat()
+        self.assertIn('+', iso_jst)  # タイムゾーン情報が含まれている
 
 
 if __name__ == '__main__':

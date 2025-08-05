@@ -269,7 +269,9 @@ def check_session_integrity():
         if auth_time_str:
             try:
                 auth_time = datetime.fromisoformat(auth_time_str)
-                db_start_time = datetime.fromtimestamp(db_session[0])
+                # タイムゾーン統一システムを使用してデータベース時刻を変換
+                db_start_time_naive = datetime.fromtimestamp(db_session[0])
+                db_start_time = localize_datetime(db_start_time_naive)
 
                 # 時刻の差が5分以上の場合は異常とみなす
                 time_diff = abs((auth_time - db_start_time).total_seconds())
@@ -1317,10 +1319,8 @@ def verify_otp():
                     )
 
             # 有効期限チェック
-            import datetime
-
-            expires_at = datetime.datetime.fromisoformat(otp_record["expires_at"])
-            now = datetime.datetime.now()
+            expires_at = datetime.fromisoformat(otp_record["expires_at"])
+            now = get_app_now()
 
             if now > expires_at:
                 # 期限切れOTPを無効化
