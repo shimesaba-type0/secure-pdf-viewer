@@ -1030,11 +1030,11 @@ def index():
             publish_end_dt = datetime.fromisoformat(publish_end_str)
             # Handle timezone if not present
             if publish_end_dt.tzinfo is None:
-                publish_end_dt = JST.localize(publish_end_dt)
+                publish_end_dt = localize_datetime(publish_end_dt)
 
-            # Convert to JST and format for display
-            publish_end_jst = publish_end_dt.astimezone(JST)
-            publish_end_datetime_formatted = publish_end_jst.strftime("%Y年%m月%d日 %H:%M")
+            # Convert to app timezone and format for display
+            publish_end_app_tz = to_app_timezone(publish_end_dt)
+            publish_end_datetime_formatted = publish_end_app_tz.strftime("%Y年%m月%d日 %H:%M")
         except ValueError:
             publish_end_datetime_formatted = None
 
@@ -3345,12 +3345,12 @@ def cleanup_expired_schedules():
             try:
                 target_dt = datetime.fromisoformat(result[0])
                 if target_dt.tzinfo is None:
-                    target_jst = JST.localize(target_dt)
+                    target_app_tz = localize_datetime(target_dt)
                 else:
-                    target_jst = target_dt.astimezone(JST)
+                    target_app_tz = to_app_timezone(target_dt)
 
-                now_jst = datetime.now(JST)
-                if target_jst <= now_jst:
+                now_app_tz = get_app_now()
+                if target_app_tz <= now_app_tz:
                     # 期限切れなので削除
                     cursor.execute(
                         "DELETE FROM settings WHERE key = ?",
