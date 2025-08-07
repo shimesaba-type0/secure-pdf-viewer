@@ -209,12 +209,23 @@ GET  /admin/backup/status     # 実行状況取得
 - [x] **統合テスト完了** - BackupManager 11テスト全成功
 - [x] **動作確認完了** - 実際のアプリケーションでAPIレスポンス確認
 
-### Phase 1C: UI実装（次回セッション予定）
-- [ ] 管理画面バックアップセクション追加
-- [ ] フロントエンド処理実装
+### Phase 1C: UI実装 ✅ **完了** (2025-08-07)
+- [x] **管理画面バックアップセクション実装完了** - `templates/admin.html`
+- [x] **フロントエンド処理実装完了** - `static/js/backup.js` (BackupManagerクラス)
+- [x] **レスポンシブスタイル追加** - `static/css/main.css` (330行追加)
+- [x] **Server-Sent Events対応** - リアルタイム進行状況表示
+- [x] **API統合完了** - Phase 1B APIエンドポイント完全連携
+- [x] **UIテスト作成** - `tests/test_backup_ui.py` (Selenium統合テスト)
+- [x] **品質保証完了** - Black formatter・Flake8 linter通過
+- [x] **静的ファイル配信確認** - JavaScript・CSS正常配信
+- [x] **レスポンシブ対応** - モバイル・タブレット・PC対応
 
-### Phase 1D: 統合・SSE機能（次回セッション予定）
-- [ ] 進行状況がリアルタイム表示される
+**コミット**: `329d455` - feat: TASK-018 Phase 1C完了 - バックアップUI実装
+
+### Phase 1D: 統合・動作確認（次回セッション予定）
+- [ ] エンドツーエンドテスト実行
+- [ ] 管理者認証でのフル動作確認
+- [ ] ブラウザでの実バックアップ動作テスト
 
 ### Phase 2
 - [ ] 定期バックアップが設定・実行される
@@ -231,12 +242,12 @@ GET  /admin/backup/status     # 実行状況取得
 
 ## 見積もり工数
 - **Phase 1A**: ✅ **完了** 2時間（コア機能基盤）
-- **Phase 1B**: 1-2時間（API実装）
-- **Phase 1C**: 1-2時間（UI実装）
-- **Phase 1D**: 1時間（統合・SSE機能）
+- **Phase 1B**: ✅ **完了** 2時間（API実装）
+- **Phase 1C**: ✅ **完了** 2時間（UI実装）
+- **Phase 1D**: 1時間（統合・動作確認）
 - **Phase 2**: 2-3時間（スケジューリング・世代管理）
 - **Phase 3**: 3-4時間（復旧機能）
-- **合計**: 9-13時間（Phase 1A: 2時間完了済み）
+- **合計**: 9-13時間（Phase 1A-1C: 6時間完了済み）
 
 ## 関連チケット
 - TASK-001〜017: 全機能のデータ保護対象
@@ -270,8 +281,16 @@ GET  /admin/backup/status     # 実行状況取得
   - セキュリティ: パストラバーサル対策、認証検証
   - 非同期: バックアップ実行、SSE進行状況通知
 
+### 完了済み
+- **2025-08-07**: Phase 1C完了（バックアップUI実装）
+  - 実装: `templates/admin.html` バックアップセクション追加
+  - 実装: `static/js/backup.js` BackupManagerクラス (400行)
+  - 実装: `static/css/main.css` レスポンシブスタイル (330行)
+  - テスト: `tests/test_backup_ui.py` Seleniumブラウザテスト
+  - 機能: Server-Sent Events リアルタイム進行表示
+  - 品質: Black・Flake8完全準拠、静的ファイル配信確認
+
 ### 次回セッション予定  
-- Phase 1C: UI実装（管理画面・JavaScript・CSS）
 - Phase 1D: 統合・動作確認（エンドツーエンドテスト）
 
 ## 備考
