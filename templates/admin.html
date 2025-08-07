@@ -5,6 +5,7 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+<script src="{{ url_for('static', filename='js/backup.js') }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -870,6 +871,84 @@
                     <button type="button" class="btn btn-sm btn-secondary" id="logNextBtn" onclick="loadNextLogPage()" disabled>
                         次へ →
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <h3>システムバックアップ</h3>
+        <div class="backup-section">
+            <!-- バックアップ実行コントロール -->
+            <div class="backup-controls">
+                <div class="backup-header">
+                    <button id="create-backup-btn" class="btn btn-primary">
+                        💾 バックアップ実行
+                    </button>
+                    <div class="backup-info">
+                        <small class="form-text">
+                            データベース、設定ファイル、PDFファイル、ログを安全にバックアップします
+                        </small>
+                    </div>
+                </div>
+                
+                <!-- 進行状況表示 -->
+                <div id="backup-progress" class="backup-progress hidden">
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <div class="progress-text" id="progress-text">準備中...</div>
+                        <div class="progress-percentage" id="progress-percentage">0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- バックアップ一覧 -->
+            <div class="backup-list-container">
+                <div class="backup-list-header">
+                    <h4>バックアップ一覧</h4>
+                    <div class="backup-list-actions">
+                        <button type="button" class="btn btn-info btn-sm" onclick="loadBackupList()">
+                            🔄 更新
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="backup-table-container">
+                    <table class="backup-table" id="backup-table">
+                        <thead>
+                            <tr>
+                                <th>作成日時</th>
+                                <th>タイプ</th>
+                                <th>サイズ</th>
+                                <th>ファイル数</th>
+                                <th>状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backup-list-body">
+                            <tr>
+                                <td colspan="6" class="loading-row">バックアップ一覧を読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- バックアップ統計情報 -->
+                <div class="backup-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">総バックアップ数:</span>
+                        <span class="stat-value" id="total-backups">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">総サイズ:</span>
+                        <span class="stat-value" id="total-size">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">最新バックアップ:</span>
+                        <span class="stat-value" id="latest-backup">-</span>
+                    </div>
                 </div>
             </div>
         </div>
