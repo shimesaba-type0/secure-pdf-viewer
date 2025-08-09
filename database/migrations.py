@@ -123,7 +123,7 @@ def run_migration_001(db):
             CREATE TABLE IF NOT EXISTS migrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                applied_at TEXT,
                 description TEXT
             )
         ''')
@@ -194,7 +194,7 @@ def run_migration_002(db):
                 risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')) DEFAULT 'low',
                 ip_address TEXT,
                 user_agent TEXT,
-                occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                occurred_at TEXT,
                 pdf_file_path TEXT,
                 session_id TEXT
             )
@@ -284,8 +284,8 @@ if __name__ == '__main__':
                 description TEXT,
                 category TEXT DEFAULT 'general',
                 is_sensitive BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT,
+                updated_at TEXT,
                 updated_by TEXT
             )
         ''')
@@ -298,7 +298,7 @@ if __name__ == '__main__':
                 new_value TEXT,
                 changed_by TEXT NOT NULL,
                 change_reason TEXT,
-                changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                changed_at TEXT,
                 ip_address TEXT
             )
         ''')

@@ -6,6 +6,7 @@ import hashlib
 import secrets
 import sqlite3
 from typing import Tuple, Optional
+from database.timezone_utils import get_app_datetime_string
 
 
 class PassphraseValidator:
@@ -134,7 +135,7 @@ class PassphraseManager:
             # 設定を更新
             self.db.execute('''
                 INSERT OR REPLACE INTO settings (key, value, value_type, description, category, is_sensitive, updated_by, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 'shared_passphrase',
                 combined_hash,
@@ -142,7 +143,8 @@ class PassphraseManager:
                 '事前共有パスフレーズ（32-128文字、0-9a-zA-Z_-のみ）',
                 'auth',
                 True,
-                updated_by
+                updated_by,
+                get_app_datetime_string()
             ))
             
             # 履歴に記録

@@ -264,10 +264,10 @@ class RateLimitManager:
                 blocked_until,
                 reason,
                 created_at,
-                (blocked_until > CURRENT_TIMESTAMP) as is_active
+                (blocked_until > ?) as is_active
             FROM ip_blocks 
             ORDER BY created_at DESC
-        ''').fetchall()
+        ''', (get_app_datetime_string(),)).fetchall()
         
         result = []
         for row in rows:
@@ -331,8 +331,8 @@ class RateLimitManager:
         """
         result = self.db.execute('''
             DELETE FROM ip_blocks 
-            WHERE blocked_until <= CURRENT_TIMESTAMP
-        ''')
+            WHERE blocked_until <= ?
+        ''', (get_app_datetime_string(),))
         
         deleted_count = result.rowcount
         
@@ -359,8 +359,8 @@ class RateLimitManager:
         # 現在の制限IP数
         active_blocks = self.db.execute('''
             SELECT COUNT(*) as count FROM ip_blocks 
-            WHERE blocked_until > CURRENT_TIMESTAMP
-        ''').fetchone()
+            WHERE blocked_until > ?
+        ''', (get_app_datetime_string(),)).fetchone()
         
         # 今日の認証失敗数
         today = get_app_now().strftime('%Y-%m-%d')
@@ -418,7 +418,7 @@ class BlockIncidentManager:
                 incident_id TEXT UNIQUE NOT NULL,
                 ip_address TEXT NOT NULL,
                 block_reason TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT,
                 resolved BOOLEAN DEFAULT FALSE,
                 resolved_at TIMESTAMP NULL,
                 resolved_by TEXT NULL,
@@ -491,11 +491,11 @@ class BlockIncidentManager:
         self.db.execute('''
             UPDATE block_incidents 
             SET resolved = TRUE, 
-                resolved_at = CURRENT_TIMESTAMP,
+                resolved_at = ?,
                 resolved_by = ?,
                 admin_notes = ?
             WHERE incident_id = ?
-        ''', (admin_user, admin_notes, incident_id))
+        ''', (get_app_datetime_string(), admin_user, admin_notes, incident_id))
         
         return True
     

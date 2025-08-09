@@ -902,9 +902,10 @@ def auto_unpublish_all_pdfs():
         cursor.execute(
             """
             UPDATE settings 
-            SET value = NULL, updated_at = CURRENT_TIMESTAMP, updated_by = 'scheduler'
+            SET value = NULL, updated_at = ?, updated_by = 'scheduler'
             WHERE key = 'publish_end'
-        """
+        """,
+            (get_app_datetime_string(),)
         )
 
         conn.commit()
@@ -1172,10 +1173,10 @@ def email_input():
             conn.execute(
                 """
                 UPDATE otp_tokens 
-                SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                SET used = TRUE, used_at = ? 
                 WHERE email = ? AND used = FALSE
             """,
-                (email,),
+                (get_app_datetime_string(), email),
             )
 
             # 新しいOTPをデータベースに保存
@@ -1327,10 +1328,10 @@ def verify_otp():
                 conn.execute(
                     """
                     UPDATE otp_tokens 
-                    SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                    SET used = TRUE, used_at = ? 
                     WHERE id = ?
                 """,
-                    (otp_record["id"],),
+                    (get_app_datetime_string(), otp_record["id"]),
                 )
                 conn.commit()
                 conn.close()
@@ -1344,10 +1345,10 @@ def verify_otp():
             conn.execute(
                 """
                 UPDATE otp_tokens 
-                SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+                SET used = TRUE, used_at = ? 
                 WHERE id = ?
             """,
-                (otp_record["id"],),
+                (get_app_datetime_string(), otp_record["id"]),
             )
             conn.commit()
 
@@ -1377,7 +1378,7 @@ def verify_otp():
                 """
                 INSERT OR REPLACE INTO session_stats 
                 (session_id, email_hash, email_address, start_time, ip_address, device_type, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     session_id,
@@ -1386,6 +1387,7 @@ def verify_otp():
                     int(now.timestamp()),
                     request.remote_addr,
                     device_type,
+                    get_app_datetime_string(),
                 ),
             )
 
@@ -1457,10 +1459,10 @@ def resend_otp():
         conn.execute(
             """
             UPDATE otp_tokens 
-            SET used = TRUE, used_at = CURRENT_TIMESTAMP 
+            SET used = TRUE, used_at = ? 
             WHERE email = ? AND used = FALSE
         """,
-            (email,),
+            (get_app_datetime_string(), email),
         )
 
         # 新しいOTPをデータベースに保存
@@ -2594,7 +2596,7 @@ def get_active_sessions():
                     last_updated_formatted = last_updated
 
             # セッション経過時間を計算
-            elapsed_seconds = (datetime.now() - start_dt).total_seconds()
+            elapsed_seconds = (get_app_now().replace(tzinfo=None) - start_dt).total_seconds()
             remaining_seconds = session_timeout - elapsed_seconds
 
             # 残り時間を時分秒形式で表示
@@ -2666,10 +2668,10 @@ def update_session_memo():
         cursor.execute(
             """
             UPDATE session_stats 
-            SET memo = ?, last_updated = CURRENT_TIMESTAMP 
+            SET memo = ?, last_updated = ? 
             WHERE session_id = ?
         """,
-            (memo, session_id),
+            (memo, get_app_datetime_string(), session_id),
         )
 
         conn.commit()
@@ -3186,7 +3188,7 @@ def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
             file_path TEXT NOT NULL,
             file_size INTEGER,
             is_published BOOLEAN DEFAULT FALSE,
-            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            upload_date TEXT
         )
     """
     )

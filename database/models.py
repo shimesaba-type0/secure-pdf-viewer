@@ -84,7 +84,7 @@ def create_tables(db):
             user_agent TEXT,
             device_type TEXT,
             screen_resolution TEXT,
-            access_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            access_time TEXT,
             endpoint TEXT,
             method TEXT,
             status_code INTEGER
@@ -102,7 +102,7 @@ def create_tables(db):
             timestamp INTEGER,
             ip_address TEXT,
             device_info JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT
         )
     ''')
     
@@ -111,7 +111,7 @@ def create_tables(db):
         CREATE TABLE IF NOT EXISTS auth_failures (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_address TEXT,
-            attempt_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            attempt_time TEXT,
             failure_type TEXT,
             email_attempted TEXT,
             device_type TEXT
@@ -124,7 +124,7 @@ def create_tables(db):
             ip_address TEXT PRIMARY KEY,
             blocked_until TIMESTAMP,
             reason TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT
         )
     ''')
     
@@ -138,8 +138,8 @@ def create_tables(db):
             description TEXT,
             category TEXT DEFAULT 'general',
             is_sensitive BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT,
+            updated_at TEXT,
             updated_by TEXT
         )
     ''')
@@ -153,7 +153,7 @@ def create_tables(db):
             new_value TEXT,
             changed_by TEXT NOT NULL,
             change_reason TEXT,
-            changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            changed_at TEXT,
             ip_address TEXT
         )
     ''')
@@ -164,7 +164,7 @@ def create_tables(db):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE,
             added_by TEXT,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            added_at TEXT,
             is_active BOOLEAN DEFAULT TRUE
         )
     ''')
@@ -183,7 +183,7 @@ def create_tables(db):
             ip_address TEXT,
             device_type TEXT,
             orientation_changes INTEGER,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_updated TEXT,
             memo TEXT DEFAULT ''
         )
     ''')
@@ -214,7 +214,7 @@ def create_tables(db):
             otp_code TEXT NOT NULL,
             session_id TEXT,
             ip_address TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            created_at TEXT,
             expires_at TIMESTAMP NOT NULL,
             used BOOLEAN DEFAULT FALSE,
             used_at TIMESTAMP NULL

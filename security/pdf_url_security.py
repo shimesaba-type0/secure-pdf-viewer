@@ -222,7 +222,7 @@ class PDFURLSecurity:
                     error_message TEXT,
                     referer TEXT,
                     user_agent TEXT,
-                    access_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    access_time TEXT
                 )
             ''')
             
