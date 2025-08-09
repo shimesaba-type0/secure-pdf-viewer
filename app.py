@@ -4045,7 +4045,23 @@ def create_backup():
 
             # アプリケーションのルートディレクトリを取得
             app_root = os.path.dirname(os.path.abspath(__file__))
-            backup_manager = BackupManager(app_root)
+            
+            # 明示的にパスを指定してBackupManagerを初期化
+            db_path = os.path.join(app_root, "instance", "database.db")
+            backup_dir = os.path.join(app_root, "backups")
+            env_path = os.path.join(app_root, ".env")
+            pdf_dir = os.path.join(app_root, "static", "pdfs")
+            logs_dir = os.path.join(app_root, "logs")
+            instance_dir = os.path.join(app_root, "instance")
+            
+            backup_manager = BackupManager(
+                db_path=db_path,
+                backup_dir=backup_dir,
+                env_path=env_path,
+                pdf_dir=pdf_dir,
+                logs_dir=logs_dir,
+                instance_dir=instance_dir
+            )
 
             # バックアップ実行
             def run_backup():
@@ -4230,7 +4246,7 @@ def backup_status():
 
     return Response(
         generate_status(),
-        mimetype="text/plain",
+        mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

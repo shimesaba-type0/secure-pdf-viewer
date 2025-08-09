@@ -212,3 +212,18 @@ development-plan.md
 # PDF upload directory - ignore all files but keep directory
 static/pdfs/*
 !static/pdfs/.gitkeep
+
+# Backup files - ignore all backup files and metadata but keep directory structure  
+backups/manual/*.tar.gz
+backups/manual/*.zip
+backups/auto/*.tar.gz
+backups/auto/*.zip
+backups/metadata/*.json
+# Keep directory structure with .gitkeep files
+!backups/manual/.gitkeep
+!backups/auto/.gitkeep
+!backups/metadata/.gitkeep
+
+# Temporary files from testing
+cookies.txt
+cookies_new.txt

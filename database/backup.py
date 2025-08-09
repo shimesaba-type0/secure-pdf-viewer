@@ -168,8 +168,9 @@ class BackupManager:
             backup_db_path = os.path.join(database_dir, "database.db")
 
             # SQLite .backup コマンドを使用した安全なバックアップ
-            source_conn = sqlite3.connect(self.db_path)
-            backup_conn = sqlite3.connect(backup_db_path)
+            source_conn = sqlite3.connect(self.db_path, timeout=30.0)
+            source_conn.execute("PRAGMA journal_mode=WAL")  # WALモード有効化
+            backup_conn = sqlite3.connect(backup_db_path, timeout=30.0)
 
             try:
                 source_conn.backup(backup_conn)

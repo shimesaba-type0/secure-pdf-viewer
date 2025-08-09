@@ -81,12 +81,18 @@ class BackupManager {
             });
             
             const result = await response.json();
+            console.log('API レスポンス:', result);
             
-            if (result.status === 'success') {
+            if (result.status === 'success' || result.status === 'in_progress') {
                 this.updateProgressText('バックアップ実行を開始しました');
                 this.connectSSE();
-            } else {
+            } else if (result.status === 'error') {
                 throw new Error(result.message || 'バックアップの開始に失敗しました');
+            } else {
+                // 不明なステータスの場合はSSE接続を開始
+                console.log('不明なステータスですが、SSE接続を開始します:', result.status);
+                this.updateProgressText('バックアップ実行を開始しました');
+                this.connectSSE();
             }
             
         } catch (error) {
@@ -234,6 +240,7 @@ class BackupManager {
         }
         
         const rows = this.backupData.map(backup => {
+            console.log('バックアップデータ:', backup);  // デバッグログ追加
             const createdAt = new Date(backup.created_at).toLocaleString('ja-JP');
             const size = this.formatFileSize(backup.size || 0);
             const fileCount = backup.file_count || '-';
@@ -263,10 +270,10 @@ class BackupManager {
                     <td>${statusBadge}</td>
                     <td class="action-buttons">
                         ${status === 'completed' ? `
-                            <button class="btn btn-sm btn-info download-link" onclick="downloadBackup('${backup.name}')">
+                            <button class="btn btn-sm btn-info download-link" onclick="window.backupManager.downloadBackup('${backup.backup_name || backup.name}')">
                                 💾 ダウンロード
                             </button>
-                            <button class="btn btn-sm btn-danger delete-backup-btn" onclick="deleteBackup('${backup.name}')">
+                            <button class="btn btn-sm btn-danger delete-backup-btn" onclick="window.backupManager.deleteBackup('${backup.backup_name || backup.name}')">
                                 🗑️ 削除
                             </button>
                         ` : '-'}
