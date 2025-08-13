@@ -9,10 +9,11 @@ import json
 import hashlib
 import shutil
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import tempfile
 import logging
+from config.timezone import get_app_now, to_app_timezone, create_app_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,9 @@ class BackupManager:
             "KEY",
         ]
 
+        # Phase 2: バックアップ設定ファイルパス
+        self.settings_file = os.path.join(self.backup_dir, "backup_settings.json")
+
     def _ensure_backup_directories(self):
         """バックアップディレクトリ構造を作成"""
         directories = [
@@ -95,7 +99,7 @@ class BackupManager:
         """
         try:
             # バックアップ名生成
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = get_app_now().strftime("%Y%m%d_%H%M%S")
             backup_name = f"backup_{timestamp}"
 
             logger.info(f"バックアップ開始: {backup_name}")
@@ -331,7 +335,7 @@ class BackupManager:
             "backup_name": backup_name,
             "type": backup_type,
             "timestamp": timestamp,
-            "created_at": datetime.now().isoformat(),
+            "created_at": get_app_now().isoformat(),
             "files_count": len(files),
             "files": files,
             "version": "1.0",
@@ -525,3 +529,289 @@ class BackupManager:
             return False
 
         return True
+
+    # ===== Phase 2: 定期バックアップ・世代管理機能 =====
+
+    def get_backup_settings(self) -> Dict:
+        """
+        バックアップ設定を取得
+
+        Returns:
+            Dict: バックアップ設定
+        """
+        default_settings = {
+            "auto_backup_enabled": False,
+            "backup_interval": "daily",  # 'daily' または 'weekly'
+            "retention_days": 30,
+            "backup_time": "02:00",  # HH:MM形式
+            "max_backup_size": 1024,  # MB
+        }
+
+        if not os.path.exists(self.settings_file):
+            return default_settings
+
+        try:
+            with open(self.settings_file, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                # デフォルト値で不足分を補完
+                for key, default_value in default_settings.items():
+                    if key not in settings:
+                        settings[key] = default_value
+                return settings
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logger.warning(f"設定ファイル読み込みエラー: {str(e)}")
+            return default_settings
+
+    def update_backup_settings(self, new_settings: Dict) -> bool:
+        """
+        バックアップ設定を更新
+
+        Args:
+            new_settings: 更新する設定項目
+
+        Returns:
+            bool: 更新成功の可否
+        """
+        try:
+            # 現在の設定取得
+            current_settings = self.get_backup_settings()
+
+            # 設定値の妥当性チェック
+            for key, value in new_settings.items():
+                if key == "backup_interval" and value not in ["daily", "weekly"]:
+                    raise ValueError(f"不正なバックアップ間隔: {value}")
+                elif key == "retention_days" and (
+                    not isinstance(value, int) or value < 1
+                ):
+                    raise ValueError(f"不正な保持日数: {value}")
+                elif key == "backup_time":
+                    # HH:MM形式チェック
+                    try:
+                        hour, minute = value.split(":")
+                        if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+                            raise ValueError
+                    except (ValueError, IndexError):
+                        raise ValueError(f"不正な実行時刻形式: {value}")
+                elif key == "max_backup_size" and (
+                    not isinstance(value, int) or value < 1
+                ):
+                    raise ValueError(f"不正な最大バックアップサイズ: {value}")
+
+            # 設定更新
+            current_settings.update(new_settings)
+
+            # ファイル保存
+            with open(self.settings_file, "w", encoding="utf-8") as f:
+                json.dump(current_settings, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"バックアップ設定更新完了: {new_settings}")
+            return True
+
+        except Exception as e:
+            logger.error(f"設定更新エラー: {str(e)}")
+            raise
+
+    def cleanup_old_backups(self, max_backups: Optional[int] = None) -> int:
+        """
+        古いバックアップファイルの削除（世代管理）
+
+        Args:
+            max_backups: 最大保持バックアップ数（Noneの場合は保持日数で判定）
+
+        Returns:
+            int: 削除されたバックアップ数
+        """
+        try:
+            settings = self.get_backup_settings()
+            backups = self.list_backups()
+
+            if not backups:
+                return 0
+
+            deleted_count = 0
+
+            if max_backups is not None:
+                # バックアップ数制限による削除
+                if len(backups) > max_backups:
+                    # 古い順にソート（created_atで昇順）
+                    backups_sorted = sorted(
+                        backups, key=lambda x: x.get("created_at", "")
+                    )
+                    backups_to_delete = backups_sorted[:-max_backups]
+
+                    for backup in backups_to_delete:
+                        if self.delete_backup(backup["backup_name"]):
+                            deleted_count += 1
+            else:
+                # 保持日数による削除
+                retention_days = settings["retention_days"]
+                cutoff_date = get_app_now() - timedelta(days=retention_days)
+
+                for backup in backups:
+                    try:
+                        created_at = datetime.fromisoformat(backup["created_at"])
+                        created_at = to_app_timezone(created_at)
+                        if created_at < cutoff_date:
+                            if self.delete_backup(backup["backup_name"]):
+                                deleted_count += 1
+                    except (ValueError, KeyError):
+                        logger.warning(
+                            f"バックアップ日時解析エラー: {backup.get('backup_name', 'unknown')}"
+                        )
+                        continue
+
+            if deleted_count > 0:
+                logger.info(f"古いバックアップ削除完了: {deleted_count}個")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"バックアップクリーンアップエラー: {str(e)}")
+            return 0
+
+    def get_next_backup_time(self) -> Optional[datetime]:
+        """
+        次回自動バックアップ実行時刻を計算
+
+        Returns:
+            Optional[datetime]: 次回実行時刻（自動バックアップ無効の場合はNone）
+        """
+        settings = self.get_backup_settings()
+
+        if not settings["auto_backup_enabled"]:
+            return None
+
+        try:
+            # 設定時刻を解析
+            backup_time = settings["backup_time"]
+            hour, minute = map(int, backup_time.split(":"))
+
+            # 今日の実行時刻を計算
+            now = get_app_now()
+            today_run_time = now.replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+
+            # 今日の実行時刻を過ぎている場合は明日を設定
+            if now >= today_run_time:
+                if settings["backup_interval"] == "daily":
+                    next_run = today_run_time + timedelta(days=1)
+                elif settings["backup_interval"] == "weekly":
+                    next_run = today_run_time + timedelta(days=7)
+                else:
+                    next_run = today_run_time + timedelta(days=1)
+            else:
+                next_run = today_run_time
+
+            return next_run
+
+        except (ValueError, KeyError) as e:
+            logger.error(f"次回実行時刻計算エラー: {str(e)}")
+            return None
+
+    def should_run_backup(self) -> bool:
+        """
+        自動バックアップを実行すべきかどうかを判定
+
+        Returns:
+            bool: 実行すべきかどうか
+        """
+        settings = self.get_backup_settings()
+
+        # 自動バックアップが無効の場合
+        if not settings["auto_backup_enabled"]:
+            return False
+
+        try:
+            now = get_app_now()
+
+            # 設定時刻を解析
+            backup_time = settings["backup_time"]
+            hour, minute = map(int, backup_time.split(":"))
+
+            # 今日の実行時刻を計算
+            today_run_time = now.replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+
+            # 実行時刻の近似チェック（5分以内）
+            time_diff = abs((now - today_run_time).total_seconds())
+            if time_diff > 300:  # 5分 = 300秒
+                return False
+
+            # 最後の自動バックアップとの間隔チェック
+            backups = self.list_backups()
+            auto_backups = [b for b in backups if b.get("type") == "auto"]
+
+            if auto_backups:
+                latest_auto_backup = max(
+                    auto_backups, key=lambda x: x.get("created_at", "")
+                )
+                latest_time = datetime.fromisoformat(latest_auto_backup["created_at"])
+                latest_time = to_app_timezone(latest_time)
+
+                if settings["backup_interval"] == "daily":
+                    min_interval = timedelta(days=1)
+                elif settings["backup_interval"] == "weekly":
+                    min_interval = timedelta(days=7)
+                else:
+                    min_interval = timedelta(days=1)
+
+                # 最小間隔をチェック（23時間45分で日次バックアップを許可）
+                actual_interval = now - latest_time
+                if actual_interval < (min_interval - timedelta(minutes=15)):
+                    return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"バックアップ実行判定エラー: {str(e)}")
+            return False
+
+    def get_backup_statistics(self) -> Dict:
+        """
+        バックアップ統計情報を取得
+
+        Returns:
+            Dict: 統計情報
+        """
+        try:
+            backups = self.list_backups()
+
+            if not backups:
+                return {
+                    "total_backups": 0,
+                    "manual_backups": 0,
+                    "auto_backups": 0,
+                    "total_size": 0,
+                    "latest_backup": None,
+                    "oldest_backup": None,
+                }
+
+            manual_backups = [b for b in backups if b.get("type") == "manual"]
+            auto_backups = [b for b in backups if b.get("type") == "auto"]
+            total_size = sum(b.get("size", 0) for b in backups)
+
+            # 最新・最古のバックアップ
+            latest_backup = max(backups, key=lambda x: x.get("created_at", ""))
+            oldest_backup = min(backups, key=lambda x: x.get("created_at", ""))
+
+            return {
+                "total_backups": len(backups),
+                "manual_backups": len(manual_backups),
+                "auto_backups": len(auto_backups),
+                "total_size": total_size,
+                "latest_backup": latest_backup,
+                "oldest_backup": oldest_backup,
+            }
+
+        except Exception as e:
+            logger.error(f"統計情報取得エラー: {str(e)}")
+            return {
+                "total_backups": 0,
+                "manual_backups": 0,
+                "auto_backups": 0,
+                "total_size": 0,
+                "latest_backup": None,
+                "oldest_backup": None,
+            }

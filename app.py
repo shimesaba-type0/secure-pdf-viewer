@@ -8,6 +8,7 @@ from flask import (
     flash,
     jsonify,
     Response,
+    send_from_directory,
 )
 import os
 import uuid
@@ -29,7 +30,13 @@ import sqlite3
 import hashlib
 import logging
 from logging.handlers import RotatingFileHandler
+
+# ロガー設定
+logger = logging.getLogger(__name__)
 from database.models import get_setting, set_setting
+from database.backup import BackupManager
+import threading
+import time
 from database.utils import RateLimitManager, is_ip_blocked
 from auth.passphrase import PassphraseManager
 from security.pdf_url_security import PDFURLSecurity
@@ -905,7 +912,7 @@ def auto_unpublish_all_pdfs():
             SET value = NULL, updated_at = ?, updated_by = 'scheduler'
             WHERE key = 'publish_end'
         """,
-            (get_app_datetime_string(),)
+            (get_app_datetime_string(),),
         )
 
         conn.commit()
@@ -972,6 +979,91 @@ def restore_scheduled_unpublish():
 # アプリ起動時にスケジュールを復元
 restore_scheduled_unpublish()
 
+# ===== Phase 2: バックアップスケジューリング機能 =====
+
+
+def execute_scheduled_backup():
+    """スケジュール実行されるバックアップ処理"""
+    try:
+        logger.info("定期バックアップ実行開始")
+        backup_manager = BackupManager()
+
+        # バックアップ実行判定
+        if not backup_manager.should_run_backup():
+            logger.info("バックアップ実行条件を満たしていないため、スキップします")
+            return
+
+        # 自動バックアップ実行
+        backup_name = backup_manager.create_backup(backup_type="auto")
+        logger.info(f"定期バックアップ完了: {backup_name}")
+
+        # 古いバックアップのクリーンアップ実行
+        cleanup_count = backup_manager.cleanup_old_backups()
+        if cleanup_count > 0:
+            logger.info(f"古いバックアップクリーンアップ完了: {cleanup_count}個削除")
+
+    except Exception as e:
+        logger.error(f"定期バックアップ実行エラー: {str(e)}")
+
+
+def setup_backup_schedule():
+    """バックアップスケジュールを設定"""
+    try:
+        backup_manager = BackupManager()
+        settings = backup_manager.get_backup_settings()
+
+        # 既存のバックアップジョブを削除
+        if scheduler.get_job("scheduled_backup"):
+            scheduler.remove_job("scheduled_backup")
+
+        # 自動バックアップが有効な場合のみスケジュール設定
+        if settings.get("auto_backup_enabled", False):
+            backup_time = settings.get("backup_time", "02:00")
+            backup_interval = settings.get("backup_interval", "daily")
+
+            hour, minute = map(int, backup_time.split(":"))
+
+            if backup_interval == "daily":
+                # 日次バックアップ
+                scheduler.add_job(
+                    func=execute_scheduled_backup,
+                    trigger="cron",
+                    hour=hour,
+                    minute=minute,
+                    id="scheduled_backup",
+                    replace_existing=True,
+                )
+                logger.info(f"日次バックアップスケジュール設定: 毎日 {backup_time}")
+
+            elif backup_interval == "weekly":
+                # 週次バックアップ（月曜日実行）
+                scheduler.add_job(
+                    func=execute_scheduled_backup,
+                    trigger="cron",
+                    day_of_week=0,  # 月曜日
+                    hour=hour,
+                    minute=minute,
+                    id="scheduled_backup",
+                    replace_existing=True,
+                )
+                logger.info(f"週次バックアップスケジュール設定: 毎週月曜日 {backup_time}")
+
+            print(f"Backup schedule configured: {backup_interval} at {backup_time}")
+        else:
+            logger.info("自動バックアップが無効のため、スケジュールは設定されません")
+
+    except Exception as e:
+        logger.error(f"バックアップスケジュール設定エラー: {str(e)}")
+
+
+def refresh_backup_schedule():
+    """バックアップスケジュールを再読み込み（設定変更時に呼び出し）"""
+    setup_backup_schedule()
+
+
+# アプリ起動時にバックアップスケジュールを初期化
+setup_backup_schedule()
+
 
 def check_and_handle_expired_publish():
     """フォールバック: アクセス時に公開終了時刻をチェック"""
@@ -997,6 +1089,12 @@ def check_and_handle_expired_publish():
         print(f"Failed to check expired publish: {e}")
 
     return False  # 停止処理は実行されなかった
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Favicon handler to prevent 404 errors"""
+    return send_from_directory("static", "favicon.ico", mimetype="image/x-icon")
 
 
 @app.route("/")
@@ -1035,7 +1133,9 @@ def index():
 
             # Convert to app timezone and format for display
             publish_end_app_tz = to_app_timezone(publish_end_dt)
-            publish_end_datetime_formatted = publish_end_app_tz.strftime("%Y年%m月%d日 %H:%M")
+            publish_end_datetime_formatted = publish_end_app_tz.strftime(
+                "%Y年%m月%d日 %H:%M"
+            )
         except ValueError:
             publish_end_datetime_formatted = None
 
@@ -1740,8 +1840,8 @@ def session_detail(session_id):
             email_address = stored_email_address
 
         # 開始時刻を日本時間に変換
-        start_dt = datetime.fromtimestamp(start_time)
-        start_jst = to_app_timezone(start_dt)
+        start_dt = datetime.fromtimestamp(start_time, tz=get_app_timezone())
+        start_jst = start_dt
 
         # 残り時間と経過時間を計算
         now = get_app_now()
@@ -2578,8 +2678,8 @@ def get_active_sessions():
             )
 
             # 開始時刻を日本時間に変換
-            start_dt = datetime.fromtimestamp(start_time)
-            start_jst = to_app_timezone(start_dt)
+            start_dt = datetime.fromtimestamp(start_time, tz=get_app_timezone())
+            start_jst = start_dt
 
             # 最終更新時刻がある場合は変換（文字列形式での格納を想定）
             last_updated_formatted = None
@@ -2596,7 +2696,7 @@ def get_active_sessions():
                     last_updated_formatted = last_updated
 
             # セッション経過時間を計算
-            elapsed_seconds = (get_app_now().replace(tzinfo=None) - start_dt).total_seconds()
+            elapsed_seconds = (get_app_now() - start_dt).total_seconds()
             remaining_seconds = session_timeout - elapsed_seconds
 
             # 残り時間を時分秒形式で表示
@@ -4047,7 +4147,7 @@ def create_backup():
 
             # アプリケーションのルートディレクトリを取得
             app_root = os.path.dirname(os.path.abspath(__file__))
-            
+
             # 明示的にパスを指定してBackupManagerを初期化
             db_path = os.path.join(app_root, "instance", "database.db")
             backup_dir = os.path.join(app_root, "backups")
@@ -4055,14 +4155,14 @@ def create_backup():
             pdf_dir = os.path.join(app_root, "static", "pdfs")
             logs_dir = os.path.join(app_root, "logs")
             instance_dir = os.path.join(app_root, "instance")
-            
+
             backup_manager = BackupManager(
                 db_path=db_path,
                 backup_dir=backup_dir,
                 env_path=env_path,
                 pdf_dir=pdf_dir,
                 logs_dir=logs_dir,
-                instance_dir=instance_dir
+                instance_dir=instance_dir,
             )
 
             # バックアップ実行
@@ -4255,6 +4355,199 @@ def backup_status():
             "Access-Control-Allow-Origin": "*",
         },
     )
+
+
+# ===== Phase 2: 定期バックアップ・世代管理API =====
+
+
+@app.route("/admin/backup/settings", methods=["GET"])
+def get_backup_settings():
+    """バックアップ設定取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+
+    try:
+        # BackupManager初期化
+        backup_manager = BackupManager(
+            db_path=get_db_path(),
+            backup_dir=os.path.join(os.path.dirname(app.instance_path), "backups"),
+        )
+
+        settings = backup_manager.get_backup_settings()
+        return jsonify({"status": "success", "data": settings})
+
+    except Exception as e:
+        logger.error(f"バックアップ設定取得エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"設定取得エラー: {str(e)}"}), 500
+
+
+@app.route("/admin/backup/settings", methods=["POST"])
+def update_backup_settings():
+    """バックアップ設定更新API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+
+    try:
+        # リクエストデータ取得
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "設定データが必要です"}), 400
+
+        # BackupManager初期化
+        backup_manager = BackupManager(
+            db_path=get_db_path(),
+            backup_dir=os.path.join(os.path.dirname(app.instance_path), "backups"),
+        )
+
+        # 設定更新
+        backup_manager.update_backup_settings(data)
+
+        # スケジュール更新
+        refresh_backup_schedule()
+
+        # 更新後の設定を返す
+        updated_settings = backup_manager.get_backup_settings()
+
+        logger.info(f"バックアップ設定更新完了: {data}")
+        return jsonify(
+            {"status": "success", "message": "設定が更新されました", "data": updated_settings}
+        )
+
+    except ValueError as e:
+        logger.warning(f"バックアップ設定妥当性エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"設定値エラー: {str(e)}"}), 400
+
+    except Exception as e:
+        logger.error(f"バックアップ設定更新エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"設定更新エラー: {str(e)}"}), 500
+
+
+@app.route("/admin/backup/cleanup", methods=["POST"])
+def cleanup_backups():
+    """バックアップクリーンアップAPI（世代管理）"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+
+    try:
+        # リクエストデータ取得
+        data = request.get_json() or {}
+        max_backups = data.get("max_backups")
+
+        # BackupManager初期化
+        backup_manager = BackupManager(
+            db_path=get_db_path(),
+            backup_dir=os.path.join(os.path.dirname(app.instance_path), "backups"),
+        )
+
+        # クリーンアップ実行
+        deleted_count = backup_manager.cleanup_old_backups(max_backups=max_backups)
+
+        logger.info(f"バックアップクリーンアップ完了: {deleted_count}個削除")
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"{deleted_count}個のバックアップを削除しました",
+                "data": {"deleted_count": deleted_count},
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"バックアップクリーンアップエラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"クリーンアップエラー: {str(e)}"}), 500
+
+
+@app.route("/admin/backup/statistics", methods=["GET"])
+def get_backup_statistics():
+    """バックアップ統計情報取得API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+
+    try:
+        # BackupManager初期化
+        backup_manager = BackupManager(
+            db_path=get_db_path(),
+            backup_dir=os.path.join(os.path.dirname(app.instance_path), "backups"),
+        )
+
+        stats = backup_manager.get_backup_statistics()
+
+        # 次回自動バックアップ時刻も取得
+        next_backup_time = backup_manager.get_next_backup_time()
+        if next_backup_time:
+            stats["next_auto_backup"] = next_backup_time.isoformat()
+        else:
+            stats["next_auto_backup"] = None
+
+        return jsonify({"status": "success", "data": stats})
+
+    except Exception as e:
+        logger.error(f"バックアップ統計取得エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"統計取得エラー: {str(e)}"}), 500
+
+
+@app.route("/admin/backup/check-schedule", methods=["GET"])
+def check_backup_schedule():
+    """自動バックアップスケジュール確認API"""
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+
+    try:
+        # BackupManager初期化
+        backup_manager = BackupManager(
+            db_path=get_db_path(),
+            backup_dir=os.path.join(os.path.dirname(app.instance_path), "backups"),
+        )
+
+        should_run = backup_manager.should_run_backup()
+        next_run_time = backup_manager.get_next_backup_time()
+        settings = backup_manager.get_backup_settings()
+
+        # スケジューラージョブの状態確認
+        scheduled_job = scheduler.get_job("scheduled_backup")
+        job_scheduled = scheduled_job is not None
+
+        result = {
+            "should_run_now": should_run,
+            "next_run_time": next_run_time.isoformat() if next_run_time else None,
+            "auto_backup_enabled": settings.get("auto_backup_enabled", False),
+            "backup_interval": settings.get("backup_interval", "daily"),
+            "backup_time": settings.get("backup_time", "02:00"),
+            "scheduler_job_active": job_scheduled,
+            "next_scheduled_run": scheduled_job.next_run_time.isoformat()
+            if scheduled_job and scheduled_job.next_run_time
+            else None,
+        }
+
+        return jsonify({"status": "success", "data": result})
+
+    except Exception as e:
+        logger.error(f"バックアップスケジュール確認エラー: {str(e)}")
+        return jsonify({"status": "error", "message": f"スケジュール確認エラー: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

@@ -952,6 +952,126 @@
                 </div>
             </div>
         </div>
+
+        <!-- Phase 2: 定期バックアップ設定セクション -->
+        <div class="backup-settings-section">
+            <h3>
+                <i class="fas fa-clock" style="margin-right: 8px;"></i>
+                定期バックアップ設定
+            </h3>
+            
+            <div class="settings-container">
+                <!-- 自動バックアップ有効/無効 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="auto-backup-enabled">自動バックアップ</label>
+                            <p class="setting-description">設定時刻に自動でバックアップを実行します</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-backup-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- バックアップ間隔 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="backup-interval">実行間隔</label>
+                            <p class="setting-description">バックアップを実行する間隔を設定します</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="backup-interval" class="form-control">
+                                <option value="daily">毎日</option>
+                                <option value="weekly">毎週</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 実行時刻 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="backup-time">実行時刻</label>
+                            <p class="setting-description">自動バックアップを実行する時刻</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="time" id="backup-time" class="form-control" value="02:00">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 保持日数 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="retention-days">保持日数</label>
+                            <p class="setting-description">この日数を過ぎたバックアップは自動削除されます</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="number" id="retention-days" class="form-control" 
+                                   min="1" max="365" value="30">
+                            <span class="unit-label">日</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 最大バックアップサイズ -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="max-backup-size">最大バックアップサイズ</label>
+                            <p class="setting-description">この容量を超えるバックアップは作成されません</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="number" id="max-backup-size" class="form-control" 
+                                   min="1" max="10240" value="1024">
+                            <span class="unit-label">MB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 設定保存・読み込みボタン -->
+                <div class="settings-actions">
+                    <button type="button" id="save-backup-settings" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 設定を保存
+                    </button>
+                    <button type="button" id="load-backup-settings" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> 設定を読み込み
+                    </button>
+                    <button type="button" id="cleanup-backups" class="btn btn-warning">
+                        <i class="fas fa-broom"></i> 古いバックアップを削除
+                    </button>
+                </div>
+            </div>
+
+            <!-- 統計情報・スケジュール情報 -->
+            <div class="backup-schedule-info">
+                <div class="schedule-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">自動バックアップ:</span>
+                        <span class="stat-value" id="auto-backup-status">無効</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">次回実行予定:</span>
+                        <span class="stat-value" id="next-backup-time">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">自動バックアップ数:</span>
+                        <span class="stat-value" id="auto-backup-count">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">手動バックアップ数:</span>
+                        <span class="stat-value" id="manual-backup-count">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
