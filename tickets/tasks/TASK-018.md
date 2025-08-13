@@ -236,10 +236,19 @@ GET  /admin/backup/status     # 実行状況取得
 
 **コミット**: `8ecf86f` - feat: TASK-018 Phase 1D完了 - バックアップシステム統合・動作確認
 
-### Phase 2
-- [ ] 定期バックアップが設定・実行される
-- [ ] 世代管理（古いファイル自動削除）が動作する
-- [ ] バックアップ設定が管理画面から変更できる
+### Phase 2: 定期バックアップ・世代管理 ✅ **完了** (2025-08-13)
+- [x] **定期バックアップスケジューリング機能実装完了** - APScheduler使用、日次/週次対応
+- [x] **バックアップ世代管理機能実装完了** - 古いファイル自動削除、保持日数設定
+- [x] **管理画面設定UI実装完了** - 自動バックアップ有効/無効、時刻設定、統計表示
+- [x] **BackupManager Phase 2機能拡張** - `get_backup_settings`, `cleanup_old_backups`, `should_run_backup`
+- [x] **Flask API Phase 2エンドポイント** - 設定取得/更新、統計情報、クリーンアップ、スケジュール確認
+- [x] **タイムゾーン統一システム対応** - TASK-016準拠、timezone aware datetime使用
+- [x] **実動作テスト完了** - 23:06自動バックアップ実行確認 (`backup_20250813_230600`)
+- [x] **包括的テスト実装** - `tests/test_backup_phase2.py` (25テストケース)
+- [x] **ナイーブdatetime警告修正** - `app.py:1843, 2681` timezone aware対応
+- [x] **favicon.ico 404エラー対応** - ダミーファイル作成、ルートハンドラー追加
+
+**コミット**: `2e7bf18` - feat: TASK-018 Phase 2完了 - 定期バックアップ・世代管理システム実装
 
 ### Phase 3
 - [ ] バックアップからの復旧が実行できる
@@ -254,9 +263,9 @@ GET  /admin/backup/status     # 実行状況取得
 - **Phase 1B**: ✅ **完了** 2時間（API実装）
 - **Phase 1C**: ✅ **完了** 2時間（UI実装）
 - **Phase 1D**: ✅ **完了** 2時間（統合・動作確認）
-- **Phase 2**: 2-3時間（スケジューリング・世代管理）
+- **Phase 2**: ✅ **完了** 2-3時間（スケジューリング・世代管理）
 - **Phase 3**: 3-4時間（復旧機能）
-- **合計**: 10-14時間（Phase 1A-1D: 8時間完了済み）
+- **合計**: 10-14時間（Phase 1A-2: 10-11時間完了済み）
 
 ## 関連チケット
 - TASK-001〜017: 全機能のデータ保護対象
@@ -309,8 +318,21 @@ GET  /admin/backup/status     # 実行状況取得
   - 動作確認: バックアップ作成・一覧・ダウンロード・削除全機能動作確認
   - 品質: Black・Flake8完全準拠、統合テスト実装完了
 
+### 完了済み
+- **2025-08-13**: Phase 2完了（定期バックアップ・世代管理）
+  - 実装: `app.py` 行985-1070 (execute_scheduled_backup, setup_backup_schedule)
+  - 実装: `app.py` 行4358-4556 (Phase 2 API 5エンドポイント)
+  - 実装: `database/backup.py` 行533-817 (Phase 2メソッド 7関数)
+  - 実装: `static/js/backup.js` 行496-820 (BackupSettingsManager クラス)
+  - 実装: `static/css/main.css` 行2929-3155 (Phase 2設定UI スタイル)
+  - 実装: `templates/admin.html` バックアップ設定セクション追加
+  - テスト: `tests/test_backup_phase2.py` (25テストケース)
+  - 修正: ナイーブdatetime警告対応、favicon.ico 404エラー対応
+  - 動作確認: 自動バックアップスケジュール実行 (backup_20250813_230600)
+  - 品質: Black・Flake8完全準拠
+
 ### 次回セッション予定  
-- Phase 2: 定期バックアップ・世代管理機能実装
+- Phase 3: バックアップ復旧機能実装
 
 ## 備考
 - 本機能により運用時のデータ保護が大幅に向上
