@@ -333,6 +333,18 @@ GET  /admin/backup/status     # 実行状況取得
   - 動作確認: 自動バックアップスケジュール実行 (backup_20250813_230600)
   - 品質: Black・Flake8完全準拠
 
+**2025-08-14** (メンテナンス更新)
+- 設定ファイル配置場所修正 ⏳
+  - バックアップ設定ファイル出力先を `backups/backup_settings.json` → `config/backup_settings.json` に変更
+  - 理由: 設定ファイルは config/ ディレクトリに統合管理するプロジェクト規約に従う
+  - 修正対象: `database/backup.py:74` の settings_file パス変更
+  - 注意: backup_settings.json は管理画面で設定保存時に動的作成されるファイル
+  - 追加作業: .gitignore に config/backup_settings.json を追加（設定ファイルをコミット対象外に）
+- バックアップ機能ログ出力問題の調査・修正 ⏳
+  - 問題: BackupManager のログが logs/app.log に記録されない
+  - 調査対象: logging設定、logger初期化、ログハンドラー設定
+  - 修正予定: ログ設定の統一化、BackupManager logger設定修正
+
 ### 次回セッション予定  
 - Phase 3: バックアップ復旧機能実装
 
