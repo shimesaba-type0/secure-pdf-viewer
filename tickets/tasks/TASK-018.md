@@ -247,6 +247,8 @@ GET  /admin/backup/status     # 実行状況取得
 - [x] **包括的テスト実装** - `tests/test_backup_phase2.py` (25テストケース)
 - [x] **ナイーブdatetime警告修正** - `app.py:1843, 2681` timezone aware対応
 - [x] **favicon.ico 404エラー対応** - ダミーファイル作成、ルートハンドラー追加
+- [ ] **設定ファイル配置場所修正** - `config/backup_settings.json` に統合移動 (2025-08-14)
+- [ ] **バックアップ機能ログ出力問題修正** - logs/app.log 記録修正 (2025-08-14)
 
 **コミット**: `2e7bf18` - feat: TASK-018 Phase 2完了 - 定期バックアップ・世代管理システム実装
 
