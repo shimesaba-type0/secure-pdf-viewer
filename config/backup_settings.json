@@ -1,7 +1,0 @@
-{
-  "auto_backup_enabled": true,
-  "backup_interval": "daily",
-  "retention_days": 30,
-  "backup_time": "23:06",
-  "max_backup_size": 1024
-}
