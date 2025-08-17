@@ -919,6 +919,7 @@
                     <table class="backup-table" id="backup-table">
                         <thead>
                             <tr>
+                                <th>ファイル名</th>
                                 <th>作成日時</th>
                                 <th>タイプ</th>
                                 <th>サイズ</th>
@@ -929,7 +930,7 @@
                         </thead>
                         <tbody id="backup-list-body">
                             <tr>
-                                <td colspan="6" class="loading-row">バックアップ一覧を読み込み中...</td>
+                                <td colspan="7" class="loading-row">バックアップ一覧を読み込み中...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1070,6 +1071,91 @@
                         <span class="stat-value" id="manual-backup-count">-</span>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 復旧確認モーダル（Phase 3） -->
+    <div id="restore-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚠️ データ復旧の実行</h3>
+                <span class="modal-close" onclick="closeRestoreModal()">&times;</span>
+            </div>
+            
+            <div class="modal-body">
+                <!-- 復旧対象情報 -->
+                <div class="restore-info">
+                    <div class="info-group">
+                        <label>復旧対象:</label>
+                        <span id="restore-backup-name" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>作成日時:</label>
+                        <span id="restore-backup-date" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>サイズ:</label>
+                        <span id="restore-backup-size" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>タイプ:</label>
+                        <span id="restore-backup-type" class="info-value">-</span>
+                    </div>
+                </div>
+                
+                <!-- 警告メッセージ -->
+                <div class="warning-message">
+                    <div class="warning-item">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>警告:</strong> 現在のデータが完全に置き換えられます
+                    </div>
+                    <div class="safety-item">
+                        <i class="fas fa-shield-alt"></i>
+                        復旧前に自動バックアップを作成します
+                    </div>
+                    <div class="caution-item">
+                        <i class="fas fa-ban"></i>
+                        この操作は取り消せません
+                    </div>
+                </div>
+                
+                <!-- 明示的文字列入力 -->
+                <div class="confirmation-input">
+                    <label for="confirmation-text">確認のため、以下を正確に入力してください:</label>
+                    <div class="confirmation-target">「復旧を実行します」</div>
+                    <input type="text" id="confirmation-text" class="form-control" 
+                           placeholder="復旧を実行します" 
+                           oninput="validateConfirmationText()">
+                    <small class="help-text">完全一致しないと実行ボタンが有効化されません</small>
+                </div>
+                
+                <!-- 復旧進行状況 -->
+                <div id="restore-progress-container" class="restore-progress-container" style="display: none;">
+                    <div class="progress-header">
+                        <h4>復旧実行中...</h4>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="restore-progress-fill"></div>
+                        </div>
+                        <div class="progress-text" id="restore-progress-text">準備中...</div>
+                        <div class="progress-percentage" id="restore-progress-percentage">0%</div>
+                    </div>
+                    <div class="progress-status" id="restore-progress-status">初期化中...</div>
+                </div>
+            </div>
+            
+            <!-- 実行ボタン -->
+            <div class="modal-footer">
+                <button type="button" id="execute-restore-btn" class="btn btn-danger" 
+                        onclick="executeRestore()" disabled>
+                    <i class="fas fa-history"></i> 復旧実行
+                </button>
+                <button type="button" id="cancel-restore-btn" class="btn btn-secondary" 
+                        onclick="closeRestoreModal()">
+                    <i class="fas fa-times"></i> キャンセル
+                </button>
             </div>
         </div>
     </div>

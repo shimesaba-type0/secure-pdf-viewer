@@ -3149,3 +3149,398 @@ body {
         font-size: 1rem;
     }
 }
+
+/* ===== Phase 3: 復旧モーダルスタイル ===== */
+
+/* 復旧モーダル */
+#restore-modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+}
+
+#restore-modal .modal-content {
+    background-color: #fff;
+    margin: 2% auto;
+    padding: 0;
+    border: none;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    animation: modalSlideIn 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* モーダルヘッダー */
+#restore-modal .modal-header {
+    background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+    color: white;
+    padding: 20px 25px;
+    border-radius: 12px 12px 0 0;
+    position: relative;
+    flex-shrink: 0;
+}
+
+#restore-modal .modal-header h3 {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 600;
+}
+
+#restore-modal .modal-close {
+    position: absolute;
+    top: 20px;
+    right: 25px;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.8);
+    transition: color 0.2s;
+}
+
+#restore-modal .modal-close:hover {
+    color: white;
+}
+
+/* モーダルボディ */
+#restore-modal .modal-body {
+    padding: 25px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #dee2e6 #f8f9fa;
+}
+
+/* Webkit ブラウザ用のスクロールバーカスタマイズ */
+#restore-modal .modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+#restore-modal .modal-body::-webkit-scrollbar-track {
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+#restore-modal .modal-body::-webkit-scrollbar-thumb {
+    background: #dee2e6;
+    border-radius: 4px;
+}
+
+#restore-modal .modal-body::-webkit-scrollbar-thumb:hover {
+    background: #adb5bd;
+}
+
+/* 復旧対象情報 */
+.restore-info {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-left: 4px solid #17a2b8;
+}
+
+.restore-info .info-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.restore-info .info-group:last-child {
+    margin-bottom: 0;
+}
+
+.restore-info label {
+    font-weight: 600;
+    color: #495057;
+    margin: 0;
+}
+
+.restore-info .info-value {
+    color: #212529;
+    font-family: 'Courier New', monospace;
+    background: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+}
+
+/* 警告メッセージ */
+.warning-message {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.warning-message > div {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+}
+
+.warning-message > div:last-child {
+    margin-bottom: 0;
+}
+
+.warning-message i {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+.warning-item {
+    color: #856404;
+}
+
+.warning-item i {
+    color: #dc3545;
+}
+
+.safety-item {
+    color: #155724;
+}
+
+.safety-item i {
+    color: #28a745;
+}
+
+.caution-item {
+    color: #721c24;
+}
+
+.caution-item i {
+    color: #dc3545;
+}
+
+/* 確認入力 */
+.confirmation-input {
+    background: #e8f4fd;
+    border: 1px solid #b8daff;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.confirmation-input label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.confirmation-target {
+    background: #fff;
+    border: 2px solid #007bff;
+    border-radius: 6px;
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    color: #007bff;
+    text-align: center;
+}
+
+.confirmation-input .form-control {
+    width: 100%;
+    padding: 12px 15px;
+    border: 2px solid #ced4da;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.confirmation-input .form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.confirmation-input .help-text {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* 復旧進行状況 */
+.restore-progress-container {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 25px;
+    text-align: center;
+}
+
+.restore-progress-container .progress-header h4 {
+    margin: 0 0 20px 0;
+    color: #495057;
+    font-size: 1.2rem;
+}
+
+.restore-progress-container .progress-bar-container {
+    margin-bottom: 20px;
+}
+
+.restore-progress-container .progress-bar {
+    background: #e9ecef;
+    border-radius: 10px;
+    height: 20px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.restore-progress-container .progress-fill {
+    background: linear-gradient(90deg, #28a745, #20c997);
+    height: 100%;
+    width: 0%;
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.restore-progress-container .progress-text {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 5px;
+}
+
+.restore-progress-container .progress-percentage {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.restore-progress-container .progress-status {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 10px 15px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #495057;
+}
+
+/* モーダルフッター */
+#restore-modal .modal-footer {
+    padding: 20px 25px;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    border-radius: 0 0 12px 12px;
+    flex-shrink: 0;
+    background-color: #fff;
+}
+
+#restore-modal .modal-footer .btn {
+    padding: 12px 24px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#restore-modal .modal-footer .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+#restore-modal .modal-footer .btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+#restore-modal .modal-footer .btn-danger:hover:not(:disabled) {
+    background: #c82333;
+    transform: translateY(-1px);
+}
+
+#restore-modal .modal-footer .btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+#restore-modal .modal-footer .btn-secondary:hover {
+    background: #5a6268;
+    transform: translateY(-1px);
+}
+
+#restore-modal .modal-footer .btn-disabled {
+    background: #e9ecef !important;
+    color: #6c757d !important;
+}
+
+/* 復旧ボタンスタイル */
+.restore-backup-btn {
+    background: #ffc107 !important;
+    border-color: #ffc107 !important;
+    color: #212529 !important;
+}
+
+.restore-backup-btn:hover {
+    background: #e0a800 !important;
+    border-color: #d39e00 !important;
+    color: #212529 !important;
+    transform: translateY(-1px);
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    #restore-modal .modal-content {
+        margin: 2% auto;
+        width: 95%;
+        max-height: 95vh;
+    }
+    
+    #restore-modal .modal-header,
+    #restore-modal .modal-body,
+    #restore-modal .modal-footer {
+        padding: 15px;
+    }
+    
+    #restore-modal .modal-footer {
+        flex-direction: column;
+    }
+    
+    #restore-modal .modal-footer .btn {
+        width: 100%;
+        justify-content: center;
+    }
+    
+    .restore-info .info-group {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    
+    .restore-info .info-value {
+        width: 100%;
+    }
+}

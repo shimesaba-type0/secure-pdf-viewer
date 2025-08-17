@@ -247,7 +247,12 @@ class BackupManager {
             const status = backup.status || 'completed';
             
             // バックアップタイプの表示
-            const backupType = backup.type === 'auto' ? '自動' : '手動';
+            let backupType = '手動';
+            if (backup.type === 'auto') {
+                backupType = '自動';
+            } else if (backup.type === 'pre_restore') {
+                backupType = '復旧前';
+            }
             
             let statusBadge = '';
             switch (status) {
@@ -264,8 +269,11 @@ class BackupManager {
                     statusBadge = '<span class="status-badge status-unknown">不明</span>';
             }
             
+            const backupName = backup.backup_name || backup.name || 'unknown';
+            
             return `
                 <tr>
+                    <td title="${backupName}" style="font-family: monospace; font-size: 0.9em;">${backupName}</td>
                     <td>${createdAt}</td>
                     <td>${backupType}</td>
                     <td>${size}</td>
@@ -275,6 +283,9 @@ class BackupManager {
                         ${status === 'completed' ? `
                             <button class="btn btn-sm btn-info download-link" onclick="window.backupManager.downloadBackup('${backup.backup_name || backup.name}')">
                                 💾 ダウンロード
+                            </button>
+                            <button class="btn btn-sm btn-warning restore-backup-btn" onclick="showRestoreModal('${backup.backup_name || backup.name}', '${createdAt}', '${size}', '${backupType}')">
+                                🔄 復旧
                             </button>
                             <button class="btn btn-sm btn-danger delete-backup-btn" onclick="window.backupManager.deleteBackup('${backup.backup_name || backup.name}')">
                                 🗑️ 削除
@@ -306,10 +317,21 @@ class BackupManager {
      * 統計情報更新
      */
     updateStats() {
-        const completedBackups = this.backupData.filter(b => b.status === 'completed');
-        const totalSize = completedBackups.reduce((sum, b) => sum + (b.size || 0), 0);
+        console.log('統計更新開始, バックアップデータ:', this.backupData);
+        
+        // statusフィールドがない場合は'completed'とみなす
+        const completedBackups = this.backupData.filter(b => (b.status || 'completed') === 'completed');
+        console.log('完了済みバックアップ:', completedBackups);
+        
+        const totalSize = completedBackups.reduce((sum, b) => {
+            const size = typeof b.size === 'string' ? parseInt(b.size) : (b.size || 0);
+            return sum + size;
+        }, 0);
+        
         const latestBackup = completedBackups.length > 0 ? 
             new Date(completedBackups[0].created_at).toLocaleString('ja-JP') : 'なし';
+        
+        console.log(`統計情報: 総数=${completedBackups.length}, 総サイズ=${totalSize}, 最新=${latestBackup}`);
         
         if (this.elements.totalBackups) {
             this.elements.totalBackups.textContent = completedBackups.length;
@@ -812,6 +834,261 @@ class BackupSettingsManager {
         }
     }
 }
+
+// ===== Phase 3: 復旧機能 =====
+
+// 復旧モーダル関連の変数
+let currentRestoreData = null;
+let restoreSSE = null;
+
+/**
+ * 復旧確認モーダルを表示
+ */
+function showRestoreModal(backupName, createdDate, size, type) {
+    // 復旧対象データを保存
+    currentRestoreData = {
+        backupName: backupName,
+        createdDate: createdDate,
+        size: size,
+        type: type
+    };
+    
+    // モーダルに情報を設定
+    document.getElementById('restore-backup-name').textContent = backupName;
+    document.getElementById('restore-backup-date').textContent = createdDate;
+    document.getElementById('restore-backup-size').textContent = size;
+    document.getElementById('restore-backup-type').textContent = type;
+    
+    // 確認入力欄をリセット
+    document.getElementById('confirmation-text').value = '';
+    validateConfirmationText();
+    
+    // 進行状況を非表示
+    document.getElementById('restore-progress-container').style.display = 'none';
+    
+    // モーダルを表示
+    document.getElementById('restore-modal').style.display = 'block';
+}
+
+/**
+ * 復旧確認モーダルを閉じる
+ */
+function closeRestoreModal() {
+    document.getElementById('restore-modal').style.display = 'none';
+    
+    // SSE接続を切断
+    if (restoreSSE) {
+        restoreSSE.close();
+        restoreSSE = null;
+    }
+    
+    // データをクリア
+    currentRestoreData = null;
+}
+
+/**
+ * 確認文字列の検証
+ */
+function validateConfirmationText() {
+    const input = document.getElementById('confirmation-text');
+    const executeBtn = document.getElementById('execute-restore-btn');
+    const expectedText = '復旧を実行します';
+    
+    if (input.value.trim() === expectedText) {
+        executeBtn.disabled = false;
+        executeBtn.classList.remove('btn-disabled');
+        executeBtn.classList.add('btn-danger');
+    } else {
+        executeBtn.disabled = true;
+        executeBtn.classList.add('btn-disabled');
+        executeBtn.classList.remove('btn-danger');
+    }
+}
+
+/**
+ * 復旧実行
+ */
+async function executeRestore() {
+    if (!currentRestoreData) {
+        alert('復旧対象が設定されていません');
+        return;
+    }
+    
+    const confirmationText = document.getElementById('confirmation-text').value.trim();
+    const expectedText = '復旧を実行します';
+    
+    if (confirmationText !== expectedText) {
+        alert(`確認文字列が正しくありません。正確に「${expectedText}」と入力してください`);
+        return;
+    }
+    
+    try {
+        // 進行状況表示を開始
+        showRestoreProgress();
+        
+        // 復旧API呼び出し
+        const response = await fetch('/admin/backup/restore', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                backup_name: currentRestoreData.backupName,
+                confirmation_text: confirmationText
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            // 復旧開始成功 - SSE接続を開始
+            connectRestoreSSE();
+        } else {
+            throw new Error(result.message || '復旧の開始に失敗しました');
+        }
+        
+    } catch (error) {
+        console.error('復旧実行エラー:', error);
+        alert('復旧実行エラー: ' + error.message);
+        hideRestoreProgress();
+    }
+}
+
+/**
+ * 復旧進行状況表示を開始
+ */
+function showRestoreProgress() {
+    // 確認フォームを非表示
+    document.querySelector('.restore-info').style.display = 'none';
+    document.querySelector('.warning-message').style.display = 'none';
+    document.querySelector('.confirmation-input').style.display = 'none';
+    document.querySelector('.modal-footer').style.display = 'none';
+    
+    // 進行状況を表示
+    document.getElementById('restore-progress-container').style.display = 'block';
+    
+    updateRestoreProgress(0, '復旧準備中...', 'initializing');
+}
+
+/**
+ * 復旧進行状況非表示
+ */
+function hideRestoreProgress() {
+    // 確認フォームを再表示
+    document.querySelector('.restore-info').style.display = 'block';
+    document.querySelector('.warning-message').style.display = 'block';
+    document.querySelector('.confirmation-input').style.display = 'block';
+    document.querySelector('.modal-footer').style.display = 'block';
+    
+    // 進行状況を非表示
+    document.getElementById('restore-progress-container').style.display = 'none';
+}
+
+/**
+ * 復旧進行状況更新
+ */
+function updateRestoreProgress(percentage, message, status) {
+    const progressFill = document.getElementById('restore-progress-fill');
+    const progressText = document.getElementById('restore-progress-text');
+    const progressPercentage = document.getElementById('restore-progress-percentage');
+    const progressStatus = document.getElementById('restore-progress-status');
+    
+    if (progressFill) progressFill.style.width = `${percentage}%`;
+    if (progressText) progressText.textContent = message;
+    if (progressPercentage) progressPercentage.textContent = `${Math.round(percentage)}%`;
+    if (progressStatus) progressStatus.textContent = status || message;
+}
+
+/**
+ * 復旧SSE接続
+ */
+function connectRestoreSSE() {
+    if (restoreSSE) {
+        restoreSSE.close();
+    }
+    
+    restoreSSE = new EventSource('/admin/backup/restore-status');
+    
+    restoreSSE.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            handleRestoreSSEMessage(data);
+        } catch (error) {
+            console.error('復旧SSEメッセージ解析エラー:', error);
+        }
+    };
+    
+    restoreSSE.onerror = function(error) {
+        console.error('復旧SSE接続エラー:', error);
+    };
+}
+
+/**
+ * 復旧SSEメッセージ処理
+ */
+function handleRestoreSSEMessage(data) {
+    console.log('復旧SSEメッセージ:', data);
+    
+    switch (data.status) {
+        case 'in_progress':
+            updateRestoreProgress(data.progress || 0, data.message, data.step);
+            break;
+            
+        case 'completed':
+            updateRestoreProgress(100, '復旧が完了しました', 'completed');
+            setTimeout(() => {
+                closeRestoreModal();
+                showNotification('復旧が正常に完了しました', 'success');
+                // バックアップ一覧を更新
+                if (window.backupManager) {
+                    window.backupManager.loadBackupList();
+                }
+            }, 2000);
+            if (restoreSSE) {
+                restoreSSE.close();
+                restoreSSE = null;
+            }
+            break;
+            
+        case 'error':
+            updateRestoreProgress(0, 'エラーが発生しました', 'error');
+            setTimeout(() => {
+                closeRestoreModal();
+                showNotification('復旧エラー: ' + (data.message || '不明なエラー'), 'error');
+            }, 2000);
+            if (restoreSSE) {
+                restoreSSE.close();
+                restoreSSE = null;
+            }
+            break;
+            
+        default:
+            console.log('未知の復旧SSEメッセージ:', data);
+    }
+}
+
+/**
+ * 通知表示（既存の関数が利用可能な場合は使用、なければalert）
+ */
+function showNotification(message, type) {
+    if (typeof showNotification === 'function') {
+        // 既存の通知システムがあれば使用
+        window.showNotification(message, type);
+    } else {
+        // なければalertで表示
+        const icon = type === 'success' ? '✅' : '❌';
+        alert(`${icon} ${message}`);
+    }
+}
+
+// モーダル外クリックで閉じる
+window.onclick = function(event) {
+    const modal = document.getElementById('restore-modal');
+    if (event.target === modal) {
+        closeRestoreModal();
+    }
+};
 
 // バックアップマネージャーインスタンス作成
 document.addEventListener('DOMContentLoaded', function() {

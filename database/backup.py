@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import tempfile
 import logging
-from config.timezone import get_app_now, to_app_timezone, create_app_datetime
+from config.timezone import get_app_now, to_app_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +44,22 @@ class BackupManager:
             instance_dir: instanceディレクトリ
         """
         # デフォルトパス設定
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        current_dir = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        )
 
-        self.db_path = db_path or os.path.join(current_dir, "instance", "database.db")
+        self.db_path = db_path or os.path.join(
+            current_dir, "instance", "database.db"
+        )
         self.backup_dir = backup_dir or os.path.join(current_dir, "backups")
         self.env_path = env_path or os.path.join(current_dir, ".env")
-        self.pdf_dir = pdf_dir or os.path.join(current_dir, "static", "pdfs")
+        self.pdf_dir = pdf_dir or os.path.join(
+            current_dir, "static", "pdfs"
+        )
         self.logs_dir = logs_dir or os.path.join(current_dir, "logs")
-        self.instance_dir = instance_dir or os.path.join(current_dir, "instance")
+        self.instance_dir = instance_dir or os.path.join(
+            current_dir, "instance"
+        )
 
         # バックアップディレクトリ構造作成
         self._ensure_backup_directories()
@@ -71,7 +79,9 @@ class BackupManager:
         ]
 
         # Phase 2: バックアップ設定ファイルパス (config/ ディレクトリに統合)
-        self.settings_file = os.path.join(current_dir, "config", "backup_settings.json")
+        self.settings_file = os.path.join(
+            current_dir, "config", "backup_settings.json"
+        )
 
     def _ensure_backup_directories(self):
         """バックアップディレクトリ構造を作成"""
@@ -80,6 +90,7 @@ class BackupManager:
             os.path.join(self.backup_dir, "manual"),
             os.path.join(self.backup_dir, "auto"),
             os.path.join(self.backup_dir, "metadata"),
+            os.path.join(self.backup_dir, "pre_restore"),
         ]
 
         for directory in directories:
@@ -124,7 +135,9 @@ class BackupManager:
                 )
 
                 # メタデータファイル保存
-                metadata_content = os.path.join(backup_data_dir, "metadata.json")
+                metadata_content = os.path.join(
+                    backup_data_dir, "metadata.json"
+                )
                 with open(metadata_content, "w", encoding="utf-8") as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
 
@@ -145,7 +158,10 @@ class BackupManager:
                 with open(metadata_file, "w", encoding="utf-8") as f:
                     json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-                logger.info(f"バックアップ完了: {backup_name}, サイズ: {metadata['size']} bytes")
+                logger.info(
+                    f"バックアップ完了: {backup_name}, "
+                    f"サイズ: {metadata['size']} bytes"
+                )
                 return backup_name
 
         except Exception as e:
@@ -307,9 +323,13 @@ class BackupManager:
             files.append(backup_app_log)
 
         # emergency_log.txtのバックアップ
-        emergency_log_path = os.path.join(self.instance_dir, "emergency_log.txt")
+        emergency_log_path = os.path.join(
+            self.instance_dir, "emergency_log.txt"
+        )
         if os.path.exists(emergency_log_path):
-            backup_emergency_log = os.path.join(logs_backup_dir, "emergency_log.txt")
+            backup_emergency_log = os.path.join(
+                logs_backup_dir, "emergency_log.txt"
+            )
             shutil.copy2(emergency_log_path, backup_emergency_log)
             files.append(backup_emergency_log)
 
@@ -317,7 +337,11 @@ class BackupManager:
         return files
 
     def _create_metadata(
-        self, backup_name: str, backup_type: str, timestamp: str, files: List[str]
+        self,
+        backup_name: str,
+        backup_type: str,
+        timestamp: str,
+        files: List[str],
     ) -> Dict:
         """
         バックアップメタデータの作成
@@ -486,7 +510,9 @@ class BackupManager:
             raise ValueError(f"不正なバックアップ名: {backup_name}")
 
         # メタデータからバックアップタイプを取得
-        metadata_file = os.path.join(self.backup_dir, "metadata", f"{backup_name}.json")
+        metadata_file = os.path.join(
+            self.backup_dir, "metadata", f"{backup_name}.json"
+        )
         if not os.path.exists(metadata_file):
             return None
 
@@ -524,8 +550,13 @@ class BackupManager:
             if pattern in backup_name:
                 return False
 
-        # 正規表現での形式チェック（backup_YYYYMMDD_HHMMSS形式）
-        if not re.match(r"^backup_\d{8}_\d{6}$", backup_name):
+        # 正規表現での形式チェック
+        # backup_YYYYMMDD_HHMMSS形式 または pre_restore_YYYYMMDD_HHMMSS形式
+        backup_pattern = r"^backup_\d{8}_\d{6}$"
+        pre_restore_pattern = r"^pre_restore_\d{8}_\d{6}$"
+        
+        if not (re.match(backup_pattern, backup_name) or 
+                re.match(pre_restore_pattern, backup_name)):
             return False
 
         return True
@@ -815,3 +846,496 @@ class BackupManager:
                 "latest_backup": None,
                 "oldest_backup": None,
             }
+
+    def restore_from_backup(self, backup_name: str) -> Dict:
+        """
+        バックアップからシステムを復旧
+
+        Args:
+            backup_name: 復旧するバックアップ名
+
+        Returns:
+            Dict: 復旧結果
+            {
+                "success": bool,
+                "message": str,
+                "pre_restore_backup": str,  # 復旧前作成のバックアップ名
+                "integrity_check": dict,
+                "log_file": str
+            }
+        """
+        try:
+            logger.info(f"復旧開始: {backup_name}")
+
+            # 1. バックアップファイルの存在確認
+            backup_path = self.get_backup_path(backup_name)
+            if not backup_path or not os.path.exists(backup_path):
+                return {
+                    "success": False,
+                    "message": f"バックアップ '{backup_name}' が存在しません",
+                }
+
+            # 2. 復旧前の自動バックアップ作成
+            pre_restore_backup = self._create_pre_restore_backup()
+
+            # 3. 復旧ログファイル準備
+            log_file = self._prepare_restore_log(backup_name)
+
+            # 4. バックアップファイルの整合性チェック
+            if not self._verify_backup_integrity(backup_path):
+                return {
+                    "success": False,
+                    "message": f"バックアップファイル '{backup_name}' が破損しています",
+                }
+
+            # 5. 復旧実行
+            restore_result = self._extract_and_restore_files(
+                backup_path, log_file
+            )
+            if not restore_result["success"]:
+                return restore_result
+
+            # 6. 復旧後整合性チェック
+            integrity_check = self._verify_restore_integrity()
+
+            # 7. 復旧完了ログ記録
+            self._log_restore_completion(
+                backup_name, pre_restore_backup, log_file
+            )
+
+            # 8. 一時的な.oldファイルのクリーンアップ
+            self._cleanup_old_files()
+
+            logger.info(f"復旧完了: {backup_name}")
+
+            return {
+                "success": True,
+                "message": f"バックアップ '{backup_name}' からの復旧が完了しました",
+                "pre_restore_backup": pre_restore_backup,
+                "integrity_check": integrity_check,
+                "log_file": log_file,
+            }
+
+        except Exception as e:
+            logger.error(f"復旧エラー: {str(e)}")
+            return {
+                "success": False,
+                "message": f"復旧中にエラーが発生しました: {str(e)}",
+            }
+
+    def _create_pre_restore_backup(self) -> str:
+        """
+        復旧前のセーフティネットバックアップを作成
+
+        Returns:
+            str: 作成されたバックアップ名
+        """
+        try:
+            now = get_app_now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            pre_restore_name = f"pre_restore_{timestamp}"
+
+            logger.info(f"復旧前セーフティネット作成開始: {pre_restore_name}")
+
+            # 通常のバックアップ作成メソッドを使用
+            backup_name = self.create_backup(backup_type="manual")
+
+            # バックアップファイルのパスを構築
+            old_path = self.get_backup_path(backup_name)
+            
+            if old_path:
+                # 新しいパスを直接構築
+                new_path = os.path.join(
+                    self.backup_dir, "pre_restore", f"{pre_restore_name}.tar.gz"
+                )
+                shutil.copy2(old_path, new_path)
+
+                # メタデータも更新
+                old_metadata_path = os.path.join(
+                    self.backup_dir, "metadata", f"{backup_name}.json"
+                )
+                new_metadata_path = os.path.join(
+                    self.backup_dir, "metadata", f"{pre_restore_name}.json"
+                )
+
+                if os.path.exists(old_metadata_path):
+                    shutil.copy2(old_metadata_path, new_metadata_path)
+
+                    # メタデータ内容も更新
+                    with open(new_metadata_path, "r") as f:
+                        metadata = json.load(f)
+                    metadata["backup_name"] = pre_restore_name
+                    metadata["type"] = "pre_restore"
+                    with open(new_metadata_path, "w") as f:
+                        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"復旧前セーフティネット作成完了: {pre_restore_name}")
+            return pre_restore_name
+
+        except Exception as e:
+            logger.error(f"復旧前セーフティネット作成エラー: {str(e)}")
+            return None
+
+    def _prepare_restore_log(self, backup_name: str) -> str:
+        """
+        復旧ログファイルを準備
+
+        Args:
+            backup_name: 復旧するバックアップ名
+
+        Returns:
+            str: ログファイルパス
+        """
+        now = get_app_now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        log_filename = f"restore_{timestamp}.log"
+        log_file = os.path.join(self.logs_dir, log_filename)
+
+        # ログファイル初期化
+        with open(log_file, "w") as f:
+            f.write("=== システム復旧ログ ===\n")
+            f.write(f"復旧開始時刻: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"復旧対象バックアップ: {backup_name}\n")
+            f.write(f"復旧実行ディレクトリ: {os.getcwd()}\n\n")
+
+        return log_file
+
+    def _verify_backup_integrity(self, backup_path: str) -> bool:
+        """
+        バックアップファイルの整合性を検証
+
+        Args:
+            backup_path: バックアップファイルパス
+
+        Returns:
+            bool: 整合性チェック結果
+        """
+        try:
+            # tarファイルとして正常に開けるかチェック
+            with tarfile.open(backup_path, "r:gz") as tar:
+                # 必須ファイルの存在確認
+                required_files = [
+                    "database/database.db",
+                    "config/.env",
+                    "metadata.json",
+                ]
+
+                tar_members = [member.name for member in tar.getmembers()]
+
+                for required_file in required_files:
+                    if not any(required_file in member for member in tar_members):
+                        logger.warning(f"必須ファイル '{required_file}' が見つかりません")
+                        return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"バックアップ整合性チェックエラー: {str(e)}")
+            return False
+
+    def _extract_and_restore_files(self, backup_path: str, log_file: str) -> Dict:
+        """
+        バックアップファイルを展開して復旧実行
+
+        Args:
+            backup_path: バックアップファイルパス
+            log_file: ログファイルパス
+
+        Returns:
+            Dict: 復旧実行結果
+        """
+        try:
+            # 一時展開ディレクトリ作成
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # ログ記録
+                with open(log_file, "a") as f:
+                    f.write(f"アーカイブ展開開始: {backup_path}\n")
+
+                # tar.gz展開
+                with tarfile.open(backup_path, "r:gz") as tar:
+                    tar.extractall(temp_dir)
+
+                # 展開されたディレクトリを確認
+                extracted_dirs = [
+                    d
+                    for d in os.listdir(temp_dir)
+                    if os.path.isdir(os.path.join(temp_dir, d))
+                ]
+
+                if not extracted_dirs:
+                    return {
+                        "success": False,
+                        "message": "バックアップファイルの構造が正しくありません",
+                    }
+
+                extract_root = os.path.join(temp_dir, extracted_dirs[0])
+
+                # 各種ファイルの復旧
+                self._restore_database(extract_root, log_file)
+                self._restore_config_files(extract_root, log_file)
+                self._restore_pdf_files(extract_root, log_file)
+                self._restore_log_files(extract_root, log_file)
+
+                with open(log_file, "a") as f:
+                    f.write("ファイル復旧完了\n")
+
+                return {
+                    "success": True,
+                    "message": "ファイル復旧が完了しました",
+                }
+
+        except Exception as e:
+            logger.error(f"ファイル復旧エラー: {str(e)}")
+            with open(log_file, "a") as f:
+                f.write(f"復旧エラー: {str(e)}\n")
+            return {
+                "success": False,
+                "message": f"ファイル復旧エラー: {str(e)}",
+            }
+
+    def _restore_database(self, extract_root: str, log_file: str):
+        """データベースファイルの復旧"""
+        try:
+            source_db = os.path.join(extract_root, "database", "database.db")
+            if os.path.exists(source_db):
+                # 既存データベースのバックアップ（念のため）
+                if os.path.exists(self.db_path):
+                    backup_db = f"{self.db_path}.old"
+                    shutil.copy2(self.db_path, backup_db)
+
+                # データベース復旧
+                shutil.copy2(source_db, self.db_path)
+                os.chmod(self.db_path, 0o600)
+
+                with open(log_file, "a") as f:
+                    f.write(f"データベース復旧完了: {self.db_path}\n")
+
+        except Exception as e:
+            logger.error(f"データベース復旧エラー: {str(e)}")
+            with open(log_file, "a") as f:
+                f.write(f"データベース復旧エラー: {str(e)}\n")
+
+    def _restore_config_files(self, extract_root: str, log_file: str):
+        """設定ファイルの復旧"""
+        try:
+            source_env = os.path.join(extract_root, "config", ".env")
+            if os.path.exists(source_env):
+                # 既存.envのバックアップ（念のため）
+                if os.path.exists(self.env_path):
+                    backup_env = f"{self.env_path}.old"
+                    shutil.copy2(self.env_path, backup_env)
+
+                # .env復旧
+                shutil.copy2(source_env, self.env_path)
+                os.chmod(self.env_path, 0o600)
+
+                with open(log_file, "a") as f:
+                    f.write(f"設定ファイル復旧完了: {self.env_path}\n")
+
+        except Exception as e:
+            logger.error(f"設定ファイル復旧エラー: {str(e)}")
+            with open(log_file, "a") as f:
+                f.write(f"設定ファイル復旧エラー: {str(e)}\n")
+
+    def _restore_pdf_files(self, extract_root: str, log_file: str):
+        """PDFファイルの復旧"""
+        try:
+            source_pdf_dir = os.path.join(extract_root, "files", "pdfs")
+            if os.path.exists(source_pdf_dir):
+                # 既存PDFディレクトリのバックアップ（念のため）
+                if os.path.exists(self.pdf_dir):
+                    backup_pdf_dir = f"{self.pdf_dir}.old"
+                    if os.path.exists(backup_pdf_dir):
+                        shutil.rmtree(backup_pdf_dir)
+                    shutil.move(self.pdf_dir, backup_pdf_dir)
+
+                # PDFディレクトリ復旧
+                shutil.copytree(source_pdf_dir, self.pdf_dir)
+                
+                # ファイル権限設定
+                for root, dirs, files in os.walk(self.pdf_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        os.chmod(file_path, 0o644)
+            else:
+                # ソースディレクトリが存在しない場合は空のディレクトリを作成
+                os.makedirs(self.pdf_dir, exist_ok=True)
+
+                with open(log_file, "a") as f:
+                    f.write(f"PDFファイル復旧完了: {self.pdf_dir}\n")
+
+        except Exception as e:
+            logger.error(f"PDFファイル復旧エラー: {str(e)}")
+            with open(log_file, "a") as f:
+                f.write(f"PDFファイル復旧エラー: {str(e)}\n")
+
+    def _restore_log_files(self, extract_root: str, log_file: str):
+        """ログファイルの復旧"""
+        try:
+            # app.logの復旧
+            source_app_log = os.path.join(extract_root, "logs", "app.log")
+            if os.path.exists(source_app_log):
+                target_app_log = os.path.join(self.logs_dir, "app.log")
+                if os.path.exists(target_app_log):
+                    backup_app_log = f"{target_app_log}.old"
+                    shutil.copy2(target_app_log, backup_app_log)
+
+                shutil.copy2(source_app_log, target_app_log)
+                os.chmod(target_app_log, 0o644)
+
+            # emergency_log.txtの復旧
+            source_emergency_log = os.path.join(
+                extract_root, "logs", "emergency_log.txt"
+            )
+            if os.path.exists(source_emergency_log):
+                target_emergency_log = os.path.join(
+                    self.instance_dir, "emergency_log.txt"
+                )
+                if os.path.exists(target_emergency_log):
+                    backup_emergency_log = f"{target_emergency_log}.old"
+                    shutil.copy2(target_emergency_log, backup_emergency_log)
+
+                shutil.copy2(source_emergency_log, target_emergency_log)
+                os.chmod(target_emergency_log, 0o644)
+
+            with open(log_file, "a") as f:
+                f.write("ログファイル復旧完了\n")
+
+        except Exception as e:
+            logger.error(f"ログファイル復旧エラー: {str(e)}")
+            with open(log_file, "a") as f:
+                f.write(f"ログファイル復旧エラー: {str(e)}\n")
+
+    def _verify_restore_integrity(self) -> Dict:
+        """
+        復旧後の整合性チェック
+
+        Returns:
+            Dict: 整合性チェック結果
+        """
+        try:
+            checks = {}
+
+            # データベースチェック
+            checks["database"] = self._check_database_integrity()
+
+            # 設定ファイルチェック
+            checks["config"] = self._check_config_integrity()
+
+            # PDFディレクトリチェック
+            checks["pdf_files"] = self._check_pdf_integrity()
+
+            # ログファイルチェック
+            checks["log_files"] = self._check_log_integrity()
+
+            # 全体の整合性
+            passed = all(checks.values())
+
+            return {
+                "passed": passed,
+                "details": checks,
+            }
+
+        except Exception as e:
+            logger.error(f"整合性チェックエラー: {str(e)}")
+            return {
+                "passed": False,
+                "error": str(e),
+            }
+
+    def _check_database_integrity(self) -> bool:
+        """データベースの整合性チェック"""
+        try:
+            if not os.path.exists(self.db_path):
+                return False
+
+            # SQLiteファイルとして開けるかテスト
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            conn.close()
+
+            return len(tables) > 0
+
+        except Exception:
+            return False
+
+    def _check_config_integrity(self) -> bool:
+        """設定ファイルの整合性チェック"""
+        try:
+            if not os.path.exists(self.env_path):
+                return False
+
+            # .envファイルが読めるかテスト
+            with open(self.env_path, "r") as f:
+                content = f.read()
+
+            return len(content) > 0
+
+        except Exception:
+            return False
+
+    def _check_pdf_integrity(self) -> bool:
+        """PDFディレクトリの整合性チェック"""
+        try:
+            return os.path.exists(self.pdf_dir) and os.path.isdir(self.pdf_dir)
+        except Exception:
+            return False
+
+    def _check_log_integrity(self) -> bool:
+        """ログファイルの整合性チェック"""
+        try:
+            app_log = os.path.join(self.logs_dir, "app.log")
+            emergency_log = os.path.join(self.instance_dir, "emergency_log.txt")
+
+            return os.path.exists(app_log) and os.path.exists(emergency_log)
+        except Exception:
+            return False
+
+    def _log_restore_completion(
+        self, backup_name: str, pre_restore_backup: str, log_file: str
+    ):
+        """復旧完了ログの記録"""
+        try:
+            now = get_app_now()
+
+            with open(log_file, "a") as f:
+                f.write("\n=== 復旧完了 ===\n")
+                f.write(f"完了時刻: {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"復旧バックアップ: {backup_name}\n")
+                f.write(f"復旧前セーフティネット: {pre_restore_backup}\n")
+                f.write(f"復旧ログファイル: {log_file}\n")
+
+        except Exception as e:
+            logger.error(f"復旧完了ログ記録エラー: {str(e)}")
+
+    def _cleanup_old_files(self):
+        """復旧処理で作成された一時的な.oldファイルをクリーンアップ"""
+        try:
+            old_files_to_cleanup = [
+                f"{self.db_path}.old",
+                f"{self.env_path}.old",
+                f"{self.pdf_dir}.old",
+                f"{os.path.join(self.logs_dir, 'app.log')}.old",
+                f"{os.path.join(self.instance_dir, 'emergency_log.txt')}.old"
+            ]
+            
+            cleaned_count = 0
+            for old_file in old_files_to_cleanup:
+                if os.path.exists(old_file):
+                    try:
+                        if os.path.isfile(old_file):
+                            os.remove(old_file)
+                        elif os.path.isdir(old_file):
+                            shutil.rmtree(old_file)
+                        cleaned_count += 1
+                        logger.debug(f"一時ファイルをクリーンアップ: {old_file}")
+                    except Exception as e:
+                        logger.warning(f"一時ファイルクリーンアップ失敗 {old_file}: {str(e)}")
+            
+            if cleaned_count > 0:
+                logger.info(f"復旧後クリーンアップ完了: {cleaned_count}個のファイルを削除")
+                
+        except Exception as e:
+            logger.error(f"復旧後クリーンアップエラー: {str(e)}")

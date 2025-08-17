@@ -14,6 +14,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 import pytz
+import re
 from config.timezone import (
     get_app_now,
     get_app_datetime_string,
@@ -37,6 +38,9 @@ from database.models import get_setting, set_setting
 from database.backup import BackupManager
 import threading
 import time
+
+# グローバル変数
+backup_manager = None
 from database.utils import RateLimitManager, is_ip_blocked
 from auth.passphrase import PassphraseManager
 from security.pdf_url_security import PDFURLSecurity
@@ -4129,6 +4133,13 @@ def get_access_logs_stats_api():
 backup_status_queue = Queue()
 backup_in_progress = threading.Lock()
 
+# 復旧実行状況を管理するためのグローバル変数（Phase 3）
+restore_progress = {
+    "status": "idle",
+    "message": "復旧は実行されていません",
+    "progress": 0
+}
+
 
 @app.route("/admin/backup/create", methods=["POST"])
 def create_backup():
@@ -4217,10 +4228,12 @@ def list_backups():
         return redirect(url_for("login"))
 
     try:
-        from database.backup import BackupManager
-
-        app_root = os.path.dirname(os.path.abspath(__file__))
-        backup_manager = BackupManager(app_root)
+        global backup_manager
+        
+        if backup_manager is None:
+            from database.backup import BackupManager
+            app_root = os.path.dirname(os.path.abspath(__file__))
+            backup_manager = BackupManager(app_root)
 
         backups = backup_manager.list_backups()
 
@@ -4554,6 +4567,211 @@ def check_backup_schedule():
         return jsonify({"status": "error", "message": f"スケジュール確認エラー: {str(e)}"}), 500
 
 
+# バックアップ復旧API（Phase 3）
+@app.route("/admin/backup/restore", methods=["POST"])
+def restore_backup():
+    """
+    バックアップからシステムを復旧
+    
+    明示的文字列認証による安全確認システム
+    """
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                "status": "error", 
+                "message": "リクエストデータが不正です"
+            }), 400
+        
+        backup_name = data.get("backup_name")
+        confirmation_text = data.get("confirmation_text", "").strip()
+        
+        # 必須パラメータチェック
+        if not backup_name:
+            return jsonify({
+                "status": "error", 
+                "message": "バックアップ名が指定されていません"
+            }), 400
+        
+        # 明示的文字列認証
+        expected_confirmation = "復旧を実行します"
+        if confirmation_text != expected_confirmation:
+            logger.warning(f"復旧認証失敗: 期待値='{expected_confirmation}', 入力値='{confirmation_text}'")
+            return jsonify({
+                "status": "error", 
+                "message": f"確認文字列が正しくありません。正確に「{expected_confirmation}」と入力してください"
+            }), 403
+        
+        # パス・トラバーサル対策
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", backup_name):
+            return jsonify({
+                "status": "error", 
+                "message": "不正なバックアップ名です"
+            }), 400
+        
+        logger.info(f"復旧実行開始: バックアップ={backup_name}, 実行者={session.get('username', 'unknown')}")
+        
+        # 復旧進行状況管理用のグローバル変数更新
+        global restore_progress
+        restore_progress = {
+            "status": "in_progress",
+            "message": "復旧前チェック実行中...",
+            "progress": 10,
+            "backup_name": backup_name,
+            "start_time": get_app_now().isoformat(),
+            "step": "initializing"
+        }
+        
+        def run_restore():
+            """復旧実行（別スレッド）"""
+            global restore_progress, backup_manager
+            try:
+                # 復旧進行状況更新
+                restore_progress.update({
+                    "message": "復旧前セーフティネット作成中...",
+                    "progress": 20,
+                    "step": "pre_backup"
+                })
+                
+                # BackupManagerで復旧実行
+                result = backup_manager.restore_from_backup(backup_name)
+                
+                if result["success"]:
+                    restore_progress.update({
+                        "status": "completed",
+                        "message": "復旧が完了しました",
+                        "progress": 100,
+                        "step": "completed",
+                        "result": result
+                    })
+                    logger.info(f"復旧完了: {backup_name}")
+                else:
+                    restore_progress.update({
+                        "status": "error",
+                        "message": result["message"],
+                        "progress": 0,
+                        "step": "error",
+                        "error": result["message"]
+                    })
+                    logger.error(f"復旧失敗: {result['message']}")
+                    
+            except Exception as e:
+                restore_progress.update({
+                    "status": "error",
+                    "message": f"復旧中にエラーが発生しました: {str(e)}",
+                    "progress": 0,
+                    "step": "error",
+                    "error": str(e)
+                })
+                logger.error(f"復旧実行エラー: {str(e)}")
+        
+        # 復旧を別スレッドで実行
+        import threading
+        restore_thread = threading.Thread(target=run_restore)
+        restore_thread.daemon = True
+        restore_thread.start()
+        
+        # 復旧開始レスポンス
+        return jsonify({
+            "status": "success",
+            "message": "復旧実行を開始しました",
+            "data": {
+                "backup_name": backup_name,
+                "restore_id": f"restore_{get_app_now().strftime('%Y%m%d_%H%M%S')}",
+                "estimated_time": 120  # 見積もり時間（秒）
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"復旧API呼び出しエラー: {str(e)}")
+        return jsonify({
+            "status": "error", 
+            "message": f"復旧実行エラー: {str(e)}"
+        }), 500
+
+
+@app.route("/admin/backup/restore-status")
+def restore_status():
+    """
+    復旧進行状況取得（Server-Sent Events対応）
+    """
+    # セッション有効期限チェック
+    session_check = require_valid_session()
+    if session_check:
+        return session_check
+
+    if not session.get("authenticated"):
+        return jsonify({"status": "error", "message": "認証が必要です"}), 401
+    
+    def generate():
+        global restore_progress
+        
+        # 初期状態
+        if "restore_progress" not in globals():
+            restore_progress = {
+                "status": "idle",
+                "message": "復旧は実行されていません",
+                "progress": 0
+            }
+        
+        # 進行状況をSSEで送信
+        while True:
+            try:
+                # 進行状況をJSON形式で送信
+                progress_data = {
+                    "status": restore_progress.get("status", "idle"),
+                    "message": restore_progress.get("message", ""),
+                    "progress": restore_progress.get("progress", 0),
+                    "backup_name": restore_progress.get("backup_name", ""),
+                    "step": restore_progress.get("step", ""),
+                    "timestamp": get_app_now().isoformat()
+                }
+                
+                # 復旧完了・エラー時は結果も含める
+                if restore_progress.get("status") in ["completed", "error"]:
+                    if "result" in restore_progress:
+                        progress_data["result"] = restore_progress["result"]
+                    if "error" in restore_progress:
+                        progress_data["error"] = restore_progress["error"]
+                
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                
+                # 完了またはエラー時は終了
+                if restore_progress.get("status") in ["completed", "error"]:
+                    break
+                    
+                time.sleep(1)  # 1秒間隔で更新
+                
+            except Exception as e:
+                logger.error(f"復旧ステータスSSEエラー: {str(e)}")
+                error_data = {
+                    "status": "error",
+                    "message": f"ステータス取得エラー: {str(e)}",
+                    "progress": 0
+                }
+                yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+                break
+    
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+
 if __name__ == "__main__":
     # 起動時に期限切れ設定をクリーンアップ
     cleanup_expired_schedules()
@@ -4562,4 +4780,8 @@ if __name__ == "__main__":
     print("PDF セキュリティ設定を初期化中...")
     initialize_pdf_security_settings()
 
+    # バックアップマネージャーの初期化
+    print("バックアップマネージャーを初期化中...")
+    backup_manager = BackupManager()
+    
     app.run(debug=True, host="0.0.0.0", port=5000)

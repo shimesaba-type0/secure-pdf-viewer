@@ -56,7 +56,6 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -212,16 +211,21 @@ development-plan.md
 # PDF upload directory - ignore all files but keep directory
 static/pdfs/*
 !static/pdfs/.gitkeep
+static/pdfs.old/*
+!static/pdfs.old/.gitkeep
 
 # Backup files - ignore all backup files and metadata but keep directory structure  
 backups/manual/*.tar.gz
 backups/manual/*.zip
 backups/auto/*.tar.gz
 backups/auto/*.zip
+backups/pre_restore/*.tar.gz
+backups/pre_restore/*.zip
 backups/metadata/*.json
 # Keep directory structure with .gitkeep files
 !backups/manual/.gitkeep
 !backups/auto/.gitkeep
+!backups/pre_restore/.gitkeep
 !backups/metadata/.gitkeep
 
 # Temporary files from testing
@@ -230,3 +234,7 @@ cookies_new.txt
 
 # Configuration files with dynamic content - ignore to avoid committing user settings
 config/backup_settings.json
+
+# Logs directory - ignore all log files but keep directory structure
+logs/*
+!logs/.gitkeep
