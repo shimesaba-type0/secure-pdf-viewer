@@ -836,6 +836,10 @@ file_handler.setFormatter(
     )
 )
 file_handler.setLevel(logging.INFO)
+# ルートロガーに設定して全モジュールのログをapp.logに出力
+logging.getLogger().addHandler(file_handler)
+logging.getLogger().setLevel(logging.INFO)
+# Flaskアプリロガーにも設定（既存の互換性維持）
 app.logger.addHandler(file_handler)
 app.logger.setLevel(logging.INFO)
 
