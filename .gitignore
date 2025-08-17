@@ -227,3 +227,6 @@ backups/metadata/*.json
 # Temporary files from testing
 cookies.txt
 cookies_new.txt
+
+# Configuration files with dynamic content - ignore to avoid committing user settings
+config/backup_settings.json

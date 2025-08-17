@@ -246,6 +246,9 @@ class BackupManager {
             const fileCount = backup.file_count || '-';
             const status = backup.status || 'completed';
             
+            // バックアップタイプの表示
+            const backupType = backup.type === 'auto' ? '自動' : '手動';
+            
             let statusBadge = '';
             switch (status) {
                 case 'completed':
@@ -264,7 +267,7 @@ class BackupManager {
             return `
                 <tr>
                     <td>${createdAt}</td>
-                    <td>手動</td>
+                    <td>${backupType}</td>
                     <td>${size}</td>
                     <td>${fileCount}</td>
                     <td>${statusBadge}</td>

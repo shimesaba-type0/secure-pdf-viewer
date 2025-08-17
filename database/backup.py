@@ -70,8 +70,8 @@ class BackupManager:
             "KEY",
         ]
 
-        # Phase 2: バックアップ設定ファイルパス
-        self.settings_file = os.path.join(self.backup_dir, "backup_settings.json")
+        # Phase 2: バックアップ設定ファイルパス (config/ ディレクトリに統合)
+        self.settings_file = os.path.join(current_dir, "config", "backup_settings.json")
 
     def _ensure_backup_directories(self):
         """バックアップディレクトリ構造を作成"""
