@@ -247,8 +247,8 @@ GET  /admin/backup/status     # 実行状況取得
 - [x] **包括的テスト実装** - `tests/test_backup_phase2.py` (25テストケース)
 - [x] **ナイーブdatetime警告修正** - `app.py:1843, 2681` timezone aware対応
 - [x] **favicon.ico 404エラー対応** - ダミーファイル作成、ルートハンドラー追加
-- [ ] **設定ファイル配置場所修正** - `config/backup_settings.json` に統合移動 (2025-08-14)
-- [ ] **バックアップ機能ログ出力問題修正** - logs/app.log 記録修正 (2025-08-14)
+- [x] **設定ファイル配置場所修正** - `config/backup_settings.json` に統合移動 ✅ **完了** (2025-08-17)
+- [x] **バックアップ機能ログ出力問題修正** - logs/app.log 記録修正 ✅ **完了** (2025-08-17)
 
 **コミット**: `2e7bf18` - feat: TASK-018 Phase 2完了 - 定期バックアップ・世代管理システム実装
 
@@ -333,17 +333,21 @@ GET  /admin/backup/status     # 実行状況取得
   - 動作確認: 自動バックアップスケジュール実行 (backup_20250813_230600)
   - 品質: Black・Flake8完全準拠
 
-**2025-08-14** (メンテナンス更新)
-- 設定ファイル配置場所修正 ⏳
+**2025-08-17** (メンテナンス更新完了)
+- 設定ファイル配置場所修正 ✅ **完了**
   - バックアップ設定ファイル出力先を `backups/backup_settings.json` → `config/backup_settings.json` に変更
   - 理由: 設定ファイルは config/ ディレクトリに統合管理するプロジェクト規約に従う
-  - 修正対象: `database/backup.py:74` の settings_file パス変更
-  - 注意: backup_settings.json は管理画面で設定保存時に動的作成されるファイル
+  - 修正対象: `database/backup.py:74` の settings_file パス変更（base_dir属性エラーも修正）
   - 追加作業: .gitignore に config/backup_settings.json を追加（設定ファイルをコミット対象外に）
-- バックアップ機能ログ出力問題の調査・修正 ⏳
+  - バックアップタイプ表示修正: `static/js/backup.js` で自動バックアップが「手動」と誤表示される問題を修正
+  - **コミット**: `7a07b7f` - fix: TASK-018 Phase 2メンテナンス修正 - 設定ファイル配置・バックアップタイプ表示
+
+- バックアップ機能ログ出力問題修正 ✅ **完了**
   - 問題: BackupManager のログが logs/app.log に記録されない
-  - 調査対象: logging設定、logger初期化、ログハンドラー設定
-  - 修正予定: ログ設定の統一化、BackupManager logger設定修正
+  - 原因: `database.backup` ロガーがFlaskアプリのログハンドラーと分離していた
+  - 修正: `app.py` でルートロガーに file_handler を追加して全モジュールのログを統一
+  - 効果: BackupManager、タイムゾーン統一システム等の全モジュールログが logs/app.log に出力
+  - **コミット**: `9f9f072` - fix: TASK-018 Phase 2ログ出力問題修正 - 全モジュールログをapp.logに統一
 
 ### 次回セッション予定  
 - Phase 3: バックアップ復旧機能実装
