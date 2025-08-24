@@ -234,7 +234,7 @@ def create_tables(db):
 
     # admin_usersテーブルにupdated_atカラムを追加（管理者権限システム）
     try:
-        db.execute('ALTER TABLE admin_users ADD COLUMN updated_at TEXT DEFAULT NULL')
+        db.execute("ALTER TABLE admin_users ADD COLUMN updated_at TEXT DEFAULT NULL")
         print("admin_users テーブルに updated_at カラムを追加しました")
     except sqlite3.OperationalError as e:
         if "duplicate column name" not in str(e).lower():
@@ -276,6 +276,23 @@ def create_tables(db):
     """
     )
 
+    # 管理者セッションテーブル（TASK-021 Sub-Phase 1A）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+            session_id TEXT PRIMARY KEY,
+            admin_email TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            last_verified_at TEXT NOT NULL,
+            ip_address TEXT,
+            user_agent TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            security_flags JSON,
+            verification_token TEXT
+        )
+    """
+    )
+
     # インデックス作成
     create_indexes(db)
 
@@ -302,6 +319,11 @@ def create_indexes(db):
         "CREATE INDEX IF NOT EXISTS idx_otp_tokens_email ON otp_tokens(email)",
         "CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires_at ON otp_tokens(expires_at)",
         "CREATE INDEX IF NOT EXISTS idx_otp_tokens_used ON otp_tokens(used)",
+        # 管理者セッション用インデックス（TASK-021 Sub-Phase 1A）
+        "CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_email ON admin_sessions(admin_email)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_sessions_created_at ON admin_sessions(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_sessions_last_verified_at ON admin_sessions(last_verified_at)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_sessions_is_active ON admin_sessions(is_active)",
     ]
 
     for index_sql in indexes:
@@ -404,6 +426,31 @@ def insert_initial_data(db):
                 "security",
                 False,
             ),
+            # 管理者セッション用セキュリティ設定（TASK-021 Sub-Phase 1A）
+            (
+                "admin_session_timeout",
+                "1800",
+                "integer",
+                "管理者セッション有効期限（秒）",
+                "security",
+                False,
+            ),
+            (
+                "admin_session_verification_interval",
+                "300",
+                "integer",
+                "セッション再検証間隔（秒）",
+                "security",
+                False,
+            ),
+            (
+                "admin_session_ip_binding",
+                "true",
+                "boolean",
+                "IPアドレス固定有効化",
+                "security",
+                False,
+            ),
         ]
 
         for setting in initial_settings:
@@ -441,9 +488,7 @@ def insert_initial_data(db):
 def get_setting(db, key, default=None):
     """設定値を取得"""
     db.row_factory = sqlite3.Row
-    row = db.execute(
-        "SELECT value, value_type FROM settings WHERE key = ?", (key,)
-    ).fetchone()
+    row = db.execute("SELECT value, value_type FROM settings WHERE key = ?", (key,)).fetchone()
     if not row:
         return default
 
@@ -469,9 +514,7 @@ def set_setting(db, key, value, updated_by="system"):
     """設定値を更新または作成"""
     # 現在の値を取得（履歴用）
     db.row_factory = sqlite3.Row
-    current_row = db.execute(
-        "SELECT value FROM settings WHERE key = ?", (key,)
-    ).fetchone()
+    current_row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     old_value = current_row["value"] if current_row else None
 
     if current_row:
@@ -547,9 +590,7 @@ def log_access(
     )
 
 
-def log_event(
-    db, session_id, email_hash, event_type, event_data, ip_address, device_info=None
-):
+def log_event(db, session_id, email_hash, event_type, event_data, ip_address, device_info=None):
     """イベントログを記録"""
     import json
 
@@ -571,9 +612,7 @@ def log_event(
     )
 
 
-def log_auth_failure(
-    db, ip_address, failure_type, email_attempted=None, device_type=None
-):
+def log_auth_failure(db, ip_address, failure_type, email_attempted=None, device_type=None):
     """認証失敗ログを記録"""
     db.execute(
         """
@@ -683,9 +722,7 @@ def get_security_events(
         where_conditions.append("occurred_at <= ?")
         params.append(end_date)
 
-    where_clause = (
-        " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
-    )
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
     # クエリ実行
     query = f"""
@@ -725,9 +762,7 @@ def get_security_event_stats(db, start_date=None, end_date=None):
         where_conditions.append("occurred_at <= ?")
         params.append(end_date)
 
-    where_clause = (
-        " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
-    )
+    where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
 
     # リスクレベル別統計
     risk_stats = db.execute(
@@ -1001,9 +1036,7 @@ def add_admin_user(email, added_by):
             )
 
             # 操作ログ記録
-            log_admin_operation(
-                "add_admin", email, added_by, {"new_admin_email": email}
-            )
+            log_admin_operation("add_admin", email, added_by, {"new_admin_email": email})
 
             print(f"add_admin_user: Successfully added {email}")
             return True
@@ -1210,3 +1243,268 @@ def log_admin_operation(operation, target_email, operator_email, details=None):
         except sqlite3.Error:
             # security_eventsテーブルが存在しない場合はログをスキップ
             pass
+
+
+# 管理者セッション管理関数群（TASK-021 Sub-Phase 1A）
+
+
+def create_admin_session(admin_email, session_id, ip_address, user_agent, security_flags=None):
+    """
+    管理者セッションを作成
+
+    Args:
+        admin_email: 管理者メールアドレス
+        session_id: セッションID
+        ip_address: IPアドレス
+        user_agent: ユーザーエージェント
+        security_flags: セキュリティフラグ（dict）
+
+    Returns:
+        bool: 作成に成功した場合True
+    """
+    import json
+    import secrets
+
+    if not admin_email or not session_id:
+        return False
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            # 検証トークン生成
+            verification_token = secrets.token_urlsafe(32)
+
+            # セキュリティフラグのJSON化
+            flags_json = json.dumps(security_flags) if security_flags else None
+
+            # 現在時刻
+            current_time = get_app_datetime_string()
+
+            db.execute(
+                """
+                INSERT INTO admin_sessions 
+                (session_id, admin_email, created_at, last_verified_at, ip_address, 
+                 user_agent, is_active, security_flags, verification_token)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    admin_email,
+                    current_time,
+                    current_time,
+                    ip_address,
+                    user_agent,
+                    True,
+                    flags_json,
+                    verification_token,
+                ),
+            )
+
+            db.commit()
+            return True
+
+    except sqlite3.Error as e:
+        print(f"create_admin_session error: {e}")
+        return False
+
+
+def verify_admin_session(session_id, current_ip=None, current_ua=None):
+    """
+    管理者セッションを検証
+
+    Args:
+        session_id: セッションID
+        current_ip: 現在のIPアドレス（検証用）
+        current_ua: 現在のユーザーエージェント（検証用）
+
+    Returns:
+        dict: セッションデータ（検証失敗時はNone）
+    """
+    import json
+
+    if not session_id:
+        return None
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            session = db.execute(
+                """
+                SELECT * FROM admin_sessions 
+                WHERE session_id = ? AND is_active = TRUE
+                """,
+                (session_id,),
+            ).fetchone()
+
+            if not session:
+                return None
+
+            # セキュリティフラグチェック
+            security_flags = {}
+            if session["security_flags"]:
+                try:
+                    security_flags = json.loads(session["security_flags"])
+                except json.JSONDecodeError:
+                    security_flags = {}
+
+            # IPアドレス検証（設定有効時）
+            if security_flags.get("ip_binding_enabled", False) and current_ip:
+                if session["ip_address"] != current_ip:
+                    print(f"Admin session IP mismatch: expected {session['ip_address']}, got {current_ip}")
+                    return None
+
+            # ユーザーエージェント検証（設定有効時）
+            if security_flags.get("ua_verification_enabled", False) and current_ua:
+                if session["user_agent"] != current_ua:
+                    print("Admin session UA mismatch")
+                    return None
+
+            return dict(session)
+
+    except sqlite3.Error as e:
+        print(f"verify_admin_session error: {e}")
+        return None
+
+
+def update_admin_session_verification(session_id):
+    """
+    管理者セッションの検証時刻を更新
+
+    Args:
+        session_id: セッションID
+
+    Returns:
+        bool: 更新に成功した場合True
+    """
+    if not session_id:
+        return False
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            result = db.execute(
+                """
+                UPDATE admin_sessions 
+                SET last_verified_at = ?
+                WHERE session_id = ? AND is_active = TRUE
+                """,
+                (get_app_datetime_string(), session_id),
+            )
+
+            db.commit()
+            return result.rowcount > 0
+
+    except sqlite3.Error as e:
+        print(f"update_admin_session_verification error: {e}")
+        return False
+
+
+def delete_admin_session(session_id):
+    """
+    管理者セッションを削除
+
+    Args:
+        session_id: セッションID
+
+    Returns:
+        bool: 削除に成功した場合True
+    """
+    if not session_id:
+        return False
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            result = db.execute(
+                """
+                DELETE FROM admin_sessions WHERE session_id = ?
+                """,
+                (session_id,),
+            )
+
+            db.commit()
+            return result.rowcount > 0
+
+    except sqlite3.Error as e:
+        print(f"delete_admin_session error: {e}")
+        return False
+
+
+def get_admin_session_info(session_id):
+    """
+    管理者セッション情報を取得
+
+    Args:
+        session_id: セッションID
+
+    Returns:
+        dict: セッション情報（存在しない場合はNone）
+    """
+    if not session_id:
+        return None
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            session = db.execute(
+                """
+                SELECT * FROM admin_sessions WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+
+            return dict(session) if session else None
+
+    except sqlite3.Error as e:
+        print(f"get_admin_session_info error: {e}")
+        return None
+
+
+def cleanup_expired_admin_sessions():
+    """
+    期限切れの管理者セッションをクリーンアップ
+
+    Returns:
+        int: 削除されたセッション数
+    """
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            # 管理者セッションタイムアウト取得（デフォルト30分）
+            timeout_seconds = get_setting(db, "admin_session_timeout", 1800)
+
+            # 期限切れ時刻を計算
+            from config.timezone import get_app_now, add_app_timedelta
+
+            cutoff_time = add_app_timedelta(get_app_now(), seconds=-timeout_seconds)
+            cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            result = db.execute(
+                """
+                DELETE FROM admin_sessions 
+                WHERE last_verified_at < ?
+                """,
+                (cutoff_str,),
+            )
+
+            deleted_count = result.rowcount
+            db.commit()
+
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} expired admin sessions")
+
+            return deleted_count
+
+    except sqlite3.Error as e:
+        print(f"cleanup_expired_admin_sessions error: {e}")
+        return 0
