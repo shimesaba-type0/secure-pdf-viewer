@@ -76,17 +76,43 @@ def log_unauthorized_access(email, endpoint, ip_address):
 ### 実装項目
 
 #### Phase 1: セッション管理強化 *(基本権限制御はTASK-019で完了)*
-1. **セッションセキュリティ強化**
-   - ~~`is_admin()` 関数~~ ✅ TASK-019で完了
-   - ~~`require_admin_permission` デコレータ~~ ✅ TASK-019で完了
-   - 管理者セッションの特別管理機能
-   - セッションハイジャック対策
 
-2. **管理画面の保護強化** *(基本保護はTASK-019で完了)*
-   - ~~全管理画面ルートに権限チェック追加~~ ✅ TASK-019で完了
-   - ~~未認証時のリダイレクト処理~~ ✅ TASK-019で完了
-   - ~~エラーページの実装~~ ✅ TASK-019で完了
-   - 管理者ログアウト時の完全セッション無効化
+**設計書**: `docs/admin-session-security-design.md`
+
+**実装フェーズ分割**:
+
+1. **Sub-Phase 1A: データベース基盤整備** ✅ **完了**
+   - ✅ `admin_sessions` テーブル作成（9カラム、インデックス付き）
+   - ✅ セキュリティ設定3項目の追加（admin_session_timeout, admin_session_verification_interval, admin_session_ip_binding）
+   - ✅ 基本的なCRUD関数実装（create_admin_session, verify_admin_session, update_admin_session_verification, delete_admin_session, get_admin_session_info, cleanup_expired_admin_sessions）
+   - ✅ テスト実装・実行完了（12テスト全パス）
+   - ✅ lint・フォーマッター実行完了  
+   - ✅ ブラウザ動作確認完了（セキュリティフラグ、IPアドレス検証など全機能動作確認済み）
+
+2. **Sub-Phase 1B: 管理者セッション作成・検証**
+   - `create_admin_session()` 関数実装
+   - `verify_admin_session()` 関数実装
+   - 管理者ログイン時のセッション作成処理
+
+3. **Sub-Phase 1C: 強化デコレータ**
+   - `@require_admin_session` デコレータ実装
+   - 既存の `@require_admin_permission` との統合
+   - 全管理画面への適用
+
+4. **Sub-Phase 1D: セッションハイジャック対策**
+   - セッションID再生成機能
+   - IP/ユーザーエージェント検証
+   - 異常パターン検出
+
+5. **Sub-Phase 1E: 完全ログアウト機能**
+   - `admin_complete_logout()` 関数実装
+   - 多層削除処理（admin_sessions, session_stats, OTP削除）
+   - ログアウトエンドポイント拡張
+
+6. **Sub-Phase 1F: 統合・動作確認**
+   - エンドツーエンドテスト
+   - ブラウザ動作確認
+   - セキュリティ検証
 
 #### Phase 2: API セキュリティ
 1. **管理API の保護**
@@ -112,7 +138,24 @@ def log_unauthorized_access(email, endpoint, ip_address):
 
 ### データベース拡張
 
-#### admin_actions テーブル追加
+#### Phase 1 関連テーブル
+
+##### admin_sessions テーブル追加 *(Sub-Phase 1A)*
+```sql
+CREATE TABLE admin_sessions (
+    session_id TEXT PRIMARY KEY,
+    admin_email TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_verified_at TEXT NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    security_flags JSON,
+    verification_token TEXT
+);
+```
+
+#### admin_actions テーブル追加 *(Phase 3)*
 ```sql
 CREATE TABLE admin_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,11 +184,11 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 ### 成功基準
 - [x] 管理者のみが管理画面にアクセスできる *(TASK-019で完了)*
 - [x] 一般ユーザーは管理機能にアクセスできない *(TASK-019で完了)*
-- [ ] 全ての管理者操作がログに記録される **← 新規実装**
-- [ ] 不正アクセス試行が検知・記録される **← 新規実装**
-- [ ] 管理者セッションが強化管理される **← 新規実装**
+- [ ] 全ての管理者操作がログに記録される **← Phase 3で実装**
+- [ ] 不正アクセス試行が検知・記録される **← Phase 3で実装**
+- [x] 管理者セッションが強化管理される **← Sub-Phase 1Aで完了**
 - [x] エラーハンドリングが適切に動作する *(TASK-019で基本完了)*
-- [ ] 権限昇格攻撃が防止される **← 強化実装**
+- [ ] 権限昇格攻撃が防止される **← Sub-Phase 1C/1Dで強化実装**
 
 ### セキュリティテスト項目
 1. **権限制御テスト**
@@ -154,9 +197,9 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
    - [ ] セッション固定攻撃の防止
 
 2. **認証テスト**
-   - [ ] 無効なセッションでのアクセス拒否
-   - [ ] セッション有効期限の確認
-   - [ ] 管理者ログアウト後のセッション無効化
+   - [x] 無効なセッションでのアクセス拒否 *(Sub-Phase 1Aで確認済み)*
+   - [x] セッション有効期限の確認 *(Sub-Phase 1Aで確認済み)*
+   - [ ] 管理者ログアウト後のセッション無効化 **← Sub-Phase 1Eで実装**
 
 3. **ログテスト**
    - [ ] 管理者操作のログ記録
@@ -172,9 +215,10 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 1. ~~**auth/admin_auth.py** (新規)~~ → **database/models.py** *(TASK-019で実装済み)*
    - ~~管理者権限チェック機能~~ ✅ 完了
 
-2. **database/models.py** *(TASK-019で基本実装済み)*
+2. **database/models.py** ✅ **Sub-Phase 1A完了**
    - 管理者関連のデータベース操作
-   - **admin_actions テーブル操作関数 (新規追加)**
+   - ✅ **admin_sessions テーブル作成・CRUD関数実装完了**
+   - **admin_actions テーブル操作関数 (Phase 3で追加)**
 
 3. **app.py** *(TASK-019で基本実装済み)*
    - ~~ルートへの権限チェック適用~~ ✅ 完了
@@ -192,7 +236,12 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 
 ## ステータス
 - [x] 要件定義完了
-- [ ] セキュリティ設計
-- [ ] 実装開始
-- [ ] セキュリティテスト
-- [ ] 完了
+- [x] セキュリティ設計完了 (`docs/admin-session-security-design.md`)
+- [x] 実装開始（Sub-Phase 1A完了）
+- [x] セキュリティテスト（Sub-Phase 1A分完了）
+- [ ] 完了（Sub-Phase 1B〜1F残り）
+
+### 進捗状況
+- **Phase 1 セッション管理強化**: 1/6フェーズ完了（16.7%）
+  - ✅ Sub-Phase 1A: データベース基盤整備
+  - ⏳ Sub-Phase 1B: 管理者セッション作成・検証（次回実装）
