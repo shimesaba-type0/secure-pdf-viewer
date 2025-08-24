@@ -3544,3 +3544,286 @@ body {
         width: 100%;
     }
 }
+
+/* 管理者権限管理セクション */
+.admin-users-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    margin-top: 1rem;
+}
+
+.admin-list-container {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.admin-list-container h4 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.admin-table-container {
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+
+.admin-table {
+    width: 100%;
+    min-width: 800px; /* テーブルの最小幅を設定 */
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.admin-table th,
+.admin-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #dee2e6;
+    vertical-align: middle;
+    line-height: 1.2;
+}
+
+.admin-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+    border-top: 1px solid #dee2e6;
+}
+
+.admin-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.admin-table .status-active {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-align: center;
+    border: 1px solid #c3e6cb;
+    display: inline-block;
+    min-width: 50px;
+    box-sizing: border-box;
+}
+
+.admin-table .status-inactive {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-align: center;
+    border: 1px solid #f5c6cb;
+    display: inline-block;
+    min-width: 50px;
+    box-sizing: border-box;
+}
+
+.admin-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.admin-actions {
+    min-width: 160px; /* 操作列の最小幅を確保 */
+}
+
+.admin-actions .btn {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.6rem;
+    min-width: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    border-radius: 4px;
+    box-sizing: border-box;
+    white-space: nowrap; /* テキストの改行を防ぐ */
+}
+
+.add-admin-container {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.add-admin-container h4 {
+    margin-bottom: 1rem;
+    color: #2c3e50;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.add-admin-form .form-group {
+    margin-bottom: 1rem;
+}
+
+.add-admin-form label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+.add-admin-form .form-control {
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.add-admin-form .form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.25);
+}
+
+.add-admin-form .form-text {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.admin-limit-info {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #007bff;
+}
+
+.admin-limit-info .info-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.admin-limit-info .info-item:last-child {
+    margin-bottom: 0;
+}
+
+.admin-limit-info .info-label {
+    font-weight: 600;
+    color: #495057;
+}
+
+.admin-limit-info .info-value {
+    color: #007bff;
+    font-weight: 600;
+}
+
+.loading-container,
+.error-container {
+    text-align: center;
+    padding: 2rem;
+}
+
+.success-container {
+    text-align: center;
+    padding: 2rem;
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 0.5rem;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.error-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #dc3545;
+    font-weight: 600;
+}
+
+.error-message i {
+    font-size: 1.2rem;
+}
+
+.success-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #28a745;
+    font-weight: 600;
+}
+
+.success-message i {
+    font-size: 1.2rem;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .admin-users-section {
+        gap: 1rem;
+    }
+    
+    .admin-list-container,
+    .add-admin-container {
+        padding: 1rem;
+    }
+    
+    .admin-table {
+        font-size: 0.8rem;
+    }
+    
+    .admin-table th,
+    .admin-table td {
+        padding: 0.5rem 0.25rem;
+    }
+    
+    .admin-actions {
+        flex-direction: row;
+        gap: 0.25rem;
+        min-width: 140px; /* モバイルでも最小幅確保 */
+    }
+    
+    .admin-actions .btn {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+        height: 26px;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+    }
+    
+    .admin-limit-info .info-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+}

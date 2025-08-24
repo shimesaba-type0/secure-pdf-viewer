@@ -877,6 +877,85 @@
     </div>
 
     <div class="admin-section">
+        <h3>管理者管理</h3>
+        <div class="admin-users-section">
+            <!-- 管理者一覧 -->
+            <div class="admin-list-container">
+                <h4>管理者一覧</h4>
+                <div class="admin-table-container">
+                    <table class="admin-table" id="admin-table">
+                        <thead>
+                            <tr>
+                                <th>メールアドレス</th>
+                                <th>追加者</th>
+                                <th>追加日時</th>
+                                <th>状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-list-body">
+                            <!-- JavaScriptで動的生成 -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 読み込み中表示 -->
+                <div id="admin-loading" class="loading-container" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <span>管理者一覧を読み込み中...</span>
+                </div>
+                
+                <!-- 成功メッセージ表示 -->
+                <div id="admin-success" class="success-container" style="display: none;">
+                    <div class="success-message">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="admin-success-text">操作が完了しました</span>
+                    </div>
+                </div>
+                
+                <!-- エラー表示 -->
+                <div id="admin-error" class="error-container" style="display: none;">
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span id="admin-error-text">エラーが発生しました</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 管理者追加フォーム -->
+            <div class="add-admin-container">
+                <h4>新規管理者追加</h4>
+                <form id="add-admin-form" class="add-admin-form">
+                    <div class="form-group">
+                        <label for="admin-email">メールアドレス:</label>
+                        <input type="email" id="admin-email" class="form-control" 
+                               placeholder="新しい管理者のメールアドレス" required>
+                        <small class="form-text">追加された管理者は管理画面にアクセスできるようになります</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="add-admin-btn">
+                            <i class="fas fa-plus"></i> 管理者を追加
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearAdminForm()">
+                            <i class="fas fa-times"></i> クリア
+                        </button>
+                    </div>
+                </form>
+                <div class="admin-limit-info">
+                    <div class="info-item">
+                        <span class="info-label">現在の管理者数:</span>
+                        <span class="info-value" id="current-admin-count">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">最大管理者数:</span>
+                        <span class="info-value">6人</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
         <h3>システムバックアップ</h3>
         <div class="backup-section">
             <!-- バックアップ実行コントロール -->

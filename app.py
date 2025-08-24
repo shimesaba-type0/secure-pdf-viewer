@@ -34,7 +34,7 @@ from logging.handlers import RotatingFileHandler
 
 # ロガー設定
 logger = logging.getLogger(__name__)
-from database.models import get_setting, set_setting
+from database.models import get_setting, set_setting, is_admin
 from database.backup import BackupManager
 import threading
 import time
@@ -60,6 +60,25 @@ from queue import Queue, Empty
 
 # タイムゾーン統一管理システムを使用
 # JST = pytz.timezone('Asia/Tokyo')  # 廃止: config.timezoneを使用
+
+from functools import wraps
+
+
+def require_admin_permission(f):
+    """管理者権限必須デコレータ"""
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("authenticated"):
+            return redirect("/login")
+
+        email = session.get("email")
+        if not email or not is_admin(email):
+            return render_template("error.html", error="管理者権限が必要です"), 403
+
+        return f(*args, **kwargs)
+
+    return decorated_function
 
 
 def get_consistent_hash(text):
@@ -851,6 +870,61 @@ app.logger.setLevel(logging.INFO)
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 
+def setup_initial_admin():
+    """初期管理者を設定"""
+    try:
+        from database.models import add_admin_user, get_admin_users
+        from database import init_db
+
+        # データベース初期化
+        init_db()
+
+        # 既存の管理者をチェック
+        existing_admins = get_admin_users()
+
+        # 環境変数からADMIN_EMAILを取得
+        admin_email = os.getenv("ADMIN_EMAIL")
+
+        if admin_email:
+            # 指定されたメールアドレスが既に管理者かチェック
+            is_existing_admin = any(
+                admin["email"] == admin_email for admin in existing_admins
+            )
+
+            if not is_existing_admin:
+                # 初期管理者を追加
+                success = add_admin_user(admin_email, "system")
+                if success:
+                    logger.info(f"初期管理者を設定しました: {admin_email}")
+                    print(f"初期管理者を設定しました: {admin_email}")
+                else:
+                    logger.error(f"初期管理者の設定に失敗しました: {admin_email}")
+            else:
+                logger.info(f"管理者は既に設定済みです: {admin_email}")
+        else:
+            if not existing_admins:
+                logger.warning("ADMIN_EMAIL環境変数が設定されていません。管理者が設定されていません。")
+                print("Warning: ADMIN_EMAIL環境変数が設定されていません。")
+
+    except Exception as e:
+        logger.error(f"初期管理者設定エラー: {str(e)}")
+        print(f"初期管理者設定エラー: {str(e)}")
+
+
+# 初期管理者設定を実行
+setup_initial_admin()
+
+
+# テンプレート用コンテキストプロセッサ
+@app.context_processor
+def inject_user_context():
+    """テンプレートで使用するユーザー情報を注入"""
+    email = session.get('email')
+    return {
+        'is_admin_user': is_admin(email) if email else False
+    }
+
+
 # カスタム静的ファイルハンドラー（PDFアクセス制御用）
 @app.route("/static/pdfs/<path:filename>")
 def blocked_pdf_access(filename):
@@ -1615,6 +1689,7 @@ def logout():
 
 
 @app.route("/admin")
+@require_admin_permission
 def admin():
     # セッション有効期限チェック
     session_check = require_valid_session()
@@ -4134,11 +4209,7 @@ backup_status_queue = Queue()
 backup_in_progress = threading.Lock()
 
 # 復旧実行状況を管理するためのグローバル変数（Phase 3）
-restore_progress = {
-    "status": "idle",
-    "message": "復旧は実行されていません",
-    "progress": 0
-}
+restore_progress = {"status": "idle", "message": "復旧は実行されていません", "progress": 0}
 
 
 @app.route("/admin/backup/create", methods=["POST"])
@@ -4229,9 +4300,10 @@ def list_backups():
 
     try:
         global backup_manager
-        
+
         if backup_manager is None:
             from database.backup import BackupManager
+
             app_root = os.path.dirname(os.path.abspath(__file__))
             backup_manager = BackupManager(app_root)
 
@@ -4572,7 +4644,7 @@ def check_backup_schedule():
 def restore_backup():
     """
     バックアップからシステムを復旧
-    
+
     明示的文字列認証による安全確認システム
     """
     # セッション有効期限チェック
@@ -4582,44 +4654,44 @@ def restore_backup():
 
     if not session.get("authenticated"):
         return jsonify({"status": "error", "message": "認証が必要です"}), 401
-    
+
     try:
         data = request.get_json()
-        
+
         if not data:
-            return jsonify({
-                "status": "error", 
-                "message": "リクエストデータが不正です"
-            }), 400
-        
+            return jsonify({"status": "error", "message": "リクエストデータが不正です"}), 400
+
         backup_name = data.get("backup_name")
         confirmation_text = data.get("confirmation_text", "").strip()
-        
+
         # 必須パラメータチェック
         if not backup_name:
-            return jsonify({
-                "status": "error", 
-                "message": "バックアップ名が指定されていません"
-            }), 400
-        
+            return jsonify({"status": "error", "message": "バックアップ名が指定されていません"}), 400
+
         # 明示的文字列認証
         expected_confirmation = "復旧を実行します"
         if confirmation_text != expected_confirmation:
-            logger.warning(f"復旧認証失敗: 期待値='{expected_confirmation}', 入力値='{confirmation_text}'")
-            return jsonify({
-                "status": "error", 
-                "message": f"確認文字列が正しくありません。正確に「{expected_confirmation}」と入力してください"
-            }), 403
-        
+            logger.warning(
+                f"復旧認証失敗: 期待値='{expected_confirmation}', 入力値='{confirmation_text}'"
+            )
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "message": f"確認文字列が正しくありません。正確に「{expected_confirmation}」と入力してください",
+                    }
+                ),
+                403,
+            )
+
         # パス・トラバーサル対策
         if not re.match(r"^[a-zA-Z0-9_\-]+$", backup_name):
-            return jsonify({
-                "status": "error", 
-                "message": "不正なバックアップ名です"
-            }), 400
-        
-        logger.info(f"復旧実行開始: バックアップ={backup_name}, 実行者={session.get('username', 'unknown')}")
-        
+            return jsonify({"status": "error", "message": "不正なバックアップ名です"}), 400
+
+        logger.info(
+            f"復旧実行開始: バックアップ={backup_name}, 実行者={session.get('username', 'unknown')}"
+        )
+
         # 復旧進行状況管理用のグローバル変数更新
         global restore_progress
         restore_progress = {
@@ -4628,75 +4700,83 @@ def restore_backup():
             "progress": 10,
             "backup_name": backup_name,
             "start_time": get_app_now().isoformat(),
-            "step": "initializing"
+            "step": "initializing",
         }
-        
+
         def run_restore():
             """復旧実行（別スレッド）"""
             global restore_progress, backup_manager
             try:
                 # 復旧進行状況更新
-                restore_progress.update({
-                    "message": "復旧前セーフティネット作成中...",
-                    "progress": 20,
-                    "step": "pre_backup"
-                })
-                
+                restore_progress.update(
+                    {
+                        "message": "復旧前セーフティネット作成中...",
+                        "progress": 20,
+                        "step": "pre_backup",
+                    }
+                )
+
                 # BackupManagerで復旧実行
                 result = backup_manager.restore_from_backup(backup_name)
-                
+
                 if result["success"]:
-                    restore_progress.update({
-                        "status": "completed",
-                        "message": "復旧が完了しました",
-                        "progress": 100,
-                        "step": "completed",
-                        "result": result
-                    })
+                    restore_progress.update(
+                        {
+                            "status": "completed",
+                            "message": "復旧が完了しました",
+                            "progress": 100,
+                            "step": "completed",
+                            "result": result,
+                        }
+                    )
                     logger.info(f"復旧完了: {backup_name}")
                 else:
-                    restore_progress.update({
+                    restore_progress.update(
+                        {
+                            "status": "error",
+                            "message": result["message"],
+                            "progress": 0,
+                            "step": "error",
+                            "error": result["message"],
+                        }
+                    )
+                    logger.error(f"復旧失敗: {result['message']}")
+
+            except Exception as e:
+                restore_progress.update(
+                    {
                         "status": "error",
-                        "message": result["message"],
+                        "message": f"復旧中にエラーが発生しました: {str(e)}",
                         "progress": 0,
                         "step": "error",
-                        "error": result["message"]
-                    })
-                    logger.error(f"復旧失敗: {result['message']}")
-                    
-            except Exception as e:
-                restore_progress.update({
-                    "status": "error",
-                    "message": f"復旧中にエラーが発生しました: {str(e)}",
-                    "progress": 0,
-                    "step": "error",
-                    "error": str(e)
-                })
+                        "error": str(e),
+                    }
+                )
                 logger.error(f"復旧実行エラー: {str(e)}")
-        
+
         # 復旧を別スレッドで実行
         import threading
+
         restore_thread = threading.Thread(target=run_restore)
         restore_thread.daemon = True
         restore_thread.start()
-        
+
         # 復旧開始レスポンス
-        return jsonify({
-            "status": "success",
-            "message": "復旧実行を開始しました",
-            "data": {
-                "backup_name": backup_name,
-                "restore_id": f"restore_{get_app_now().strftime('%Y%m%d_%H%M%S')}",
-                "estimated_time": 120  # 見積もり時間（秒）
+        return jsonify(
+            {
+                "status": "success",
+                "message": "復旧実行を開始しました",
+                "data": {
+                    "backup_name": backup_name,
+                    "restore_id": f"restore_{get_app_now().strftime('%Y%m%d_%H%M%S')}",
+                    "estimated_time": 120,  # 見積もり時間（秒）
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         logger.error(f"復旧API呼び出しエラー: {str(e)}")
-        return jsonify({
-            "status": "error", 
-            "message": f"復旧実行エラー: {str(e)}"
-        }), 500
+        return jsonify({"status": "error", "message": f"復旧実行エラー: {str(e)}"}), 500
 
 
 @app.route("/admin/backup/restore-status")
@@ -4711,18 +4791,18 @@ def restore_status():
 
     if not session.get("authenticated"):
         return jsonify({"status": "error", "message": "認証が必要です"}), 401
-    
+
     def generate():
         global restore_progress
-        
+
         # 初期状態
         if "restore_progress" not in globals():
             restore_progress = {
                 "status": "idle",
                 "message": "復旧は実行されていません",
-                "progress": 0
+                "progress": 0,
             }
-        
+
         # 進行状況をSSEで送信
         while True:
             try:
@@ -4733,43 +4813,156 @@ def restore_status():
                     "progress": restore_progress.get("progress", 0),
                     "backup_name": restore_progress.get("backup_name", ""),
                     "step": restore_progress.get("step", ""),
-                    "timestamp": get_app_now().isoformat()
+                    "timestamp": get_app_now().isoformat(),
                 }
-                
+
                 # 復旧完了・エラー時は結果も含める
                 if restore_progress.get("status") in ["completed", "error"]:
                     if "result" in restore_progress:
                         progress_data["result"] = restore_progress["result"]
                     if "error" in restore_progress:
                         progress_data["error"] = restore_progress["error"]
-                
+
                 yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
-                
+
                 # 完了またはエラー時は終了
                 if restore_progress.get("status") in ["completed", "error"]:
                     break
-                    
+
                 time.sleep(1)  # 1秒間隔で更新
-                
+
             except Exception as e:
                 logger.error(f"復旧ステータスSSEエラー: {str(e)}")
                 error_data = {
                     "status": "error",
                     "message": f"ステータス取得エラー: {str(e)}",
-                    "progress": 0
+                    "progress": 0,
                 }
                 yield f"data: {json.dumps(error_data, ensure_ascii=False)}\n\n"
                 break
-    
+
     return Response(
         generate(),
         mimetype="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*"
-        }
+            "Access-Control-Allow-Origin": "*",
+        },
     )
+
+
+# 管理者権限システム API エンドポイント
+
+
+@app.route("/admin/users", methods=["GET"])
+@require_admin_permission
+def get_admin_users_api():
+    """管理者一覧取得API"""
+    try:
+        from database.models import get_admin_users
+
+        admins = get_admin_users()
+
+        # フロントエンド表示用にフォーマット
+        for admin in admins:
+            if admin.get("added_at"):
+                # 文字列の日時をdatetimeに変換してからフォーマット
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(admin["added_at"].replace('Z', '+00:00'))
+                    admin["added_at_display"] = format_for_display(dt)
+                except (ValueError, AttributeError):
+                    admin["added_at_display"] = admin["added_at"]  # 変換できない場合は元の値を使用
+
+        return jsonify({"users": admins, "total": len(admins), "max_admins": 6})
+
+    except Exception as e:
+        logger.error(f"管理者一覧取得エラー: {str(e)}")
+        return jsonify({"error": "管理者一覧の取得に失敗しました"}), 500
+
+
+@app.route("/admin/users", methods=["POST"])
+@require_admin_permission
+def add_admin_user_api():
+    """管理者追加API"""
+    try:
+        data = request.get_json()
+        email = data.get("email", "").strip()
+
+        if not email:
+            return jsonify({"error": "メールアドレスが必要です"}), 400
+
+        # メールアドレスの簡単なバリデーション
+        import re
+
+        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(email_pattern, email):
+            return jsonify({"error": "有効なメールアドレスを入力してください"}), 400
+
+        from database.models import add_admin_user
+
+        # 操作者のメールアドレスを取得
+        operator_email = session.get("email")
+
+        success = add_admin_user(email, operator_email)
+
+        if success:
+            return jsonify({"message": "管理者を追加しました", "email": email})
+        else:
+            return jsonify({"error": "管理者の追加に失敗しました（重複または上限に達している可能性があります）"}), 400
+
+    except Exception as e:
+        logger.error(f"管理者追加エラー: {str(e)}")
+        return jsonify({"error": "管理者の追加に失敗しました"}), 500
+
+
+@app.route("/admin/users/<int:admin_id>", methods=["PUT"])
+@require_admin_permission
+def update_admin_user_api(admin_id):
+    """管理者更新API"""
+    try:
+        data = request.get_json()
+        is_active = data.get("is_active")
+
+        if is_active is None:
+            return jsonify({"error": "is_activeパラメータが必要です"}), 400
+
+        from database.models import update_admin_status
+
+        success = update_admin_status(admin_id, is_active)
+
+        if success:
+            status_text = "有効化" if is_active else "無効化"
+            return jsonify({"message": f"管理者を{status_text}しました"})
+        else:
+            return jsonify({"error": "管理者の更新に失敗しました（最後の管理者は無効化できません）"}), 400
+
+    except Exception as e:
+        logger.error(f"管理者更新エラー: {str(e)}")
+        return jsonify({"error": "管理者の更新に失敗しました"}), 500
+
+
+@app.route("/admin/users/<int:admin_id>", methods=["DELETE"])
+@require_admin_permission
+def delete_admin_user_api(admin_id):
+    """管理者削除API"""
+    try:
+        permanent = request.args.get("permanent", "false").lower() == "true"
+
+        from database.models import delete_admin_user
+
+        success = delete_admin_user(admin_id, permanent)
+
+        if success:
+            delete_type = "完全削除" if permanent else "削除"
+            return jsonify({"message": f"管理者を{delete_type}しました"})
+        else:
+            return jsonify({"error": "管理者の削除に失敗しました（最後の管理者は削除できません）"}), 400
+
+    except Exception as e:
+        logger.error(f"管理者削除エラー: {str(e)}")
+        return jsonify({"error": "管理者の削除に失敗しました"}), 500
 
 
 if __name__ == "__main__":
@@ -4783,5 +4976,5 @@ if __name__ == "__main__":
     # バックアップマネージャーの初期化
     print("バックアップマネージャーを初期化中...")
     backup_manager = BackupManager()
-    
+
     app.run(debug=True, host="0.0.0.0", port=5000)

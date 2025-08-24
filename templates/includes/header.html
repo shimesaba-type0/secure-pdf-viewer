@@ -4,7 +4,9 @@
         {% if session.authenticated %}
         <nav class="nav">
             <a href="{{ url_for('index') }}" class="nav-link">閲覧画面</a>
+            {% if is_admin_user %}
             <a href="{{ url_for('admin') }}" class="nav-link">管理画面</a>
+            {% endif %}
             <a href="{{ url_for('logout') }}" class="nav-link logout">ログアウト</a>
         </nav>
         {% endif %}

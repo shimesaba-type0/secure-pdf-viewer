@@ -38,6 +38,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // アクセスログ管理機能を初期化
     initializeAccessLogManagement();
     
+    // 管理者管理機能を初期化
+    setTimeout(() => {
+        if (document.getElementById('admin-table')) {
+            initializeAdminManagement();
+        }
+    }, 100);
+    
 
     if (fileInput) {
         // File input change event
@@ -2459,5 +2466,332 @@ function formatAccessTimestamp(timestamp) {
     } catch (e) {
         return timestamp;
     }
+}
+
+// 管理者管理機能
+
+let adminManagementLoaded = false;
+
+function initializeAdminManagement() {
+    console.log('管理者管理機能を初期化中...');
+    
+    // フォームイベントリスナー設定
+    const addAdminForm = document.getElementById('add-admin-form');
+    if (addAdminForm) {
+        addAdminForm.addEventListener('submit', handleAddAdmin);
+    }
+    
+    // 管理者一覧を読み込み
+    loadAdminUsers();
+    
+    adminManagementLoaded = true;
+}
+
+async function loadAdminUsers() {
+    console.log('管理者一覧を読み込み中...');
+    
+    // 読み込み状態を表示
+    showAdminLoading(true);
+    hideAdminError();
+    hideAdminSuccess();
+    
+    try {
+        const response = await fetch('/admin/users');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        displayAdminUsers(data.users);
+        updateAdminCount(data.total, data.max_admins);
+        
+    } catch (error) {
+        console.error('管理者一覧取得エラー:', error);
+        showAdminError('管理者一覧の取得に失敗しました: ' + error.message);
+    } finally {
+        showAdminLoading(false);
+    }
+}
+
+function displayAdminUsers(users) {
+    const tbody = document.getElementById('admin-list-body');
+    if (!tbody) return;
+    
+    if (!users || users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="no-data">管理者が設定されていません</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = users.map(user => {
+        const statusClass = user.is_active ? 'status-active' : 'status-inactive';
+        const statusText = user.is_active ? '有効' : '無効';
+        const toggleAction = user.is_active ? 'deactivateAdmin' : 'activateAdmin';
+        const toggleText = user.is_active ? '無効化' : '有効化';
+        const toggleClass = user.is_active ? 'btn-warning' : 'btn-success';
+        
+        return `
+            <tr>
+                <td class="admin-email">${escapeHtml(user.email)}</td>
+                <td class="admin-added-by">${escapeHtml(user.added_by || 'system')}</td>
+                <td class="admin-added-at">${user.added_at_display || user.added_at || '-'}</td>
+                <td class="admin-status">
+                    <span class="status-badge ${statusClass}">${statusText}</span>
+                </td>
+                <td class="admin-actions">
+                    <button type="button" class="btn btn-sm ${toggleClass}" 
+                            onclick="${toggleAction}(${user.id})"
+                            title="${toggleText}">
+                        <i class="fas fa-toggle-${user.is_active ? 'off' : 'on'}"></i>
+                        ${toggleText}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-danger" 
+                            onclick="confirmDeleteAdmin(${user.id}, '${escapeHtml(user.email)}')"
+                            title="削除">
+                        <i class="fas fa-trash"></i>
+                        削除
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateAdminCount(current, max) {
+    const countElement = document.getElementById('current-admin-count');
+    if (countElement) {
+        countElement.textContent = `${current}/${max}人`;
+        countElement.className = current >= max ? 'info-value warning' : 'info-value';
+    }
+    
+    // 追加ボタンの状態を更新
+    const addBtn = document.getElementById('add-admin-btn');
+    if (addBtn) {
+        if (current >= max) {
+            addBtn.disabled = true;
+            addBtn.title = '管理者数が上限に達しています';
+        } else {
+            addBtn.disabled = false;
+            addBtn.title = '';
+        }
+    }
+}
+
+async function handleAddAdmin(event) {
+    event.preventDefault();
+    
+    const emailInput = document.getElementById('admin-email');
+    const email = emailInput.value.trim();
+    
+    if (!email) {
+        showErrorMessage('メールアドレスを入力してください');
+        return;
+    }
+    
+    // 簡単なメールバリデーション
+    const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailPattern.test(email)) {
+        showErrorMessage('有効なメールアドレスを入力してください');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/admin/users', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showSuccessMessage(data.message || '管理者を追加しました');
+            emailInput.value = '';
+            loadAdminUsers(); // 一覧を更新
+        } else {
+            showErrorMessage(data.error || '管理者の追加に失敗しました');
+        }
+        
+    } catch (error) {
+        console.error('管理者追加エラー:', error);
+        showErrorMessage('管理者の追加に失敗しました: ' + error.message);
+    }
+}
+
+async function activateAdmin(adminId) {
+    if (!confirm('この管理者を有効化しますか？')) return;
+    
+    try {
+        const response = await fetch(`/admin/users/${adminId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ is_active: true })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showSuccessMessage(data.message || '管理者を有効化しました');
+            loadAdminUsers();
+        } else {
+            showErrorMessage(data.error || '管理者の有効化に失敗しました');
+        }
+        
+    } catch (error) {
+        console.error('管理者有効化エラー:', error);
+        showErrorMessage('管理者の有効化に失敗しました: ' + error.message);
+    }
+}
+
+async function deactivateAdmin(adminId) {
+    if (!confirm('この管理者を無効化しますか？\n（最後の管理者は無効化できません）')) return;
+    
+    try {
+        const response = await fetch(`/admin/users/${adminId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ is_active: false })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showSuccessMessage(data.message || '管理者を無効化しました');
+            loadAdminUsers();
+        } else {
+            showErrorMessage(data.error || '管理者の無効化に失敗しました');
+        }
+        
+    } catch (error) {
+        console.error('管理者無効化エラー:', error);
+        showErrorMessage('管理者の無効化に失敗しました: ' + error.message);
+    }
+}
+
+async function confirmDeleteAdmin(adminId, email) {
+    try {
+        // 管理者情報を取得して、無効化されているかチェック
+        const adminResponse = await fetch('/admin/users');
+        const adminData = await adminResponse.json();
+        const admin = adminData.users.find(u => u.id === adminId);
+        
+        const isPermanent = admin && !admin.is_active;
+        const deleteType = isPermanent ? "完全削除" : "無効化";
+        const warning = isPermanent ? "データベースから完全に削除されます。" : "無効化されます（後で有効化可能）。";
+        
+        const message = `管理者「${email}」を${deleteType}しますか？\n\n${warning}\nこの操作は取り消せません。\n（最後の管理者は削除できません）`;
+        
+        if (confirm(message)) {
+            deleteAdmin(adminId);
+        }
+    } catch (error) {
+        console.error('管理者情報取得エラー:', error);
+        showErrorMessage('管理者情報の取得に失敗しました');
+    }
+}
+
+async function deleteAdmin(adminId) {
+    try {
+        // 管理者情報を取得して、無効化されているかチェック
+        const adminResponse = await fetch('/admin/users');
+        const adminData = await adminResponse.json();
+        const admin = adminData.users.find(u => u.id === adminId);
+        
+        // 無効化された管理者は物理削除、有効な管理者は論理削除
+        const permanent = admin && !admin.is_active;
+        const url = permanent ? `/admin/users/${adminId}?permanent=true` : `/admin/users/${adminId}`;
+        
+        console.log(`管理者削除: ID=${adminId}, 物理削除=${permanent}`);
+        
+        const response = await fetch(url, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            console.log('管理者削除成功:', data);
+            showSuccessMessage(data.message || '管理者を削除しました');
+            console.log('管理者一覧を再読み込み中...');
+            loadAdminUsers();
+        } else {
+            console.log('管理者削除失敗:', data);
+            showErrorMessage(data.error || '管理者の削除に失敗しました');
+        }
+        
+    } catch (error) {
+        console.error('管理者削除エラー:', error);
+        showErrorMessage('管理者の削除に失敗しました: ' + error.message);
+    }
+}
+
+function clearAdminForm() {
+    const emailInput = document.getElementById('admin-email');
+    if (emailInput) {
+        emailInput.value = '';
+    }
+}
+
+function showAdminLoading(show) {
+    const loadingElement = document.getElementById('admin-loading');
+    if (loadingElement) {
+        loadingElement.style.display = show ? 'flex' : 'none';
+    }
+}
+
+function hideAdminError() {
+    const errorElement = document.getElementById('admin-error');
+    if (errorElement) {
+        errorElement.style.display = 'none';
+    }
+}
+
+function showAdminError(message) {
+    const errorElement = document.getElementById('admin-error');
+    const errorText = document.getElementById('admin-error-text');
+    
+    if (errorElement && errorText) {
+        errorText.textContent = message;
+        errorElement.style.display = 'block';
+    }
+}
+
+function showAdminSuccess(message) {
+    const successElement = document.getElementById('admin-success');
+    const successText = document.getElementById('admin-success-text');
+    
+    if (successElement && successText) {
+        successText.textContent = message;
+        successElement.style.display = 'block';
+        
+        // 3秒後に自動的に非表示にする
+        setTimeout(() => {
+            successElement.style.display = 'none';
+        }, 3000);
+    }
+}
+
+function hideAdminSuccess() {
+    const successElement = document.getElementById('admin-success');
+    if (successElement) {
+        successElement.style.display = 'none';
+    }
+}
+
+// 管理者管理用のメッセージ表示関数（エイリアス）
+function showSuccessMessage(message) {
+    hideAdminError(); // エラーメッセージを隠す
+    showAdminSuccess(message);
+}
+
+function showErrorMessage(message) {
+    hideAdminSuccess(); // 成功メッセージを隠す
+    showAdminError(message);
 }
 
