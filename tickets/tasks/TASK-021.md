@@ -89,10 +89,13 @@ def log_unauthorized_access(email, endpoint, ip_address):
    - ✅ lint・フォーマッター実行完了  
    - ✅ ブラウザ動作確認完了（セキュリティフラグ、IPアドレス検証など全機能動作確認済み）
 
-2. **Sub-Phase 1B: 管理者セッション作成・検証**
-   - `create_admin_session()` 関数実装
-   - `verify_admin_session()` 関数実装
-   - 管理者ログイン時のセッション作成処理
+2. **Sub-Phase 1B: 管理者セッション作成・検証** ✅ **完了**
+   - ✅ `create_admin_session()` 関数実装（Sub-Phase 1Aで完了）
+   - ✅ `verify_admin_session()` 関数実装（Sub-Phase 1Aで完了）
+   - ✅ 管理者ログイン時のセッション作成処理（app.py:1615-1622に`create_admin_session()`統合完了）
+   - ✅ 管理者権限チェック時のセッション検証処理（`@require_admin_permission`デコレータに`verify_admin_session()`統合完了）
+   - ✅ データベースロック問題解決（既存接続再利用による同期化）
+   - ✅ ブラウザ動作確認完了（管理画面アクセス200 OK、セッション検証成功）
 
 3. **Sub-Phase 1C: 強化デコレータ**
    - `@require_admin_session` デコレータ実装
@@ -238,10 +241,11 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - [x] 要件定義完了
 - [x] セキュリティ設計完了 (`docs/admin-session-security-design.md`)
 - [x] 実装開始（Sub-Phase 1A完了）
-- [x] セキュリティテスト（Sub-Phase 1A分完了）
-- [ ] 完了（Sub-Phase 1B〜1F残り）
+- [x] セキュリティテスト（Sub-Phase 1A/1B分完了）
+- [ ] 完了（Sub-Phase 1C〜1F残り）
 
 ### 進捗状況
-- **Phase 1 セッション管理強化**: 1/6フェーズ完了（16.7%）
+- **Phase 1 セッション管理強化**: 2/6フェーズ完了（33.3%）
   - ✅ Sub-Phase 1A: データベース基盤整備
-  - ⏳ Sub-Phase 1B: 管理者セッション作成・検証（次回実装）
+  - ✅ Sub-Phase 1B: 管理者セッション作成・検証（データベースロック問題解決、ブラウザ動作確認済み）
+  - ⏳ Sub-Phase 1C: 強化デコレータ（次回実装）
