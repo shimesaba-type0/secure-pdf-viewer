@@ -114,6 +114,34 @@ def require_admin_session(f):
                     401,
                 )
 
+            # Sub-Phase 1D: セッション環境検証と異常検出
+            from database.models import verify_session_environment, detect_session_anomalies
+            
+            # セッション環境の詳細検証
+            env_result = verify_session_environment(session_id, client_ip, user_agent)
+            print(f"[SECURITY] Session environment check: {env_result['risk_level']} - {env_result['warnings']}")
+            
+            if not env_result['valid']:
+                session.clear()
+                return (
+                    render_template("error.html", error=f"セッションセキュリティ違反が検出されました: {', '.join(env_result['warnings'])}"),
+                    403,
+                )
+            
+            # 異常パターン検出
+            anomaly_result = detect_session_anomalies(email, session_id, client_ip, user_agent)
+            print(f"[SECURITY] Session anomaly check: {anomaly_result['action_required']} - {anomaly_result['anomaly_types']}")
+            
+            if anomaly_result['action_required'] == 'block':
+                session.clear()
+                return (
+                    render_template("error.html", error=f"セッション異常が検出されました: {', '.join(anomaly_result['anomaly_types'])}"),
+                    403,
+                )
+            elif anomaly_result['action_required'] == 'warn':
+                # 警告レベルの場合は継続するが、ログに記録
+                print(f"[WARNING] Session anomaly warning for {email}: {anomaly_result['anomaly_types']}")
+
             # 5. セッション検証時刻の更新（verify_admin_session内で実行済み）
             # セキュリティログ記録（将来実装）
 

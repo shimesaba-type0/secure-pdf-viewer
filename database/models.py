@@ -1531,3 +1531,334 @@ def cleanup_expired_admin_sessions():
     except sqlite3.Error as e:
         print(f"cleanup_expired_admin_sessions error: {e}")
         return 0
+
+
+# ===== セッションハイジャック対策機能 (Sub-Phase 1D) =====
+
+def regenerate_admin_session_id(old_session_id, new_session_id):
+    """
+    管理者セッションIDを再生成（セッション固定攻撃対策）
+    
+    Args:
+        old_session_id: 古いセッションID
+        new_session_id: 新しいセッションID
+    
+    Returns:
+        bool: 再生成成功時True
+    """
+    if not old_session_id or not new_session_id:
+        return False
+    
+    from database import get_db
+    import json
+    from config.timezone import get_app_datetime_string, get_app_now
+    
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+            
+            # 古いセッション情報を取得
+            old_session = db.execute(
+                "SELECT * FROM admin_sessions WHERE session_id = ? AND is_active = TRUE",
+                (old_session_id,)
+            ).fetchone()
+            
+            if not old_session:
+                print(f"regenerate_admin_session_id: old session not found: {old_session_id}")
+                return False
+            
+            # セキュリティフラグに再生成履歴を追加
+            security_flags = {}
+            if old_session["security_flags"]:
+                try:
+                    security_flags = json.loads(old_session["security_flags"])
+                except json.JSONDecodeError:
+                    security_flags = {}
+            
+            security_flags["session_regenerated"] = True
+            security_flags["regenerated_at"] = get_app_datetime_string()
+            security_flags["old_session_id"] = old_session_id[:8] + "..." # 部分的にログ
+            
+            # 新しい検証トークンを生成
+            import secrets
+            verification_token = secrets.token_urlsafe(32)
+            
+            # 新しいセッションIDでデータ更新
+            db.execute(
+                """
+                UPDATE admin_sessions 
+                SET session_id = ?, 
+                    last_verified_at = ?, 
+                    security_flags = ?,
+                    verification_token = ?
+                WHERE session_id = ?
+                """,
+                (new_session_id, get_app_datetime_string(), 
+                 json.dumps(security_flags), verification_token, old_session_id)
+            )
+            
+            db.commit()
+            print(f"Admin session ID regenerated: {old_session_id[:8]}... -> {new_session_id[:8]}...")
+            return True
+            
+    except sqlite3.Error as e:
+        print(f"regenerate_admin_session_id error: {e}")
+        return False
+
+
+def verify_session_environment(session_id, current_ip, current_ua):
+    """
+    セッション環境の詳細検証（ハイジャック検出）
+    
+    Args:
+        session_id: セッションID
+        current_ip: 現在のIPアドレス
+        current_ua: 現在のユーザーエージェント
+    
+    Returns:
+        dict: 検証結果 {valid: bool, risk_level: str, warnings: list}
+    """
+    if not session_id:
+        return {"valid": False, "risk_level": "high", "warnings": ["Invalid session ID"]}
+    
+    from database import get_db
+    import json
+    from config.timezone import get_app_now, to_app_timezone
+    from datetime import timedelta
+    
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+            
+            session = db.execute(
+                "SELECT * FROM admin_sessions WHERE session_id = ? AND is_active = TRUE",
+                (session_id,)
+            ).fetchone()
+            
+            if not session:
+                return {"valid": False, "risk_level": "high", "warnings": ["Session not found"]}
+            
+            warnings = []
+            risk_level = "low"
+            
+            # セキュリティフラグ解析
+            security_flags = {}
+            if session["security_flags"]:
+                try:
+                    security_flags = json.loads(session["security_flags"])
+                except json.JSONDecodeError:
+                    security_flags = {}
+            
+            # IPアドレス検証
+            if session["ip_address"] and current_ip:
+                if session["ip_address"] != current_ip:
+                    warnings.append(f"IP address changed: {session['ip_address']} -> {current_ip}")
+                    risk_level = "high" if security_flags.get("ip_binding_enabled", False) else "medium"
+            
+            # ユーザーエージェント検証
+            if session["user_agent"] and current_ua:
+                # 基本的な一致チェック（完全一致でなく主要部分の一致）
+                stored_ua_parts = session["user_agent"].split()[:3]  # 最初の3要素
+                current_ua_parts = current_ua.split()[:3]
+                
+                if stored_ua_parts != current_ua_parts:
+                    warnings.append("User agent changed significantly")
+                    risk_level = "medium" if risk_level == "low" else risk_level
+            
+            # 検証間隔チェック
+            if session["last_verified_at"]:
+                try:
+                    # アプリケーション統一タイムゾーンで時刻を解析
+                    from config.timezone import to_app_timezone
+                    from datetime import datetime as dt
+                    last_verified = to_app_timezone(dt.fromisoformat(session["last_verified_at"]))
+                    verification_interval = int(get_setting(db, "admin_session_verification_interval", 300))
+                    
+                    if get_app_now() - last_verified > timedelta(seconds=verification_interval * 2):
+                        warnings.append("Long verification interval detected")
+                        risk_level = "medium" if risk_level == "low" else risk_level
+                except ValueError:
+                    warnings.append("Invalid last verification timestamp")
+                    risk_level = "medium" if risk_level == "low" else risk_level
+            
+            # 異常なアクセスパターン検出
+            created_at = to_app_timezone(dt.fromisoformat(session["created_at"]))
+            session_age = get_app_now() - created_at
+            
+            # 非常に新しいセッションでの重要操作は要注意
+            if session_age < timedelta(minutes=1):
+                warnings.append("Very new session detected")
+                risk_level = "medium" if risk_level == "low" else risk_level
+            
+            # 長時間セッション
+            max_session_age = timedelta(hours=8)  # 8時間
+            if session_age > max_session_age:
+                warnings.append("Long-running session detected")
+                risk_level = "medium" if risk_level == "low" else risk_level
+            
+            # セッション再生成履歴チェック
+            if security_flags.get("session_regenerated", False):
+                regenerated_at = security_flags.get("regenerated_at")
+                if regenerated_at:
+                    try:
+                        regen_time = to_app_timezone(dt.fromisoformat(regenerated_at))
+                        if get_app_now() - regen_time < timedelta(minutes=5):
+                            warnings.append("Recently regenerated session")
+                    except ValueError:
+                        pass
+            
+            # 最終判定
+            valid = risk_level != "high"
+            
+            result = {
+                "valid": valid,
+                "risk_level": risk_level,
+                "warnings": warnings,
+                "session_age_hours": session_age.total_seconds() / 3600,
+                "ip_match": session["ip_address"] == current_ip if current_ip else None,
+                "has_verification_token": bool(session["verification_token"]) if session["verification_token"] else False
+            }
+            
+            return result
+            
+    except sqlite3.Error as e:
+        print(f"verify_session_environment error: {e}")
+        return {"valid": False, "risk_level": "high", "warnings": [f"Database error: {str(e)}"]}
+
+
+def detect_session_anomalies(admin_email, session_id, current_ip, current_ua):
+    """
+    セッション異常パターンの検出
+    
+    Args:
+        admin_email: 管理者メールアドレス
+        session_id: セッションID
+        current_ip: 現在のIPアドレス
+        current_ua: 現在のユーザーエージェント
+    
+    Returns:
+        dict: 異常検出結果 {anomalies_detected: bool, anomaly_types: list, action_required: str}
+    """
+    if not admin_email or not session_id:
+        return {"anomalies_detected": True, "anomaly_types": ["invalid_input"], "action_required": "block"}
+    
+    from database import get_db
+    import json
+    from config.timezone import get_app_now, to_app_timezone
+    from datetime import timedelta, datetime as dt
+    
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+            
+            # 現在のセッション情報
+            current_session = db.execute(
+                "SELECT * FROM admin_sessions WHERE session_id = ? AND admin_email = ?",
+                (session_id, admin_email)
+            ).fetchone()
+            
+            if not current_session:
+                return {"anomalies_detected": True, "anomaly_types": ["session_not_found"], "action_required": "block"}
+            
+            # 同一管理者の他のアクティブセッション
+            other_sessions = db.execute(
+                """
+                SELECT * FROM admin_sessions 
+                WHERE admin_email = ? AND session_id != ? AND is_active = TRUE
+                """,
+                (admin_email, session_id)
+            ).fetchall()
+            
+            anomalies = []
+            action_required = "allow"
+            
+            # 複数同時セッション検出（3セッションまで許可）
+            total_sessions = len(other_sessions) + 1
+            
+            if total_sessions == 2:
+                anomalies.append("multiple_active_sessions")
+                action_required = "warn"  # 2セッションは警告のみ
+            elif total_sessions == 3:
+                anomalies.append("multiple_active_sessions")
+                action_required = "warn"  # 3セッションも警告のみ
+            elif total_sessions > 3:
+                anomalies.append("excessive_multiple_sessions")
+                action_required = "block"  # 4セッション以上はブロック
+                
+                # 異なるIPからの過剰セッション
+                current_ip_sessions = [s for s in other_sessions if s["ip_address"] == current_ip]
+                if len(current_ip_sessions) != len(other_sessions):
+                    anomalies.append("multiple_ip_excessive_sessions")
+                    action_required = "block"
+            
+            # 短時間での複数セッション作成
+            recent_threshold = get_app_now() - timedelta(minutes=10)
+            recent_sessions = []
+            
+            for session in [current_session] + list(other_sessions):
+                try:
+                    created_at = to_app_timezone(dt.fromisoformat(session["created_at"]))
+                    if created_at > recent_threshold:
+                        recent_sessions.append(session)
+                except ValueError:
+                    continue
+            
+            # 短時間での大量セッション作成（5個以上でブロック）
+            if len(recent_sessions) > 4:
+                anomalies.append("rapid_session_creation")
+                action_required = "block"
+            
+            # 地理的に不可能なアクセス（簡易版 - IPの変化を検出）
+            if current_ip and current_session["ip_address"]:
+                if current_ip != current_session["ip_address"]:
+                    # IPが変わった時間間隔をチェック
+                    try:
+                        last_verified = to_app_timezone(dt.fromisoformat(current_session["last_verified_at"]))
+                        time_diff = get_app_now() - last_verified
+                        
+                        # 5分以内のIP変更は怪しい
+                        if time_diff < timedelta(minutes=5):
+                            anomalies.append("rapid_ip_change")
+                            action_required = "block"
+                    except ValueError:
+                        pass
+            
+            # ユーザーエージェント急変
+            if current_ua and current_session["user_agent"]:
+                stored_ua = current_session["user_agent"]
+                # ブラウザ名の大幅な変更を検出
+                stored_browser = stored_ua.split('/')[0] if '/' in stored_ua else stored_ua.split()[0]
+                current_browser = current_ua.split('/')[0] if '/' in current_ua else current_ua.split()[0]
+                
+                if stored_browser != current_browser:
+                    anomalies.append("browser_change")
+                    action_required = "warn"
+            
+            # 夜間アクセス（オプション - 簡易実装）
+            current_hour = get_app_now().hour
+            if current_hour < 6 or current_hour > 22:  # 22:00-06:00
+                # セキュリティフラグで夜間制限が有効かチェック
+                security_flags = {}
+                if current_session["security_flags"]:
+                    try:
+                        security_flags = json.loads(current_session["security_flags"])
+                    except json.JSONDecodeError:
+                        pass
+                
+                if security_flags.get("night_access_restricted", False):
+                    anomalies.append("night_access_restricted")
+                    action_required = "warn"
+            
+            result = {
+                "anomalies_detected": len(anomalies) > 0,
+                "anomaly_types": anomalies,
+                "action_required": action_required,
+                "active_sessions_count": len(other_sessions) + 1,
+                "session_age_minutes": (get_app_now() - to_app_timezone(dt.fromisoformat(current_session["created_at"]))).total_seconds() / 60
+            }
+            
+            return result
+            
+    except sqlite3.Error as e:
+        print(f"detect_session_anomalies error: {e}")
+        return {"anomalies_detected": True, "anomaly_types": ["database_error"], "action_required": "block"}
