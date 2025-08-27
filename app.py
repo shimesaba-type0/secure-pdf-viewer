@@ -70,22 +70,32 @@ from queue import Queue, Empty
 from functools import wraps
 
 
-def require_admin_permission(f):
-    """管理者権限必須デコレータ（Sub-Phase 1B: 管理者セッション検証強化）"""
+def require_admin_session(f):
+    """管理者セッション必須デコレータ（Sub-Phase 1C: 強化版）
+
+    強化された管理者権限チェック：
+    1. 基本認証確認
+    2. 管理者権限確認
+    3. admin_sessionsテーブル確認
+    4. セッション環境検証
+    5. 検証時刻更新
+    """
+    from functools import wraps
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # 1. 基本認証確認
         if not session.get("authenticated"):
-            return redirect("/login")
+            return redirect("/auth/login")
 
         email = session.get("email")
         session_id = session.get("session_id")
 
+        # 2. 管理者権限確認
         if not email or not is_admin(email):
             return render_template("error.html", error="管理者権限が必要です"), 403
 
-        # 管理者セッションの検証（Sub-Phase 1B追加機能）
-        print(f"DEBUG: Admin permission check for {email}, session_id: {session_id}")
+        # 3. admin_sessionsテーブル確認とセッション環境検証
         if session_id:
             client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
             if client_ip and "," in client_ip:
@@ -93,23 +103,35 @@ def require_admin_permission(f):
 
             user_agent = request.headers.get("User-Agent", "")
 
-            # 管理者セッションの有効性を検証
-            print(f"DEBUG: Verifying admin session {session_id} for {email} from {client_ip}")
+            # 4. 強化されたセッション検証
             admin_session_data = verify_admin_session(session_id, client_ip, user_agent)
-            print(f"DEBUG: Admin session verification result: {admin_session_data}")
 
             if not admin_session_data:
-                # 管理者セッションが無効な場合はログアウト
-                print(f"DEBUG: Admin session verification failed - clearing session")
+                # 管理者セッションが無効な場合
                 session.clear()
                 return (
-                    render_template("error.html", error="セッションが無効です。再度ログインしてください。"),
+                    render_template("error.html", error="管理者セッションが無効です。再度ログインしてください。"),
                     401,
                 )
+
+            # 5. セッション検証時刻の更新（verify_admin_session内で実行済み）
+            # セキュリティログ記録（将来実装）
+
+        else:
+            # セッションIDが存在しない場合
+            return (
+                render_template("error.html", error="有効なセッションがありません。ログインしてください。"),
+                401,
+            )
 
         return f(*args, **kwargs)
 
     return decorated_function
+
+
+# Sub-Phase 1C: 既存デコレータを強化版に統合
+# require_admin_permission は require_admin_session の別名として定義
+require_admin_permission = require_admin_session
 
 
 def get_consistent_hash(text):
@@ -1611,14 +1633,16 @@ def verify_otp():
                 if client_ip and "," in client_ip:
                     client_ip = client_ip.split(",")[0].strip()
 
-                print(f"DEBUG: Creating admin session for {email} with session_id {session_id}")
+                print(
+                    f"DEBUG: Creating admin session for {email} with session_id {session_id}"
+                )
                 admin_session_result = create_admin_session(
                     admin_email=email,
                     session_id=session_id,
                     ip_address=client_ip,
                     user_agent=user_agent,
                     security_flags={"login_method": "otp", "device_type": device_type},
-                    conn=conn  # 既存のデータベース接続を渡す
+                    conn=conn,  # 既存のデータベース接続を渡す
                 )
                 print(f"DEBUG: Admin session creation result: {admin_session_result}")
 
