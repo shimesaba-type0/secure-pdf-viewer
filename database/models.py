@@ -1248,7 +1248,7 @@ def log_admin_operation(operation, target_email, operator_email, details=None):
 # 管理者セッション管理関数群（TASK-021 Sub-Phase 1A）
 
 
-def create_admin_session(admin_email, session_id, ip_address, user_agent, security_flags=None):
+def create_admin_session(admin_email, session_id, ip_address, user_agent, security_flags=None, conn=None):
     """
     管理者セッションを作成
 
@@ -1258,6 +1258,7 @@ def create_admin_session(admin_email, session_id, ip_address, user_agent, securi
         ip_address: IPアドレス
         user_agent: ユーザーエージェント
         security_flags: セキュリティフラグ（dict）
+        conn: 既存のデータベース接続（Noneの場合は新しい接続を作成）
 
     Returns:
         bool: 作成に成功した場合True
@@ -1271,17 +1272,18 @@ def create_admin_session(admin_email, session_id, ip_address, user_agent, securi
     from database import get_db
 
     try:
-        with get_db() as db:
-            # 検証トークン生成
-            verification_token = secrets.token_urlsafe(32)
+        # 検証トークン生成
+        verification_token = secrets.token_urlsafe(32)
 
-            # セキュリティフラグのJSON化
-            flags_json = json.dumps(security_flags) if security_flags else None
+        # セキュリティフラグのJSON化
+        flags_json = json.dumps(security_flags) if security_flags else None
 
-            # 現在時刻
-            current_time = get_app_datetime_string()
+        # 現在時刻
+        current_time = get_app_datetime_string()
 
-            db.execute(
+        if conn:
+            # 既存の接続を使用（トランザクションは呼び出し側で管理）
+            conn.execute(
                 """
                 INSERT INTO admin_sessions 
                 (session_id, admin_email, created_at, last_verified_at, ip_address, 
@@ -1300,9 +1302,30 @@ def create_admin_session(admin_email, session_id, ip_address, user_agent, securi
                     verification_token,
                 ),
             )
-
-            db.commit()
             return True
+        else:
+            # 新しい接続を作成（独立したトランザクション）
+            with get_db() as db:
+                db.execute(
+                    """
+                    INSERT INTO admin_sessions 
+                    (session_id, admin_email, created_at, last_verified_at, ip_address, 
+                     user_agent, is_active, security_flags, verification_token)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        admin_email,
+                        current_time,
+                        current_time,
+                        ip_address,
+                        user_agent,
+                        True,
+                        flags_json,
+                        verification_token,
+                    ),
+                )
+                return True
 
     except sqlite3.Error as e:
         print(f"create_admin_session error: {e}")

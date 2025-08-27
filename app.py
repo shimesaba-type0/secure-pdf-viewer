@@ -34,7 +34,13 @@ from logging.handlers import RotatingFileHandler
 
 # ロガー設定
 logger = logging.getLogger(__name__)
-from database.models import get_setting, set_setting, is_admin
+from database.models import (
+    get_setting,
+    set_setting,
+    is_admin,
+    create_admin_session,
+    verify_admin_session,
+)
 from database.backup import BackupManager
 import threading
 import time
@@ -65,7 +71,7 @@ from functools import wraps
 
 
 def require_admin_permission(f):
-    """管理者権限必須デコレータ"""
+    """管理者権限必須デコレータ（Sub-Phase 1B: 管理者セッション検証強化）"""
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -73,8 +79,33 @@ def require_admin_permission(f):
             return redirect("/login")
 
         email = session.get("email")
+        session_id = session.get("session_id")
+
         if not email or not is_admin(email):
             return render_template("error.html", error="管理者権限が必要です"), 403
+
+        # 管理者セッションの検証（Sub-Phase 1B追加機能）
+        print(f"DEBUG: Admin permission check for {email}, session_id: {session_id}")
+        if session_id:
+            client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
+            if client_ip and "," in client_ip:
+                client_ip = client_ip.split(",")[0].strip()
+
+            user_agent = request.headers.get("User-Agent", "")
+
+            # 管理者セッションの有効性を検証
+            print(f"DEBUG: Verifying admin session {session_id} for {email} from {client_ip}")
+            admin_session_data = verify_admin_session(session_id, client_ip, user_agent)
+            print(f"DEBUG: Admin session verification result: {admin_session_data}")
+
+            if not admin_session_data:
+                # 管理者セッションが無効な場合はログアウト
+                print(f"DEBUG: Admin session verification failed - clearing session")
+                session.clear()
+                return (
+                    render_template("error.html", error="セッションが無効です。再度ログインしてください。"),
+                    401,
+                )
 
         return f(*args, **kwargs)
 
@@ -919,10 +950,8 @@ setup_initial_admin()
 @app.context_processor
 def inject_user_context():
     """テンプレートで使用するユーザー情報を注入"""
-    email = session.get('email')
-    return {
-        'is_admin_user': is_admin(email) if email else False
-    }
+    email = session.get("email")
+    return {"is_admin_user": is_admin(email) if email else False}
 
 
 # カスタム静的ファイルハンドラー（PDFアクセス制御用）
@@ -1572,6 +1601,26 @@ def verify_otp():
                     get_app_datetime_string(),
                 ),
             )
+
+            # 管理者の場合は管理者セッションも作成
+            print(f"DEBUG: Checking if {email} is admin: {is_admin(email)}")
+            if is_admin(email):
+                client_ip = request.environ.get(
+                    "HTTP_X_FORWARDED_FOR", request.remote_addr
+                )
+                if client_ip and "," in client_ip:
+                    client_ip = client_ip.split(",")[0].strip()
+
+                print(f"DEBUG: Creating admin session for {email} with session_id {session_id}")
+                admin_session_result = create_admin_session(
+                    admin_email=email,
+                    session_id=session_id,
+                    ip_address=client_ip,
+                    user_agent=user_agent,
+                    security_flags={"login_method": "otp", "device_type": device_type},
+                    conn=conn  # 既存のデータベース接続を渡す
+                )
+                print(f"DEBUG: Admin session creation result: {admin_session_result}")
 
             conn.commit()
             conn.close()
@@ -4870,7 +4919,10 @@ def get_admin_users_api():
                 # 文字列の日時をdatetimeに変換してからフォーマット
                 try:
                     from datetime import datetime
-                    dt = datetime.fromisoformat(admin["added_at"].replace('Z', '+00:00'))
+
+                    dt = datetime.fromisoformat(
+                        admin["added_at"].replace("Z", "+00:00")
+                    )
                     admin["added_at_display"] = format_for_display(dt)
                 except (ValueError, AttributeError):
                     admin["added_at_display"] = admin["added_at"]  # 変換できない場合は元の値を使用
