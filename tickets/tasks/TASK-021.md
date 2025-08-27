@@ -97,10 +97,12 @@ def log_unauthorized_access(email, endpoint, ip_address):
    - ✅ データベースロック問題解決（既存接続再利用による同期化）
    - ✅ ブラウザ動作確認完了（管理画面アクセス200 OK、セッション検証成功）
 
-3. **Sub-Phase 1C: 強化デコレータ**
-   - `@require_admin_session` デコレータ実装
-   - 既存の `@require_admin_permission` との統合
-   - 全管理画面への適用
+3. **Sub-Phase 1C: 強化デコレータ** ✅ **完了**
+   - ✅ `@require_admin_session` デコレータ実装（5段階セキュリティチェック）
+   - ✅ 既存の `@require_admin_permission` との統合（別名として定義）
+   - ✅ 全管理画面への適用（リダイレクト先修正含む）
+   - ✅ 包括的テストコード追加（8テストケース）
+   - ✅ ブラウザ動作確認完了（認証フロー・管理画面アクセス・セッション検証ログ確認済み）
 
 4. **Sub-Phase 1D: セッションハイジャック対策**
    - セッションID再生成機能
@@ -223,12 +225,18 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
    - ✅ **admin_sessions テーブル作成・CRUD関数実装完了**
    - **admin_actions テーブル操作関数 (Phase 3で追加)**
 
-3. **app.py** *(TASK-019で基本実装済み)*
-   - ~~ルートへの権限チェック適用~~ ✅ 完了
-   - **セッション管理強化 (新規追加)**
+3. **app.py** ✅ **Sub-Phase 1C完了**
+   - ~~ルートへの権限チェック適用~~ ✅ 完了（TASK-019）
+   - ✅ **セッション管理強化実装完了（Sub-Phase 1B/1C）**
+   - ✅ **require_admin_session デコレータ実装（Sub-Phase 1C）**
+   - ✅ **強化セキュリティチェック機能統合（Sub-Phase 1C）**
 
-4. **security/audit_logger.py** (新規)
-   - 監査ログ機能
+4. **tests/test_enhanced_admin_decorator.py** ✅ **Sub-Phase 1C追加**
+   - ✅ **強化デコレータの包括的テストコード（8テストケース）**
+   - ✅ **セッション環境検証・統合テスト・エラーハンドリング確認**
+
+5. **security/audit_logger.py** (新規)
+   - 監査ログ機能 (Phase 3で実装予定)
 
 ## 関連チケット
 - TASK-019: 管理者権限システムの実装
@@ -241,11 +249,12 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - [x] 要件定義完了
 - [x] セキュリティ設計完了 (`docs/admin-session-security-design.md`)
 - [x] 実装開始（Sub-Phase 1A完了）
-- [x] セキュリティテスト（Sub-Phase 1A/1B分完了）
-- [ ] 完了（Sub-Phase 1C〜1F残り）
+- [x] セキュリティテスト（Sub-Phase 1A/1B/1C分完了）
+- [ ] 完了（Sub-Phase 1D〜1F残り）
 
 ### 進捗状況
-- **Phase 1 セッション管理強化**: 2/6フェーズ完了（33.3%）
+- **Phase 1 セッション管理強化**: 3/6フェーズ完了（50.0%）
   - ✅ Sub-Phase 1A: データベース基盤整備
   - ✅ Sub-Phase 1B: 管理者セッション作成・検証（データベースロック問題解決、ブラウザ動作確認済み）
-  - ⏳ Sub-Phase 1C: 強化デコレータ（次回実装）
+  - ✅ Sub-Phase 1C: 強化デコレータ（実装完了、ブラウザ動作確認済み）
+  - ⏳ Sub-Phase 1D: セッションハイジャック対策（次回実装）
