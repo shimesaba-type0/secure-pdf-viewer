@@ -40,6 +40,7 @@ from database.models import (
     is_admin,
     create_admin_session,
     verify_admin_session,
+    admin_complete_logout,
 )
 from database.backup import BackupManager
 import threading
@@ -115,32 +116,49 @@ def require_admin_session(f):
                 )
 
             # Sub-Phase 1D: セッション環境検証と異常検出
-            from database.models import verify_session_environment, detect_session_anomalies
-            
+            from database.models import (
+                verify_session_environment,
+                detect_session_anomalies,
+            )
+
             # セッション環境の詳細検証
             env_result = verify_session_environment(session_id, client_ip, user_agent)
-            print(f"[SECURITY] Session environment check: {env_result['risk_level']} - {env_result['warnings']}")
-            
-            if not env_result['valid']:
+            print(
+                f"[SECURITY] Session environment check: {env_result['risk_level']} - {env_result['warnings']}"
+            )
+
+            if not env_result["valid"]:
                 session.clear()
                 return (
-                    render_template("error.html", error=f"セッションセキュリティ違反が検出されました: {', '.join(env_result['warnings'])}"),
+                    render_template(
+                        "error.html",
+                        error=f"セッションセキュリティ違反が検出されました: {', '.join(env_result['warnings'])}",
+                    ),
                     403,
                 )
-            
+
             # 異常パターン検出
-            anomaly_result = detect_session_anomalies(email, session_id, client_ip, user_agent)
-            print(f"[SECURITY] Session anomaly check: {anomaly_result['action_required']} - {anomaly_result['anomaly_types']}")
-            
-            if anomaly_result['action_required'] == 'block':
+            anomaly_result = detect_session_anomalies(
+                email, session_id, client_ip, user_agent
+            )
+            print(
+                f"[SECURITY] Session anomaly check: {anomaly_result['action_required']} - {anomaly_result['anomaly_types']}"
+            )
+
+            if anomaly_result["action_required"] == "block":
                 session.clear()
                 return (
-                    render_template("error.html", error=f"セッション異常が検出されました: {', '.join(anomaly_result['anomaly_types'])}"),
+                    render_template(
+                        "error.html",
+                        error=f"セッション異常が検出されました: {', '.join(anomaly_result['anomaly_types'])}",
+                    ),
                     403,
                 )
-            elif anomaly_result['action_required'] == 'warn':
+            elif anomaly_result["action_required"] == "warn":
                 # 警告レベルの場合は継続するが、ログに記録
-                print(f"[WARNING] Session anomaly warning for {email}: {anomaly_result['anomaly_types']}")
+                print(
+                    f"[WARNING] Session anomaly warning for {email}: {anomaly_result['anomaly_types']}"
+                )
 
             # 5. セッション検証時刻の更新（verify_admin_session内で実行済み）
             # セキュリティログ記録（将来実装）
@@ -1785,8 +1803,48 @@ def resend_otp():
 
 @app.route("/auth/logout")
 def logout():
-    session.clear()
-    return redirect(url_for("login"))
+    try:
+        # デバッグ: セッション内容の詳細確認
+        print(f"DEBUG: Logout process started")
+        print(f"DEBUG: Session keys: {list(session.keys())}")
+        
+        # 管理者セッションの場合は完全ログアウト処理を実行
+        session_id = session.get("session_id")  # "id" → "session_id" に修正
+        user_email = session.get("email")
+        
+        print(f"DEBUG: session_id = {session_id}")
+        print(f"DEBUG: user_email = {user_email}")
+        
+        if user_email:
+            admin_check = is_admin(user_email)
+            print(f"DEBUG: is_admin({user_email}) = {admin_check}")
+        
+        if session_id and user_email and is_admin(user_email):
+            print(
+                f"DEBUG: Admin logout detected for {user_email}, session_id: {session_id}"
+            )
+
+            # 管理者の完全ログアウト処理
+            logout_success = admin_complete_logout(user_email, session_id)
+
+            if logout_success:
+                print(f"DEBUG: Admin complete logout successful for {user_email}")
+            else:
+                print(f"WARNING: Admin complete logout failed for {user_email}")
+        else:
+            print(f"DEBUG: Skipping admin complete logout - session_id: {bool(session_id)}, user_email: {bool(user_email)}, is_admin: {is_admin(user_email) if user_email else False}")
+
+        # 通常のFlaskセッション削除
+        session.clear()
+
+        print(f"DEBUG: Session cleared for logout")
+        return redirect(url_for("login"))
+
+    except Exception as e:
+        print(f"ERROR: Logout process failed: {e}")
+        # エラーが発生してもセッションはクリアする
+        session.clear()
+        return redirect(url_for("login"))
 
 
 @app.route("/admin")
