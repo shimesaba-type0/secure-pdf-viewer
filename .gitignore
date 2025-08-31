@@ -238,3 +238,8 @@ config/backup_settings.json
 # Logs directory - ignore all log files but keep directory structure
 logs/*
 !logs/.gitkeep
+
+# Database files - ignore SQLite database files generated during development/testing
+database/main.db
+database/*.db
+instance/*.db
