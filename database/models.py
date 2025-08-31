@@ -293,6 +293,47 @@ def create_tables(db):
     """
     )
 
+    # CSRFトークンテーブル（TASK-021 Phase 2A）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS csrf_tokens (
+            token TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            is_used BOOLEAN DEFAULT FALSE
+        )
+    """
+    )
+
+    # レート制限テーブル（TASK-021 Phase 2B）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            endpoint TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            request_count INTEGER DEFAULT 1,
+            window_start TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(endpoint, user_id, window_start)
+        )
+    """
+    )
+
+    # セキュリティ違反ログテーブル（TASK-021 Phase 2B）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS security_violations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            violation_type TEXT NOT NULL,
+            details JSON NOT NULL,
+            ip_address TEXT,
+            created_at TEXT NOT NULL
+        )
+    """
+    )
+
     # インデックス作成
     create_indexes(db)
 

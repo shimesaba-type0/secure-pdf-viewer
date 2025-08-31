@@ -51,6 +51,15 @@ backup_manager = None
 from database.utils import RateLimitManager, is_ip_blocked
 from auth.passphrase import PassphraseManager
 from security.pdf_url_security import PDFURLSecurity
+from security.api_security import (
+    generate_csrf_token,
+    validate_csrf_token,
+    create_error_response,
+    add_security_headers,
+    apply_rate_limit,
+    log_security_violation,
+    cleanup_expired_csrf_tokens,
+)
 from config.pdf_security_settings import (
     get_pdf_security_config,
     initialize_pdf_security_settings,
@@ -69,6 +78,144 @@ from queue import Queue, Empty
 # JST = pytz.timezone('Asia/Tokyo')  # 廃止: config.timezoneを使用
 
 from functools import wraps
+
+
+def require_admin_api_access(f):
+    """管理者API専用デコレータ（TASK-021 Phase 2A: CSRF保護付き）
+
+    強化されたAPI保護機能：
+    1. 管理者セッション検証
+    2. レート制限適用
+    3. CSRF保護（POSTリクエスト）
+    4. セキュリティヘッダー追加
+    5. セキュリティ違反ログ記録
+    """
+
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # 1. 基本認証確認
+        if not session.get("authenticated"):
+            log_security_violation(
+                "unauthorized_api_access",
+                {"endpoint": request.endpoint, "method": request.method},
+                request.remote_addr,
+            )
+            response_data, status = create_error_response("unauthorized")
+            response = jsonify(response_data)
+            response.status_code = status
+            return add_security_headers(response)
+
+        email = session.get("email")
+        session_id = session.get("session_id")
+
+        # 2. 管理者権限確認
+        if not email or not is_admin(email):
+            log_security_violation(
+                "forbidden_api_access",
+                {
+                    "endpoint": request.endpoint,
+                    "email": email,
+                    "method": request.method,
+                },
+                request.remote_addr,
+            )
+            response_data, status = create_error_response("forbidden")
+            response = jsonify(response_data)
+            response.status_code = status
+            return add_security_headers(response)
+
+        # 3. レート制限確認
+        if not apply_rate_limit(request.endpoint, email):
+            log_security_violation(
+                "rate_limit_exceeded",
+                {"endpoint": request.endpoint, "email": email},
+                request.remote_addr,
+            )
+            response_data, status = create_error_response("too_many_requests")
+            response = jsonify(response_data)
+            response.status_code = status
+            return add_security_headers(response)
+
+        # 4. CSRF保護（POST、PUT、DELETE等）
+        if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+            csrf_token = request.headers.get("X-CSRF-Token") or request.form.get(
+                "csrf_token"
+            )
+            if not csrf_token or not validate_csrf_token(csrf_token, session_id):
+                log_security_violation(
+                    "csrf_validation_failed",
+                    {
+                        "endpoint": request.endpoint,
+                        "method": request.method,
+                        "email": email,
+                    },
+                    request.remote_addr,
+                )
+                response_data, status = create_error_response(
+                    "forbidden", "CSRF token validation failed"
+                )
+                response = jsonify(response_data)
+                response.status_code = status
+                return add_security_headers(response)
+
+        # 5. 管理者セッション検証（既存のrequire_admin_sessionロジック使用）
+        client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
+        if client_ip and "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+
+        user_agent = request.headers.get("User-Agent", "")
+        admin_session_data = verify_admin_session(session_id, client_ip, user_agent)
+
+        if not admin_session_data:
+            log_security_violation(
+                "invalid_admin_session",
+                {
+                    "endpoint": request.endpoint,
+                    "email": email,
+                    "session_id": session_id,
+                },
+                request.remote_addr,
+            )
+            response_data, status = create_error_response(
+                "unauthorized", "Invalid admin session"
+            )
+            response = jsonify(response_data)
+            response.status_code = status
+            return add_security_headers(response)
+
+        # 6. API関数実行
+        try:
+            result = f(*args, **kwargs)
+
+            # レスポンスがFlask Responseオブジェクトの場合
+            if isinstance(result, Response):
+                return add_security_headers(result)
+
+            # タプル形式の場合 (data, status_code)
+            if isinstance(result, tuple) and len(result) == 2:
+                data, status_code = result
+                response = jsonify(data)
+                response.status_code = status_code
+                return add_security_headers(response)
+
+            # 単純なデータの場合
+            response = jsonify(result) if not isinstance(result, Response) else result
+            return add_security_headers(response)
+
+        except Exception as e:
+            log_security_violation(
+                "api_execution_error",
+                {"endpoint": request.endpoint, "error": str(e), "email": email},
+                request.remote_addr,
+            )
+            response_data, status = create_error_response(
+                "bad_request", "API execution failed"
+            )
+            response = jsonify(response_data)
+            response.status_code = status
+            return add_security_headers(response)
+
+    return decorated_function
 
 
 def require_admin_session(f):
@@ -1064,6 +1211,16 @@ scheduler.add_job(
 )
 print(f"Security log cleanup scheduled for {cleanup_hour:02d}:00 daily")
 
+# CSRFトークンクリーンアップジョブ（TASK-021 Phase 2A）
+scheduler.add_job(
+    func=cleanup_expired_csrf_tokens,
+    trigger="interval",
+    hours=1,
+    id="csrf_token_cleanup",
+    replace_existing=True,
+)
+print("CSRF token cleanup scheduled every hour")
+
 # PDF URL Security instance
 pdf_security = PDFURLSecurity()
 
@@ -1807,18 +1964,18 @@ def logout():
         # デバッグ: セッション内容の詳細確認
         print(f"DEBUG: Logout process started")
         print(f"DEBUG: Session keys: {list(session.keys())}")
-        
+
         # 管理者セッションの場合は完全ログアウト処理を実行
         session_id = session.get("session_id")  # "id" → "session_id" に修正
         user_email = session.get("email")
-        
+
         print(f"DEBUG: session_id = {session_id}")
         print(f"DEBUG: user_email = {user_email}")
-        
+
         if user_email:
             admin_check = is_admin(user_email)
             print(f"DEBUG: is_admin({user_email}) = {admin_check}")
-        
+
         if session_id and user_email and is_admin(user_email):
             print(
                 f"DEBUG: Admin logout detected for {user_email}, session_id: {session_id}"
@@ -1832,7 +1989,9 @@ def logout():
             else:
                 print(f"WARNING: Admin complete logout failed for {user_email}")
         else:
-            print(f"DEBUG: Skipping admin complete logout - session_id: {bool(session_id)}, user_email: {bool(user_email)}, is_admin: {is_admin(user_email) if user_email else False}")
+            print(
+                f"DEBUG: Skipping admin complete logout - session_id: {bool(session_id)}, user_email: {bool(user_email)}, is_admin: {is_admin(user_email) if user_email else False}"
+            )
 
         # 通常のFlaskセッション削除
         session.clear()
@@ -2501,6 +2660,23 @@ def update_session_limits():
     return redirect(url_for("admin"))
 
 
+@app.route("/admin/api/csrf-token")
+@require_admin_session
+def get_csrf_token():
+    """管理者用CSRFトークン取得API"""
+    session_id = session.get("session_id")
+    if not session_id:
+        return jsonify({"error": "No active session"}), 401
+
+    try:
+        from security.api_security import get_csrf_token_for_session
+
+        csrf_token = get_csrf_token_for_session(session_id)
+        return jsonify({"csrf_token": csrf_token})
+    except Exception as e:
+        return jsonify({"error": "Failed to generate CSRF token"}), 500
+
+
 @app.route("/admin/api/session-limit-status")
 def get_session_limit_status():
     """セッション制限状況を取得"""
@@ -2847,6 +3023,7 @@ def get_session_info():
 
 
 @app.route("/admin/api/active-sessions")
+@require_admin_api_access
 def get_active_sessions():
     """管理画面用：アクティブセッション一覧を取得"""
     # セッション有効期限チェック
@@ -2977,6 +3154,7 @@ def get_active_sessions():
 
 
 @app.route("/admin/api/update-session-memo", methods=["POST"])
+@require_admin_api_access
 def update_session_memo():
     """セッションのメモを更新"""
     session_check = require_valid_session()
@@ -3033,6 +3211,7 @@ def update_session_memo():
 
 
 @app.route("/admin/api/pdf-security-settings", methods=["GET"])
+@require_admin_api_access
 def get_pdf_security_settings():
     """PDF セキュリティ設定を取得"""
     session_check = require_valid_session()
@@ -3047,6 +3226,7 @@ def get_pdf_security_settings():
 
 
 @app.route("/admin/api/pdf-security-settings", methods=["POST"])
+@require_admin_api_access
 def update_pdf_security_settings():
     """PDF セキュリティ設定を更新"""
     session_check = require_valid_session()
@@ -3094,6 +3274,7 @@ def update_pdf_security_settings():
 
 
 @app.route("/admin/api/pdf-security-validate", methods=["POST"])
+@require_admin_api_access
 def validate_pdf_security_settings():
     """PDF セキュリティ設定の妥当性チェック"""
     session_check = require_valid_session()
@@ -3720,6 +3901,7 @@ def cleanup_expired_schedules():
 
 # ブロックインシデント管理API
 @app.route("/admin/api/block-incidents")
+@require_admin_api_access
 def get_block_incidents():
     """ブロックインシデント一覧取得API"""
     # セッション有効期限チェック
@@ -3773,6 +3955,7 @@ def get_block_incidents():
 
 
 @app.route("/admin/api/incident-stats")
+@require_admin_api_access
 def get_incident_stats():
     """インシデント統計情報取得API"""
     # セッション有効期限チェック
@@ -3801,6 +3984,7 @@ def get_incident_stats():
 
 
 @app.route("/admin/api/incident-search", methods=["GET"])
+@require_admin_api_access
 def api_incident_search():
     """インシデントID検索API"""
     # セッション有効期限チェック
@@ -3851,6 +4035,7 @@ def api_incident_search():
 
 
 @app.route("/admin/api/resolve-incident", methods=["POST"])
+@require_admin_api_access
 def resolve_incident():
     """インシデント解除API"""
     # セッション有効期限チェック
