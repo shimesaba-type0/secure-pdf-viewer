@@ -104,15 +104,30 @@ def log_unauthorized_access(email, endpoint, ip_address):
    - ✅ 包括的テストコード追加（8テストケース）
    - ✅ ブラウザ動作確認完了（認証フロー・管理画面アクセス・セッション検証ログ確認済み）
 
-4. **Sub-Phase 1D: セッションハイジャック対策**
-   - セッションID再生成機能
-   - IP/ユーザーエージェント検証
-   - 異常パターン検出
+4. **Sub-Phase 1D: セッションハイジャック対策** ✅ **完了**
+   - ✅ セッションID再生成機能（`regenerate_admin_session_id`）
+   - ✅ IP/ユーザーエージェント検証強化（`verify_session_environment`）
+   - ✅ 異常パターン検出機能（`detect_session_anomalies`）
+   - ✅ マルチデバイス対応（3セッションまで許可、4セッション以上ブロック）
+   - ✅ 短時間大量セッション作成検出（5個以上/10分間でブロック）
+   - ✅ 管理者デコレータ統合（セキュリティ検証機能統合）
+   - ✅ 包括的テストコード実装（12テストケース全パス）
+   - ✅ 統一タイムゾーン処理対応
+   - ✅ ブラウザ動作確認完了（複数セッション検出、警告・ブロック機能確認済み）
 
-5. **Sub-Phase 1E: 完全ログアウト機能**
-   - `admin_complete_logout()` 関数実装
-   - 多層削除処理（admin_sessions, session_stats, OTP削除）
-   - ログアウトエンドポイント拡張
+5. **Sub-Phase 1E: 完全ログアウト機能** ✅ **完了**
+   - ✅ `admin_complete_logout()` 関数実装（多層削除処理）
+   - ✅ `cleanup_related_tokens()` 関数実装（トークンクリーンアップ）
+   - ✅ `invalidate_admin_session_completely()` 関数実装（完全無効化）
+   - ✅ ログアウトエンドポイント（/auth/logout）拡張（管理者検出・完全ログアウト統合）
+   - ✅ 多層削除処理実装（admin_sessions + session_stats + OTP削除）
+   - ✅ セキュリティログ記録（タイムスタンプ・詳細情報・削除結果）
+   - ✅ タイムゾーン統一対応（アプリケーション統一タイムスタンプ使用）
+   - ✅ エラーハンドリング実装（例外処理・安全なフォールバック）
+   - ✅ 包括的テストコード作成（10テストケース）
+   - ✅ 実関数動作確認完了（手動テスト・データベース確認）
+   - ✅ ブラウザ動作確認完了（ログイン→ログアウトフロー・完全削除・ログ出力確認）
+   - ✅ セッションキー名問題解決（session.get("id") → session.get("session_id")修正）
 
 6. **Sub-Phase 1F: 統合・動作確認**
    - エンドツーエンドテスト
@@ -193,18 +208,19 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - [ ] 不正アクセス試行が検知・記録される **← Phase 3で実装**
 - [x] 管理者セッションが強化管理される **← Sub-Phase 1Aで完了**
 - [x] エラーハンドリングが適切に動作する *(TASK-019で基本完了)*
-- [ ] 権限昇格攻撃が防止される **← Sub-Phase 1C/1Dで強化実装**
+- [x] 権限昇格攻撃が防止される **← Sub-Phase 1C/1Dで強化実装完了**
 
 ### セキュリティテスト項目
 1. **権限制御テスト**
-   - [ ] 管理者権限なしでの管理画面アクセス拒否
-   - [ ] 権限昇格攻撃の防止
-   - [ ] セッション固定攻撃の防止
+   - [x] 管理者権限なしでの管理画面アクセス拒否 *(Sub-Phase 1Dで確認済み)*
+   - [x] 権限昇格攻撃の防止 *(Sub-Phase 1Dで確認済み)*
+   - [x] セッション固定攻撃の防止 *(Sub-Phase 1Dで確認済み)*
+   - [x] セッションハイジャック攻撃の防止 *(Sub-Phase 1Dで確認済み)*
 
 2. **認証テスト**
    - [x] 無効なセッションでのアクセス拒否 *(Sub-Phase 1Aで確認済み)*
    - [x] セッション有効期限の確認 *(Sub-Phase 1Aで確認済み)*
-   - [ ] 管理者ログアウト後のセッション無効化 **← Sub-Phase 1Eで実装**
+   - [x] 管理者ログアウト後のセッション無効化 **← Sub-Phase 1Eで完了**
 
 3. **ログテスト**
    - [ ] 管理者操作のログ記録
@@ -220,22 +236,46 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 1. ~~**auth/admin_auth.py** (新規)~~ → **database/models.py** *(TASK-019で実装済み)*
    - ~~管理者権限チェック機能~~ ✅ 完了
 
-2. **database/models.py** ✅ **Sub-Phase 1A完了**
+2. **database/models.py** ✅ **Sub-Phase 1E完了**
    - 管理者関連のデータベース操作
    - ✅ **admin_sessions テーブル作成・CRUD関数実装完了**
+   - ✅ **セッションハイジャック対策関数実装完了（Sub-Phase 1D）**
+     - `regenerate_admin_session_id()`: セッションID再生成
+     - `verify_session_environment()`: セッション環境検証
+     - `detect_session_anomalies()`: 異常パターン検出
+   - ✅ **完全ログアウト関数実装完了（Sub-Phase 1E）**
+     - `admin_complete_logout()`: 管理者完全ログアウト処理
+     - `cleanup_related_tokens()`: セッション関連トークンクリーンアップ
+     - `invalidate_admin_session_completely()`: 管理者セッション完全無効化
    - **admin_actions テーブル操作関数 (Phase 3で追加)**
 
-3. **app.py** ✅ **Sub-Phase 1C完了**
+3. **app.py** ✅ **Sub-Phase 1E完了**
    - ~~ルートへの権限チェック適用~~ ✅ 完了（TASK-019）
    - ✅ **セッション管理強化実装完了（Sub-Phase 1B/1C）**
    - ✅ **require_admin_session デコレータ実装（Sub-Phase 1C）**
    - ✅ **強化セキュリティチェック機能統合（Sub-Phase 1C）**
+   - ✅ **セッションハイジャック対策機能統合（Sub-Phase 1D）**
+     - セッション環境検証とデコレータ統合
+     - 異常検出機能とエラーハンドリング統合
+   - ✅ **完全ログアウト機能統合（Sub-Phase 1E）**
+     - 管理者セッション検出・完全ログアウト処理統合
+     - セッションキー名問題解決（session.get("id") → session.get("session_id")）
 
 4. **tests/test_enhanced_admin_decorator.py** ✅ **Sub-Phase 1C追加**
    - ✅ **強化デコレータの包括的テストコード（8テストケース）**
    - ✅ **セッション環境検証・統合テスト・エラーハンドリング確認**
 
-5. **security/audit_logger.py** (新規)
+5. **tests/test_session_hijacking_protection.py** ✅ **Sub-Phase 1D追加**
+   - ✅ **セッションハイジャック対策の包括的テストコード（12テストケース）**
+   - ✅ **セッションID再生成・環境検証・異常検出の全機能テスト**
+   - ✅ **マルチデバイス対応とブロック機能の検証**
+
+6. **tests/test_admin_complete_logout.py** ✅ **Sub-Phase 1E追加**
+   - ✅ **完全ログアウト機能の包括的テストコード（10テストケース）**
+   - ✅ **多層削除処理・トークンクリーンアップ・完全無効化の全機能テスト**
+   - ✅ **エラーハンドリング・複数セッション環境・タイムゾーン一貫性の検証**
+
+7. **security/audit_logger.py** (新規)
    - 監査ログ機能 (Phase 3で実装予定)
 
 ## 関連チケット
@@ -250,11 +290,12 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - [x] セキュリティ設計完了 (`docs/admin-session-security-design.md`)
 - [x] 実装開始（Sub-Phase 1A完了）
 - [x] セキュリティテスト（Sub-Phase 1A/1B/1C分完了）
-- [ ] 完了（Sub-Phase 1D〜1F残り）
+- [ ] 完了（Sub-Phase 1E〜1F残り）
 
 ### 進捗状況
-- **Phase 1 セッション管理強化**: 3/6フェーズ完了（50.0%）
+- **Phase 1 セッション管理強化**: 5/6フェーズ完了（83.3%）
   - ✅ Sub-Phase 1A: データベース基盤整備
   - ✅ Sub-Phase 1B: 管理者セッション作成・検証（データベースロック問題解決、ブラウザ動作確認済み）
   - ✅ Sub-Phase 1C: 強化デコレータ（実装完了、ブラウザ動作確認済み）
-  - ⏳ Sub-Phase 1D: セッションハイジャック対策（次回実装）
+  - ✅ Sub-Phase 1D: セッションハイジャック対策（実装完了、ブラウザ動作確認済み）
+  - ✅ Sub-Phase 1E: 完全ログアウト機能（実装完了、ブラウザ動作確認済み、セッションキー問題解決済み）
