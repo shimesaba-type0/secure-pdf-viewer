@@ -334,6 +334,31 @@ def create_tables(db):
     """
     )
 
+    # 管理者操作監査ログテーブル（TASK-021 Phase 3A）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_email TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            resource_type TEXT,
+            resource_id TEXT,
+            action_details JSON,
+            before_state JSON,
+            after_state JSON,
+            ip_address TEXT NOT NULL,
+            user_agent TEXT,
+            session_id TEXT,
+            admin_session_id TEXT,
+            created_at TEXT NOT NULL,
+            risk_level TEXT DEFAULT 'low',
+            success BOOLEAN DEFAULT TRUE,
+            error_message TEXT,
+            request_id TEXT
+        )
+    """
+    )
+
     # インデックス作成
     create_indexes(db)
 
@@ -365,6 +390,16 @@ def create_indexes(db):
         "CREATE INDEX IF NOT EXISTS idx_admin_sessions_created_at ON admin_sessions(created_at)",
         "CREATE INDEX IF NOT EXISTS idx_admin_sessions_last_verified_at ON admin_sessions(last_verified_at)",
         "CREATE INDEX IF NOT EXISTS idx_admin_sessions_is_active ON admin_sessions(is_active)",
+        # 管理者操作監査ログ用インデックス（TASK-021 Phase 3A）
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_admin_email ON admin_actions(admin_email)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_action_type ON admin_actions(action_type)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_resource_type ON admin_actions(resource_type)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_created_at ON admin_actions(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_risk_level ON admin_actions(risk_level)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_session_id ON admin_actions(admin_session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_ip_address ON admin_actions(ip_address)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_email_time ON admin_actions(admin_email, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_admin_actions_type_time ON admin_actions(action_type, created_at)",
     ]
 
     for index_sql in indexes:
@@ -2010,7 +2045,7 @@ def admin_complete_logout(admin_email, session_id):
     """
     try:
         from database import get_db
-        
+
         with get_db() as conn:
             # 1. admin_sessionsテーブルから削除前に存在チェック
             cursor = conn.execute(
@@ -2020,11 +2055,14 @@ def admin_complete_logout(admin_email, session_id):
             session_exists = cursor.fetchone()
 
             if not session_exists:
-                print(f"Session not found for admin logout: {session_id} for {admin_email}")
+                print(
+                    f"Session not found for admin logout: {session_id} for {admin_email}"
+                )
                 return False
 
             # ログ記録用の現在時刻
             from database.timezone_utils import get_current_app_timestamp
+
             logout_time = get_current_app_timestamp()
 
             # 2. admin_sessionsテーブルからの削除
@@ -2086,7 +2124,7 @@ def cleanup_related_tokens(session_id):
     """
     try:
         from database import get_db
-        
+
         with get_db() as conn:
             # OTPトークンのクリーンアップ
             try:
@@ -2131,11 +2169,12 @@ def invalidate_admin_session_completely(session_id):
     """
     try:
         from database import get_db
-        
+
         with get_db() as conn:
             # 管理者セッションの確認
             cursor = conn.execute(
-                "SELECT admin_email FROM admin_sessions WHERE session_id = ?", (session_id,)
+                "SELECT admin_email FROM admin_sessions WHERE session_id = ?",
+                (session_id,),
             )
             session_info = cursor.fetchone()
 
@@ -2161,3 +2200,366 @@ def invalidate_admin_session_completely(session_id):
     except Exception as e:
         print(f"invalidate_admin_session_completely error: {e}")
         return False
+
+
+# ===== 管理者監査ログ機能 (Phase 3A) =====
+
+
+def log_admin_action(
+    admin_email,
+    action_type,
+    resource_type=None,
+    resource_id=None,
+    action_details=None,
+    before_state=None,
+    after_state=None,
+    ip_address=None,
+    user_agent=None,
+    session_id=None,
+    admin_session_id=None,
+    success=True,
+    error_message=None,
+    request_id=None,
+):
+    """
+    管理者操作をログに記録
+
+    Args:
+        admin_email (str): 管理者メールアドレス
+        action_type (str): 操作種別
+        resource_type (str): リソース種別
+        resource_id (str): リソースID
+        action_details (dict): 操作詳細
+        before_state (dict): 操作前状態
+        after_state (dict): 操作後状態
+        ip_address (str): IPアドレス
+        user_agent (str): ユーザーエージェント
+        session_id (str): セッションID
+        admin_session_id (str): 管理者セッションID
+        success (bool): 操作成功フラグ
+        error_message (str): エラーメッセージ
+        request_id (str): リクエスト追跡ID
+
+    Returns:
+        bool: 記録成功時True
+    """
+    if not admin_email or not action_type:
+        print("log_admin_action: admin_email and action_type are required")
+        return False
+
+    try:
+        from database import get_db
+        import json
+        from config.timezone import get_app_datetime_string
+        import secrets
+
+        with get_db() as db:
+            # リクエストIDが未設定の場合は生成
+            if not request_id:
+                request_id = secrets.token_urlsafe(16)
+
+            # リスクレベルを自動判定
+            risk_level = get_risk_level_for_action(action_type)
+
+            # JSONデータの準備
+            action_details_json = json.dumps(action_details) if action_details else None
+            before_state_json = json.dumps(before_state) if before_state else None
+            after_state_json = json.dumps(after_state) if after_state else None
+
+            # ログ記録
+            insert_with_app_timestamp(
+                db,
+                "admin_actions",
+                [
+                    "admin_email",
+                    "action_type",
+                    "resource_type",
+                    "resource_id",
+                    "action_details",
+                    "before_state",
+                    "after_state",
+                    "ip_address",
+                    "user_agent",
+                    "session_id",
+                    "admin_session_id",
+                    "risk_level",
+                    "success",
+                    "error_message",
+                    "request_id",
+                ],
+                [
+                    admin_email,
+                    action_type,
+                    resource_type,
+                    resource_id,
+                    action_details_json,
+                    before_state_json,
+                    after_state_json,
+                    ip_address,
+                    user_agent,
+                    session_id,
+                    admin_session_id,
+                    risk_level,
+                    success,
+                    error_message,
+                    request_id,
+                ],
+                timestamp_columns=["created_at"],
+            )
+
+            db.commit()
+
+            print(f"Admin action logged: {admin_email} -> {action_type} ({risk_level})")
+            return True
+
+    except sqlite3.Error as e:
+        print(f"log_admin_action database error: {e}")
+        return False
+    except Exception as e:
+        print(f"log_admin_action error: {e}")
+        return False
+
+
+def get_admin_actions(
+    admin_email=None,
+    action_type=None,
+    resource_type=None,
+    start_date=None,
+    end_date=None,
+    risk_level=None,
+    success=None,
+    page=1,
+    limit=50,
+):
+    """
+    管理者監査ログを取得
+
+    Args:
+        admin_email (str): 管理者メールでフィルタ
+        action_type (str): 操作種別でフィルタ
+        resource_type (str): リソース種別でフィルタ
+        start_date (str): 開始日時でフィルタ
+        end_date (str): 終了日時でフィルタ
+        risk_level (str): リスクレベルでフィルタ
+        success (bool): 成功/失敗でフィルタ
+        page (int): ページ番号
+        limit (int): 1ページあたりの件数
+
+    Returns:
+        dict: {actions: list, total: int, page: int, limit: int}
+    """
+    try:
+        from database import get_db
+
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            # WHERE句とパラメータの構築
+            where_clauses = []
+            params = []
+
+            if admin_email:
+                where_clauses.append("admin_email = ?")
+                params.append(admin_email)
+
+            if action_type:
+                where_clauses.append("action_type = ?")
+                params.append(action_type)
+
+            if resource_type:
+                where_clauses.append("resource_type = ?")
+                params.append(resource_type)
+
+            if start_date:
+                where_clauses.append("created_at >= ?")
+                params.append(start_date)
+
+            if end_date:
+                where_clauses.append("created_at <= ?")
+                params.append(end_date)
+
+            if risk_level:
+                where_clauses.append("risk_level = ?")
+                params.append(risk_level)
+
+            if success is not None:
+                where_clauses.append("success = ?")
+                params.append(success)
+
+            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+            # 総件数取得
+            count_sql = f"SELECT COUNT(*) FROM admin_actions {where_sql}"
+            total = db.execute(count_sql, params).fetchone()[0]
+
+            # データ取得（ページネーション）
+            offset = (page - 1) * limit
+            data_sql = f"""
+                SELECT * FROM admin_actions {where_sql} 
+                ORDER BY created_at DESC 
+                LIMIT ? OFFSET ?
+            """
+
+            actions = db.execute(data_sql, params + [limit, offset]).fetchall()
+
+            return {
+                "actions": [dict(action) for action in actions],
+                "total": total,
+                "page": page,
+                "limit": limit,
+            }
+
+    except sqlite3.Error as e:
+        print(f"get_admin_actions database error: {e}")
+        return {"actions": [], "total": 0, "page": page, "limit": limit}
+    except Exception as e:
+        print(f"get_admin_actions error: {e}")
+        return {"actions": [], "total": 0, "page": page, "limit": limit}
+
+
+def get_admin_action_stats(period="7d", group_by="action_type"):
+    """
+    管理者操作統計を取得
+
+    Args:
+        period (str): 集計期間 ("7d", "30d", "90d")
+        group_by (str): グループ化項目 ("action_type", "risk_level", "admin_email")
+
+    Returns:
+        dict: {stats: list, total: int, period: str}
+    """
+    try:
+        from database import get_db
+        from config.timezone import get_app_now, add_app_timedelta
+
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            # 期間の計算
+            if period == "7d":
+                days = -7
+            elif period == "30d":
+                days = -30
+            elif period == "90d":
+                days = -90
+            else:
+                days = -7
+
+            start_time = add_app_timedelta(get_app_now(), days=days)
+            start_date_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            # GROUP BY句の設定
+            valid_group_by = [
+                "action_type",
+                "risk_level",
+                "admin_email",
+                "resource_type",
+            ]
+            if group_by not in valid_group_by:
+                group_by = "action_type"
+
+            # 統計クエリ
+            sql = f"""
+                SELECT {group_by}, COUNT(*) as count, 
+                       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as success_count,
+                       SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as error_count
+                FROM admin_actions 
+                WHERE created_at >= ?
+                GROUP BY {group_by}
+                ORDER BY count DESC
+            """
+
+            stats = db.execute(sql, [start_date_str]).fetchall()
+
+            # 総件数
+            total_sql = "SELECT COUNT(*) FROM admin_actions WHERE created_at >= ?"
+            total = db.execute(total_sql, [start_date_str]).fetchone()[0]
+
+            return {
+                "stats": [dict(stat) for stat in stats],
+                "total": total,
+                "period": period,
+                "group_by": group_by,
+            }
+
+    except sqlite3.Error as e:
+        print(f"get_admin_action_stats database error: {e}")
+        return {"stats": [], "total": 0, "period": period, "group_by": group_by}
+    except Exception as e:
+        print(f"get_admin_action_stats error: {e}")
+        return {"stats": [], "total": 0, "period": period, "group_by": group_by}
+
+
+def get_risk_level_for_action(action_type):
+    """
+    操作種別からリスクレベルを判定
+
+    Args:
+        action_type (str): 操作種別
+
+    Returns:
+        str: リスクレベル ("low", "medium", "high", "critical")
+    """
+    risk_mapping = {
+        # 低リスク
+        "admin_login": "low",
+        "user_view": "low",
+        "log_view": "low",
+        "setting_view": "low",
+        "incident_view": "low",
+        # 中リスク
+        "user_update": "medium",
+        "setting_update": "medium",
+        "log_export": "medium",
+        "api_call": "medium",
+        "session_regenerate": "medium",
+        # 高リスク
+        "user_delete": "high",
+        "permission_change": "high",
+        "backup_restore": "high",
+        "emergency_stop": "high",
+        "incident_resolve": "high",
+        "admin_logout": "high",
+        # 重要リスク
+        "system_maintenance": "critical",
+        "security_config": "critical",
+        "bulk_operation": "critical",
+        "backup_create": "critical",
+        "configuration_import": "critical",
+        "pdf_security_config": "critical",
+    }
+
+    return risk_mapping.get(action_type, "medium")
+
+
+def delete_admin_actions_before_date(cutoff_date):
+    """
+    指定日時より古い管理者操作ログを削除（クリーンアップ用）
+
+    Args:
+        cutoff_date (str): カットオフ日時
+
+    Returns:
+        int: 削除された件数
+    """
+    try:
+        from database import get_db
+
+        with get_db() as db:
+            result = db.execute(
+                "DELETE FROM admin_actions WHERE created_at < ?",
+                [cutoff_date],
+            )
+
+            deleted_count = result.rowcount
+            db.commit()
+
+            print(f"Deleted {deleted_count} admin action logs before {cutoff_date}")
+            return deleted_count
+
+    except sqlite3.Error as e:
+        print(f"delete_admin_actions_before_date database error: {e}")
+        return 0
+    except Exception as e:
+        print(f"delete_admin_actions_before_date error: {e}")
+        return 0
