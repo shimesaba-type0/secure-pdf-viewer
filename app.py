@@ -6120,6 +6120,238 @@ def admin_api_audit_log_action_details(action_id):
         return jsonify({"error": "詳細情報の取得に失敗しました"}), 500
 
 
+# TASK-021 Sub-Phase 3D: セキュリティダッシュボード
+@app.route("/admin/security-dashboard")
+@require_admin_session
+def admin_security_dashboard():
+    """
+    セキュリティ監視ダッシュボード
+    
+    表示内容:
+    - リアルタイム異常検出状況
+    - ログ完全性検証状況  
+    - リスクスコア推移
+    - セキュリティアラート履歴
+    """
+    try:
+        return render_template("admin/security_dashboard.html")
+    except Exception as e:
+        logger.error(f"セキュリティダッシュボード表示エラー: {e}")
+        flash("セキュリティダッシュボードの表示に失敗しました", "error")
+        return redirect(url_for("admin"))
+
+
+@app.route("/admin/api/security/anomaly-status")
+@require_admin_session
+def get_anomaly_status():
+    """異常検出状況API"""
+    try:
+        from security.anomaly_detector import detect_admin_anomalies
+        
+        admin_email = request.args.get('admin_email')
+        timeframe = int(request.args.get('timeframe', 3600))
+        
+        if not admin_email:
+            # 全管理者の異常検出サマリーを返却
+            conn = sqlite3.connect(get_db_path())
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT admin_email 
+                FROM admin_actions 
+                WHERE created_at >= datetime('now', '-1 hour')
+            """)
+            admin_emails = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            anomaly_summary = []
+            for email in admin_emails:
+                result = detect_admin_anomalies(email, timeframe)
+                anomaly_summary.append({
+                    "admin_email": email,
+                    "anomalies_detected": result["anomalies_detected"],
+                    "risk_score": result["risk_score"],
+                    "anomaly_count": len(result["anomaly_types"])
+                })
+            
+            return jsonify({
+                "success": True,
+                "summary": anomaly_summary,
+                "total_admins": len(admin_emails),
+                "anomalous_admins": len([s for s in anomaly_summary if s["anomalies_detected"]])
+            })
+        else:
+            # 指定管理者の詳細異常検出結果
+            result = detect_admin_anomalies(admin_email, timeframe)
+            return jsonify({"success": True, "data": result})
+            
+    except Exception as e:
+        logger.error(f"異常検出状況取得エラー: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/security/log-integrity")
+@require_admin_session
+def get_log_integrity_status():
+    """ログ完全性検証状況API"""
+    try:
+        from security.integrity import verify_all_logs_integrity
+        
+        batch_size = int(request.args.get('batch_size', 1000))
+        result = verify_all_logs_integrity(batch_size)
+        
+        integrity_percentage = 0
+        if result["total_logs"] > 0:
+            integrity_percentage = (result["valid_logs"] / result["total_logs"]) * 100
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                **result,
+                "integrity_percentage": round(integrity_percentage, 2),
+                "has_issues": result["invalid_logs"] > 0 or result["unverified_logs"] > 0
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"ログ完全性状況取得エラー: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/security/trigger-anomaly-scan", methods=["POST"])
+@require_admin_session
+def trigger_anomaly_scan():
+    """異常検出スキャン実行API"""
+    try:
+        from security.anomaly_detector import detect_admin_anomalies, trigger_security_alert
+        
+        data = request.get_json() or {}
+        admin_email = data.get('admin_email')
+        timeframe = data.get('timeframe', 3600)
+        send_alerts = data.get('send_alerts', False)
+        
+        if not admin_email:
+            return jsonify({"success": False, "error": "admin_email is required"}), 400
+        
+        # 異常検出実行
+        anomaly_result = detect_admin_anomalies(admin_email, timeframe)
+        
+        # アラート送信（要求された場合）
+        alert_result = None
+        if send_alerts and anomaly_result["anomalies_detected"]:
+            alert_result = trigger_security_alert(anomaly_result)
+        
+        return jsonify({
+            "success": True,
+            "anomaly_result": anomaly_result,
+            "alert_result": alert_result
+        })
+        
+    except Exception as e:
+        logger.error(f"異常検出スキャン実行エラー: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/security/alerts")
+@require_admin_session
+def get_security_alerts():
+    """セキュリティアラート履歴API"""
+    try:
+        # セキュリティアラートをログから抽出
+        # TODO: 将来的には専用のalerts テーブルを作成することを検討
+        
+        # 現在はログファイルからSECURITY_ALERTを検索
+        import re
+        from datetime import datetime, timedelta
+        
+        alerts = []
+        log_file_path = "logs/app.log"
+        
+        try:
+            # 過去24時間のアラートを検索
+            cutoff_time = datetime.now() - timedelta(hours=24)
+            
+            with open(log_file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if "SECURITY_ALERT:" in line:
+                        try:
+                            # ログ行からアラート情報を抽出
+                            match = re.search(r'SECURITY_ALERT: (SEC_\w+) - (\w+) - admin=([^,]+), risk=(\d+), types=\[(.*?)\]', line)
+                            if match:
+                                alert_id, severity, admin_email, risk_score, anomaly_types = match.groups()
+                                
+                                # タイムスタンプを抽出
+                                timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
+                                timestamp = timestamp_match.group(1) if timestamp_match else ""
+                                
+                                alerts.append({
+                                    "alert_id": alert_id,
+                                    "severity": severity.lower(),
+                                    "admin_email": admin_email,
+                                    "risk_score": int(risk_score),
+                                    "anomaly_types": [t.strip().strip("'\"") for t in anomaly_types.split(',') if t.strip()],
+                                    "timestamp": timestamp
+                                })
+                        except Exception as parse_error:
+                            logger.warning(f"アラート行解析エラー: {parse_error}")
+                            continue
+                            
+        except FileNotFoundError:
+            logger.warning(f"ログファイルが見つかりません: {log_file_path}")
+        
+        # 最新のアラートを先頭に並び替え
+        alerts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        # 統計情報を計算
+        alert_stats = {
+            "total_alerts": len(alerts),
+            "critical_alerts": len([a for a in alerts if a["severity"] == "critical"]),
+            "high_alerts": len([a for a in alerts if a["severity"] == "high"]),
+            "medium_alerts": len([a for a in alerts if a["severity"] == "medium"])
+        }
+        
+        return jsonify({
+            "success": True,
+            "alerts": alerts[:50],  # 最新50件を返却
+            "stats": alert_stats
+        })
+        
+    except Exception as e:
+        logger.error(f"セキュリティアラート履歴取得エラー: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/admin/api/security/integrity-check", methods=["POST"])
+@require_admin_session
+def trigger_integrity_check():
+    """ログ完全性検証実行API"""
+    try:
+        from security.integrity import verify_all_logs_integrity, add_checksum_to_existing_logs
+        
+        data = request.get_json() or {}
+        batch_size = data.get('batch_size', 1000)
+        add_missing_checksums = data.get('add_missing_checksums', False)
+        
+        results = {}
+        
+        # チェックサム未設定ログに追加（要求された場合）
+        if add_missing_checksums:
+            checksum_result = add_checksum_to_existing_logs()
+            results["checksum_addition"] = checksum_result
+        
+        # 全ログの完全性検証実行
+        integrity_result = verify_all_logs_integrity(batch_size)
+        results["integrity_verification"] = integrity_result
+        
+        return jsonify({
+            "success": True,
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"ログ完全性検証実行エラー: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # 起動時に期限切れ設定をクリーンアップ
     cleanup_expired_schedules()

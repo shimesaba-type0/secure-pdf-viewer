@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple, Optional
 from flask import Response
 from database.timezone_utils import get_current_app_timestamp
+
 # get_db_path関数は実行時にapp.pyからインポートする
 
 
@@ -36,6 +37,7 @@ def generate_csrf_token(session_id: str) -> str:
     # データベースに保存
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
 
@@ -78,6 +80,7 @@ def validate_csrf_token(token: str, session_id: str) -> bool:
 
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -224,6 +227,7 @@ def apply_rate_limit(endpoint: str, user_id: str) -> bool:
     """
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
 
@@ -305,6 +309,7 @@ def cleanup_expired_csrf_tokens():
     """
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
 
@@ -335,6 +340,7 @@ def get_csrf_token_for_session(session_id: str) -> Optional[str]:
     """
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -376,6 +382,7 @@ def log_security_violation(
     """
     try:
         from app import get_db_path
+
         conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
 
