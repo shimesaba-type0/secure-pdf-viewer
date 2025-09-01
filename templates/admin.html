@@ -1,0 +1,1254 @@
+{% extends "layout.html" %}
+
+{% block title %}管理画面 - Secure PDF Viewer{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+<script src="{{ url_for('static', filename='js/backup.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h2>管理者ダッシュボード</h2>
+    
+    {% if scheduled_invalidation_datetime_formatted %}
+    <div class="session-invalidation-banner">
+        <div class="banner-content">
+            <div class="banner-icon">⚠️</div>
+            <div class="banner-text">
+                <strong>セッション無効化予定</strong><br>
+                <span class="schedule-time">{{ scheduled_invalidation_datetime_formatted }}</span> に全セッションが自動無効化されます
+            </div>
+            <div class="banner-actions">
+                <button type="button" class="btn btn-sm btn-secondary" onclick="clearInvalidationSchedule()">
+                    解除
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <div class="dashboard-grid">
+        <div class="card">
+            <h3>アクセス状況</h3>
+            <div class="stat">
+                <span class="stat-number" id="dashboardActiveCount">-</span>
+                <span class="stat-label">現在のアクセス数</span>
+            </div>
+            <div class="access-details">
+                <div class="access-item">
+                    <span class="access-icon">📱</span>
+                    <span class="access-count" id="dashboardMobileCount">0</span>
+                    <span class="access-label">スマホ</span>
+                </div>
+                <div class="access-item">
+                    <span class="access-icon">📱</span>
+                    <span class="access-count" id="dashboardTabletCount">0</span>
+                    <span class="access-label">タブレット</span>
+                </div>
+                <div class="access-item">
+                    <span class="access-icon">💻</span>
+                    <span class="access-count" id="dashboardDesktopCount">0</span>
+                    <span class="access-label">PC</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>システム状態</h3>
+            <div class="status-indicator status-active">
+                <span>運用中</span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>公開状況</h3>
+            
+            {% if current_published_pdf %}
+                <!-- 現在公開中 -->
+                <div style="margin-bottom: 0.5rem;">
+                    <span class="status-badge status-active">公開中</span>
+                </div>
+                {% if publish_start_formatted %}
+                <p>開始: {{ publish_start_formatted }}</p>
+                {% endif %}
+                
+                {% if publish_end_datetime_formatted %}
+                <p>予定終了: {{ publish_end_datetime_formatted }}</p>
+                <small style="color: #27ae60; font-size: 0.85em;">自動停止設定済み</small>
+                {% else %}
+                <p>終了: 未設定（無制限）</p>
+                <small style="color: #666; font-size: 0.85em;">手動停止または下記フォームで設定</small>
+                {% endif %}
+            {% else %}
+                <!-- 現在非公開 -->
+                <div style="margin-bottom: 0.5rem;">
+                    <span class="status-badge status-stopped">停止中</span>
+                </div>
+                {% if last_unpublish_formatted %}
+                <p>最終停止: {{ last_unpublish_formatted }}</p>
+                {% else %}
+                <p>まだ公開されていません</p>
+                {% endif %}
+                
+                {% if publish_end_datetime_formatted %}
+                <p>次回終了予定: {{ publish_end_datetime_formatted }}</p>
+                <small style="color: #f39c12; font-size: 0.85em;">自動停止設定済み</small>
+                {% else %}
+                <small style="color: #666; font-size: 0.85em;">下記フォームで自動停止時刻を設定可能</small>
+                {% endif %}
+            {% endif %}
+        </div>
+        
+        <div class="card">
+            <h3>クイックアクション</h3>
+            <a href="/admin/security-dashboard" target="_blank" class="btn btn-danger" style="margin-bottom: 10px;">
+                🛡️ セキュリティ監視ダッシュボード
+            </a>
+            <small class="help-text" style="display: block; margin-bottom: 15px;">
+                リアルタイムセキュリティ監視・異常検出・ログ完全性検証
+            </small>
+            <a href="/admin/audit-logs" target="_blank" class="btn btn-info" style="margin-bottom: 10px;">
+                📊 監査ログ分析
+            </a>
+            <small class="help-text" style="display: block; margin-bottom: 15px;">
+                管理者操作の監査ログを分析・エクスポート
+            </small>
+            <button class="btn btn-danger" onclick="emergencyStop()">
+                ⚠️ 緊急停止
+            </button>
+            <small class="help-text">
+                全PDF公開停止 + 全セッション無効化を実行
+            </small>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>PDFファイル管理</h3>
+        <div class="pdf-upload-section">
+            <div class="upload-container">
+                <h4>PDFファイルアップロード</h4>
+                <form action="/admin/upload-pdf" method="post" enctype="multipart/form-data" class="upload-form">
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <div class="upload-icon">📁</div>
+                            <p>PDFファイルをドラッグ&ドロップまたはクリックして選択</p>
+                            <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" style="display: none;">
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('pdfFile').click()">ファイルを選択</button>
+                        </div>
+                    </div>
+                    <div class="upload-info" id="uploadInfo" style="display: none;">
+                        <p>選択されたファイル: <span id="fileName"></span></p>
+                        <p>ファイルサイズ: <span id="fileSize"></span></p>
+                    </div>
+                    <div class="upload-actions">
+                        <button type="submit" class="btn btn-success" id="uploadBtn" disabled>アップロード</button>
+                        <button type="button" class="btn btn-secondary" id="clearBtn" onclick="clearSelection()" disabled>クリア</button>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="pdf-list">
+                <h4>アップロード済みPDFファイル</h4>
+                <div class="file-list">
+                    {% if pdf_files %}
+                        {% for file in pdf_files %}
+                        <div class="file-item">
+                            <div class="file-info">
+                                <span class="file-name">{{ file.name }}</span>
+                                <span class="file-size">{{ file.size }}</span>
+                                <span class="file-date">{{ file.upload_date }}</span>
+                                {% if file.is_published %}
+                                <span class="published-badge">📋 公開中</span>
+                                {% endif %}
+                            </div>
+                            <div class="file-actions">
+                                <button class="btn btn-info btn-sm" onclick="previewPDF('/admin/preview-pdf/{{ file.id }}')">プレビュー</button>
+                                {% if file.is_published %}
+                                <button class="btn btn-warning btn-sm" onclick="unpublishPDF('{{ file.id }}')">公開停止</button>
+                                {% else %}
+                                <button class="btn btn-success btn-sm" onclick="publishPDF('{{ file.id }}')">公開設定</button>
+                                {% endif %}
+                                <button class="btn btn-danger btn-sm" onclick="deletePDF('{{ file.id }}')">削除</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="no-files">アップロードされたPDFファイルはありません</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>事前共有パスフレーズ設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-passphrase" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="newPassphrase">新しいパスフレーズ:</label>
+                    <div class="password-input-container">
+                        <input type="password" id="newPassphrase" name="new_passphrase" 
+                               class="form-control" 
+                               minlength="32" maxlength="128" 
+                               pattern="[0-9a-zA-Z_-]+" 
+                               title="32-128文字、英数字・アンダースコア・ハイフンのみ使用可能"
+                               placeholder="32文字以上128文字以下のパスフレーズを入力">
+                        <button type="button" class="password-toggle-btn" id="toggleNewPassphrase">
+                            <span class="toggle-text">表示</span>
+                        </button>
+                    </div>
+                    <div class="char-counter" id="passphraseCharCounter">0 / 128 文字</div>
+                    <small class="form-text">
+                        パスフレーズを変更すると、全ユーザーが強制ログアウトされます。
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassphrase">パスフレーズの確認:</label>
+                    <div class="password-input-container">
+                        <input type="password" id="confirmPassphrase" name="confirm_passphrase" 
+                               class="form-control" 
+                               placeholder="同じパスフレーズをもう一度入力">
+                        <button type="button" class="password-toggle-btn" id="toggleConfirmPassphrase">
+                            <span class="toggle-text">表示</span>
+                        </button>
+                    </div>
+                    <small class="form-text">確認のため、同じパスフレーズを再入力してください。</small>
+                </div>
+                <div class="passphrase-requirements">
+                    <h4>パスフレーズ要件:</h4>
+                    <ul>
+                        <li>32文字以上128文字以下</li>
+                        <li>使用可能文字: 英数字 (a-z, A-Z, 0-9)、アンダースコア (_)、ハイフン (-)</li>
+                        <li>スペースや特殊文字は使用不可</li>
+                    </ul>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-warning" id="updatePassphraseBtn" disabled>
+                        パスフレーズを更新
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="clearPassphraseForm()">
+                        クリア
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>著作者名設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-author" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="authorName">著作者名:</label>
+                    <input type="text" id="authorName" name="author_name" value="{{ author_name or 'Default_Author' }}" 
+                           class="form-control" maxlength="100" required>
+                    <small class="form-text">PDFウォーターマークに表示される著作者名を設定します</small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">更新</button>
+                    <button type="button" class="btn btn-secondary" onclick="resetAuthorName()">リセット</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>公開終了日時設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-publish-end" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="publishEndDateTime">公開終了日時:</label>
+                    <input type="datetime-local" id="publishEndDateTime" name="publish_end_datetime" 
+                           value="{{ publish_end_datetime or '' }}" class="form-control">
+                    <small class="form-text">
+                        設定された日時に自動的に公開を停止します。空白の場合は無制限で公開されます。
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">設定</button>
+                    <button type="button" class="btn btn-secondary" 
+                            onclick="clearPublishEndTime()">クリア</button>
+                </div>
+            </form>
+            
+            {% if publish_end_datetime %}
+            <div class="current-setting">
+                <strong>現在の設定:</strong> {{ publish_end_datetime_formatted or publish_end_datetime }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>セッション制限設定</h3>
+        <div class="settings-container">
+            <form action="/admin/update-session-limits" method="post" class="settings-form">
+                <div class="form-group">
+                    <label for="maxConcurrentSessions">同時接続数制限:</label>
+                    <input type="number" id="maxConcurrentSessions" name="max_concurrent_sessions" 
+                           value="{{ max_concurrent_sessions or 100 }}" 
+                           class="form-control" min="1" max="1000" required>
+                    <small class="form-text">
+                        同時接続できるセッション数の警告閾値を設定します。この数を超えると管理者に警告が表示されます。
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="sessionLimitEnabled" name="session_limit_enabled" 
+                               {{ 'checked' if session_limit_enabled else '' }}>
+                        セッション制限監視を有効にする
+                    </label>
+                    <small class="form-text">
+                        チェックを外すと、セッション数制限の監視と警告を無効化します。
+                    </small>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">設定を保存</button>
+                    <button type="button" class="btn btn-secondary" onclick="resetSessionLimits()">デフォルトに戻す</button>
+                </div>
+            </form>
+            <div class="current-session-status">
+                <h5>現在の接続状況</h5>
+                <div class="session-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">現在のアクティブセッション数:</span>
+                        <span class="stat-value" id="currentSessionCount">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">制限に対する使用率:</span>
+                        <span class="stat-value" id="sessionUsageRate">-</span>
+                    </div>
+                    <div class="stat-item session-warning" id="sessionWarning" style="display: none;">
+                        <span class="warning-icon">⚠️</span>
+                        <span class="warning-text">制限に近づいています</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>セッション管理</h3>
+        <div class="settings-container">
+            <div class="session-management">
+                <!-- アクティブセッション一覧 -->
+                <div class="form-group">
+                    <h4>アクティブセッション一覧</h4>
+                    <div class="session-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">現在のアクティブセッション:</span>
+                            <span class="stat-value" id="activeSessionCount">-</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">セッション有効期限:</span>
+                            <span class="stat-value" id="sessionTimeoutHours">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="session-list-container">
+                        <div class="session-list-header">
+                            <div class="session-list-actions">
+                                <button type="button" class="btn btn-info btn-sm" onclick="refreshSessionList()">
+                                    🔄 更新
+                                </button>
+                                <a href="/admin/sessions" class="btn btn-primary btn-sm">
+                                    📋 詳細管理
+                                </a>
+                            </div>
+                            <div class="auto-refresh-toggle">
+                                <label>
+                                    <input type="checkbox" id="autoRefreshCheckbox" onchange="toggleAutoRefresh()" checked>
+                                    自動更新（30秒間隔）
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="session-table-container">
+                            <table class="session-table" id="sessionTable">
+                                <thead>
+                                    <tr>
+                                        <th>セッションID</th>
+                                        <th>メールアドレス</th>
+                                        <th>デバイス</th>
+                                        <th>開始時刻</th>
+                                        <th>メモ</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sessionTableBody">
+                                    <tr>
+                                        <td colspan="6" class="loading-row">セッション情報を読み込み中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <h4>全セッション無効化</h4>
+                    <p>現在アクティブな全てのユーザーセッションを強制的に無効化します。<br>
+                    実行後、全ユーザーは再度ログインが必要になります。</p>
+                    <button type="button" class="btn btn-danger" 
+                            onclick="invalidateAllSessions()" 
+                            id="invalidateSessionsBtn">
+                        全セッション無効化を実行
+                    </button>
+                </div>
+                
+                <div class="form-group" style="margin-top: 2rem;">
+                    <h4>設定時刻セッション無効化設定</h4>
+                    <p>指定した年月日時刻に自動的に全セッションを無効化するスケジュールを設定します。</p>
+                    <form action="/admin/schedule-session-invalidation" method="post" class="settings-form">
+                        <div class="form-group">
+                            <label for="invalidationDateTime">無効化日時:</label>
+                            <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                                <input type="datetime-local" id="invalidationDateTime" name="invalidation_datetime" 
+                                       class="form-control" value="{{ scheduled_invalidation_datetime or '' }}" 
+                                       style="flex: 1; min-width: 200px;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <label for="invalidationSeconds" style="margin: 0; font-size: 0.9rem;">秒:</label>
+                                    <select id="invalidationSeconds" name="invalidation_seconds" class="form-control" 
+                                            style="width: 80px;">
+                                        <option value="00" {% if scheduled_invalidation_seconds == '00' %}selected{% endif %}>00</option>
+                                        <option value="59" {% if scheduled_invalidation_seconds == '59' %}selected{% endif %}>59</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <small style="color: #666; font-size: 0.9em; display: block; margin-top: 0.5rem;">
+                                設定日時に一度だけ実行されます。過去の日時は設定できません。<br>
+                                秒は通常00秒で設定し、テスト時などは59秒を選択してください。
+                            </small>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">スケジュール設定</button>
+                            <button type="button" class="btn btn-secondary" 
+                                    onclick="clearInvalidationSchedule()">スケジュール解除</button>
+                        </div>
+                    </form>
+                    
+                    {% if scheduled_invalidation_datetime_formatted %}
+                    <div class="current-setting">
+                        <strong>現在の設定:</strong> {{ scheduled_invalidation_datetime_formatted }} に自動実行
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- レート制限管理セクション -->
+        <div class="card">
+            <h3>レート制限管理</h3>
+            <div class="settings-container">
+                <div class="rate-limit-management">
+                    <!-- 統計情報 -->
+                    <div class="form-group">
+                        <h4>制限統計</h4>
+                        <div class="rate-limit-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">現在の制限IP数:</span>
+                                <span class="stat-value" id="activeBlocksCount">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">今日の認証失敗数:</span>
+                                <span class="stat-value" id="todayFailuresCount">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">今日の制限IP数:</span>
+                                <span class="stat-value" id="todayBlocksCount">-</span>
+                            </div>
+                        </div>
+                        
+                        <div class="rate-limit-settings">
+                            <div class="setting-item">
+                                <span class="setting-label">失敗回数制限:</span>
+                                <span class="setting-value" id="failureThreshold">-</span>
+                                <span class="setting-unit">回 / <span id="timeWindow">-</span>分</span>
+                            </div>
+                            <div class="setting-item">
+                                <span class="setting-label">制限時間:</span>
+                                <span class="setting-value" id="blockDuration">-</span>
+                                <span class="setting-unit">分</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 制限IP一覧は非表示（統計情報による概要把握に特化） -->
+                    <!-- 
+                    大量の制限IPレコードが生成される可能性があるため、
+                    一覧表示は廃止し、統計情報とインシデント検索による個別対応に特化
+                    -->
+                    
+                    <!-- ブロックインシデント管理 -->
+                    <div class="form-group">
+                        <h4>ブロックインシデント管理</h4>
+                        <div class="incident-management">
+                            <!-- インシデント検索 -->
+                            <div class="incident-search-section">
+                                <h5>インシデント検索</h5>
+                                <div class="search-form">
+                                    <div class="search-input-group">
+                                        <input type="text" id="incidentIdSearch" 
+                                               placeholder="BLOCK-20250727140530-A4B2" 
+                                               maxlength="25" class="form-control">
+                                        <button type="button" class="btn btn-primary btn-sm" onclick="searchIncident()">検索</button>
+                                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearIncidentSearch()">クリア</button>
+                                    </div>
+                                </div>
+                                
+                                <div id="incidentSearchResults" class="search-results" style="display: none;">
+                                    <!-- 検索結果表示エリア（初期状態は非表示） -->
+                                </div>
+                            </div>
+                            
+                            <!-- インシデント統計 -->
+                            <div class="incident-stats">
+                                <div class="stat-item">
+                                    <span class="stat-label">未解決インシデント:</span>
+                                    <span class="stat-value" id="pendingIncidentsCount">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">今日のインシデント:</span>
+                                    <span class="stat-value" id="todayIncidentsCount">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">今日の解決済み:</span>
+                                    <span class="stat-value" id="todayResolvedCount">-</span>
+                                </div>
+                            </div>
+                            
+                            <!-- インシデント一覧は非表示（検索機能に特化） -->
+                            <!-- 
+                            大量のインシデントレコードが生成される可能性があるため、
+                            一覧表示は廃止し、インシデントID検索による個別対応に特化
+                            -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="admin-section">
+        <h3>PDF セキュリティ設定</h3>
+        <div class="card">
+            <div class="pdf-security-container">
+                <div class="setting-group">
+                    <div class="setting-header">
+                        <label class="form-label">
+                            <input type="checkbox" id="pdfPreventionEnabled" class="form-checkbox">
+                            PDF直接ダウンロード防止機能
+                        </label>
+                        <span class="setting-status" id="pdfPreventionStatus">読み込み中...</span>
+                    </div>
+                    <p class="setting-description">
+                        ブラウザからの直接PDF URLアクセスを防止し、アプリケーション経由でのみPDFを表示可能にします。
+                    </p>
+                </div>
+
+                <div class="setting-group" id="pdfSettingsDetails" style="display: none;">
+                    <div class="current-settings-display">
+                        <h4>現在の設定</h4>
+                        <div class="current-setting-item">
+                            <strong>許可するReferrer:</strong>
+                            <div id="currentAllowedDomains" class="current-setting-value">読み込み中...</div>
+                        </div>
+                        <div class="current-setting-item">
+                            <strong>ブロックするUser-Agent:</strong>
+                            <div id="currentBlockedAgents" class="current-setting-value">読み込み中...</div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="allowedReferrerDomains" class="form-label">許可するReferrer</label>
+                        <textarea id="allowedReferrerDomains" class="form-control" rows="4" 
+                                  placeholder="localhost,127.0.0.1,yourdomain.com,10.0.0.0/24,192.168.1.1-192.168.1.100"></textarea>
+                        <small class="form-help">
+                            カンマ区切りで指定。対応形式: ドメイン名、IPアドレス、CIDR（10.0.0.0/24）、IP範囲（192.168.1.1-192.168.1.100）
+                        </small>
+                        <div id="domainValidation" class="validation-message"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="blockedUserAgents" class="form-label">ブロックするUser-Agent</label>
+                        <textarea id="blockedUserAgents" class="form-control" rows="3" 
+                                  placeholder="wget,curl,python-requests"></textarea>
+                        <small class="form-help">
+                            カンマ区切りで指定。これらの文字列を含むUser-Agentからのアクセスをブロックします。
+                        </small>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="pdfStrictMode" class="form-checkbox">
+                            厳格モード
+                        </label>
+                        <p class="setting-description">
+                            より厳格なチェックを行います（将来の拡張用）。
+                        </p>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="pdfUserAgentCheckEnabled" class="form-checkbox">
+                            User-Agentチェックを有効にする
+                        </label>
+                        <p class="setting-description">
+                            主要言語のHTTPクライアントをブロックします。偽装可能なため補助的な防御です。
+                        </p>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="pdfLogBlockedAttempts" class="form-checkbox">
+                            ブロックされたアクセスをログに記録
+                        </label>
+                        <p class="setting-description">
+                            拒否されたPDFアクセス試行を詳細にログに記録します。
+                        </p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="savePdfSecuritySettings()">
+                            設定を保存
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="validatePdfSettings()">
+                            設定を検証
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="loadPdfSecuritySettings()">
+                            設定を再読込
+                        </button>
+                    </div>
+                </div>
+
+                <div id="pdfSettingsMessage" class="message-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">アクセスログ</h3>
+            <div>
+                <button type="button" class="btn btn-info btn-sm" onclick="refreshAccessLogs()">
+                    🔄 更新
+                </button>
+            </div>
+        </div>
+        <div class="log-management-container">
+            <!-- 統計情報 -->
+            <div class="log-stats-container">
+                <div class="log-stats-grid">
+                    <div class="log-stat-item">
+                        <span class="log-stat-number" id="totalAccessLogs">-</span>
+                        <span class="log-stat-label">総アクセス数</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #17a2b8;">
+                        <span class="log-stat-number" id="successfulAccess">-</span>
+                        <span class="log-stat-label">成功 (200)</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #ffc107;">
+                        <span class="log-stat-number" id="redirectAccess">-</span>
+                        <span class="log-stat-label">リダイレクト (3xx)</span>
+                    </div>
+                    <div class="log-stat-item" style="border-left: 4px solid #dc3545;">
+                        <span class="log-stat-number" id="errorAccess">-</span>
+                        <span class="log-stat-label">エラー (4xx/5xx)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="log-filters-container">
+                <div class="log-filters-grid">
+                    <div class="filter-group">
+                        <label for="accessUserEmailFilter">ユーザー:</label>
+                        <input type="text" id="accessUserEmailFilter" class="form-control" placeholder="メールアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessIpFilter">IPアドレス:</label>
+                        <input type="text" id="accessIpFilter" class="form-control" placeholder="IPアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessEndpointFilter">エンドポイント:</label>
+                        <input type="text" id="accessEndpointFilter" class="form-control" placeholder="/viewer など">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessStartDateFilter">開始日:</label>
+                        <input type="date" id="accessStartDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-group">
+                        <label for="accessEndDateFilter">終了日:</label>
+                        <input type="date" id="accessEndDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="applyAccessLogFilters()">
+                            🔍 検索
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearAccessLogFilters()">
+                            🗑️ クリア
+                        </button>
+                        <button type="button" class="btn btn-success btn-sm" onclick="exportAccessLogs()">
+                            📊 エクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- アクセスログテーブル -->
+            <div class="log-table-container">
+                <div class="log-table-header">
+                    <div class="log-table-actions">
+                        <span class="log-pagination-info" id="accessLogPaginationInfo">
+                            - / - 件を表示中
+                        </span>
+                    </div>
+                    <div class="log-auto-refresh">
+                        <label>
+                            <input type="checkbox" id="accessLogAutoRefreshCheckbox" onchange="toggleAccessLogAutoRefresh()">
+                            自動更新（30秒）
+                        </label>
+                    </div>
+                </div>
+
+                <div class="log-table-wrapper">
+                    <table class="security-log-table" id="accessLogTable">
+                        <thead>
+                            <tr>
+                                <th>時刻</th>
+                                <th>ユーザー</th>
+                                <th>IPアドレス</th>
+                                <th>エンドポイント</th>
+                                <th>メソッド</th>
+                                <th>ステータス</th>
+                                <th>滞在時間</th>
+                            </tr>
+                        </thead>
+                        <tbody id="accessLogTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-row">アクセスログを読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ページネーション -->
+                <div class="log-pagination" id="accessLogPagination">
+                    <button type="button" class="btn btn-sm btn-secondary" id="accessLogPrevBtn" onclick="loadPreviousAccessLogPage()" disabled>
+                        ← 前へ
+                    </button>
+                    <span class="pagination-info" id="accessLogCurrentPage">
+                        ページ 1
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" id="accessLogNextBtn" onclick="loadNextAccessLogPage()" disabled>
+                        次へ →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h3 style="margin: 0;">セキュリティイベントログ</h3>
+            <a href="/admin/security-logs" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">
+                📊 詳細分析画面
+            </a>
+        </div>
+        <div class="log-management-container">
+            <!-- 統計情報 -->
+            <div class="log-stats-container">
+                <div class="log-stats-grid">
+                    <div class="log-stat-item">
+                        <span class="log-stat-number" id="totalEvents">-</span>
+                        <span class="log-stat-label">総イベント数</span>
+                    </div>
+                    <div class="log-stat-item high-risk">
+                        <span class="log-stat-number" id="highRiskEvents">-</span>
+                        <span class="log-stat-label">高リスク</span>
+                    </div>
+                    <div class="log-stat-item medium-risk">
+                        <span class="log-stat-number" id="mediumRiskEvents">-</span>
+                        <span class="log-stat-label">中リスク</span>
+                    </div>
+                    <div class="log-stat-item low-risk">
+                        <span class="log-stat-number" id="lowRiskEvents">-</span>
+                        <span class="log-stat-label">低リスク</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- フィルター -->
+            <div class="log-filters-container">
+                <div class="log-filters-grid">
+                    <div class="filter-group">
+                        <label for="userEmailFilter">ユーザー:</label>
+                        <input type="text" id="userEmailFilter" class="form-control" placeholder="メールアドレス">
+                    </div>
+                    <div class="filter-group">
+                        <label for="eventTypeFilter">イベント種別:</label>
+                        <select id="eventTypeFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="pdf_view">PDF閲覧</option>
+                            <option value="download_attempt">ダウンロード試行</option>
+                            <option value="print_attempt">印刷試行</option>
+                            <option value="devtools_open">開発者ツール</option>
+                            <option value="direct_access">直接アクセス</option>
+                            <option value="page_leave">ページ離脱</option>
+                            <option value="copy_attempt">コピー試行</option>
+                            <option value="screenshot_attempt">スクリーンショット</option>
+                            <option value="unauthorized_action">不正操作</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="riskLevelFilter">リスクレベル:</label>
+                        <select id="riskLevelFilter" class="form-control">
+                            <option value="">すべて</option>
+                            <option value="high">高リスク</option>
+                            <option value="medium">中リスク</option>
+                            <option value="low">低リスク</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="startDateFilter">開始日:</label>
+                        <input type="date" id="startDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-group">
+                        <label for="endDateFilter">終了日:</label>
+                        <input type="date" id="endDateFilter" class="form-control">
+                    </div>
+                    <div class="filter-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="applySecurityLogFilters()">
+                            🔍 検索
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="clearSecurityLogFilters()">
+                            🗑️ クリア
+                        </button>
+                        <button type="button" class="btn btn-success btn-sm" onclick="exportSecurityLogs()">
+                            📊 エクスポート
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- イベントログテーブル -->
+            <div class="log-table-container">
+                <div class="log-table-header">
+                    <div class="log-table-actions">
+                        <button type="button" class="btn btn-info btn-sm" onclick="refreshSecurityLogs()">
+                            🔄 更新
+                        </button>
+                        <span class="log-pagination-info" id="logPaginationInfo">
+                            - / - 件を表示中
+                        </span>
+                    </div>
+                    <div class="log-auto-refresh">
+                        <label>
+                            <input type="checkbox" id="logAutoRefreshCheckbox" onchange="toggleLogAutoRefresh()">
+                            自動更新（30秒）
+                        </label>
+                    </div>
+                </div>
+
+                <div class="log-table-wrapper">
+                    <table class="security-log-table" id="securityLogTable">
+                        <thead>
+                            <tr>
+                                <th>時刻</th>
+                                <th>ユーザー</th>
+                                <th>イベント種別</th>
+                                <th>リスク</th>
+                                <th>詳細</th>
+                                <th>IPアドレス</th>
+                            </tr>
+                        </thead>
+                        <tbody id="securityLogTableBody">
+                            <tr>
+                                <td colspan="6" class="loading-row">セキュリティログを読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- ページネーション -->
+                <div class="log-pagination" id="logPagination">
+                    <button type="button" class="btn btn-sm btn-secondary" id="logPrevBtn" onclick="loadPreviousLogPage()" disabled>
+                        ← 前へ
+                    </button>
+                    <span class="pagination-info" id="logCurrentPage">
+                        ページ 1
+                    </span>
+                    <button type="button" class="btn btn-sm btn-secondary" id="logNextBtn" onclick="loadNextLogPage()" disabled>
+                        次へ →
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <h3>管理者管理</h3>
+        <div class="admin-users-section">
+            <!-- 管理者一覧 -->
+            <div class="admin-list-container">
+                <h4>管理者一覧</h4>
+                <div class="admin-table-container">
+                    <table class="admin-table" id="admin-table">
+                        <thead>
+                            <tr>
+                                <th>メールアドレス</th>
+                                <th>追加者</th>
+                                <th>追加日時</th>
+                                <th>状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-list-body">
+                            <!-- JavaScriptで動的生成 -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 読み込み中表示 -->
+                <div id="admin-loading" class="loading-container" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <span>管理者一覧を読み込み中...</span>
+                </div>
+                
+                <!-- 成功メッセージ表示 -->
+                <div id="admin-success" class="success-container" style="display: none;">
+                    <div class="success-message">
+                        <i class="fas fa-check-circle"></i>
+                        <span id="admin-success-text">操作が完了しました</span>
+                    </div>
+                </div>
+                
+                <!-- エラー表示 -->
+                <div id="admin-error" class="error-container" style="display: none;">
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span id="admin-error-text">エラーが発生しました</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 管理者追加フォーム -->
+            <div class="add-admin-container">
+                <h4>新規管理者追加</h4>
+                <form id="add-admin-form" class="add-admin-form">
+                    <div class="form-group">
+                        <label for="admin-email">メールアドレス:</label>
+                        <input type="email" id="admin-email" class="form-control" 
+                               placeholder="新しい管理者のメールアドレス" required>
+                        <small class="form-text">追加された管理者は管理画面にアクセスできるようになります</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="add-admin-btn">
+                            <i class="fas fa-plus"></i> 管理者を追加
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearAdminForm()">
+                            <i class="fas fa-times"></i> クリア
+                        </button>
+                    </div>
+                </form>
+                <div class="admin-limit-info">
+                    <div class="info-item">
+                        <span class="info-label">現在の管理者数:</span>
+                        <span class="info-value" id="current-admin-count">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">最大管理者数:</span>
+                        <span class="info-value">6人</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <h3>システムバックアップ</h3>
+        <div class="backup-section">
+            <!-- バックアップ実行コントロール -->
+            <div class="backup-controls">
+                <div class="backup-header">
+                    <button id="create-backup-btn" class="btn btn-primary">
+                        💾 バックアップ実行
+                    </button>
+                    <div class="backup-info">
+                        <small class="form-text">
+                            データベース、設定ファイル、PDFファイル、ログを安全にバックアップします
+                        </small>
+                    </div>
+                </div>
+                
+                <!-- 進行状況表示 -->
+                <div id="backup-progress" class="backup-progress hidden">
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progress-fill"></div>
+                        </div>
+                        <div class="progress-text" id="progress-text">準備中...</div>
+                        <div class="progress-percentage" id="progress-percentage">0%</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- バックアップ一覧 -->
+            <div class="backup-list-container">
+                <div class="backup-list-header">
+                    <h4>バックアップ一覧</h4>
+                    <div class="backup-list-actions">
+                        <button type="button" class="btn btn-info btn-sm" onclick="loadBackupList()">
+                            🔄 更新
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="backup-table-container">
+                    <table class="backup-table" id="backup-table">
+                        <thead>
+                            <tr>
+                                <th>ファイル名</th>
+                                <th>作成日時</th>
+                                <th>タイプ</th>
+                                <th>サイズ</th>
+                                <th>ファイル数</th>
+                                <th>状態</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backup-list-body">
+                            <tr>
+                                <td colspan="7" class="loading-row">バックアップ一覧を読み込み中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- バックアップ統計情報 -->
+                <div class="backup-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">総バックアップ数:</span>
+                        <span class="stat-value" id="total-backups">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">総サイズ:</span>
+                        <span class="stat-value" id="total-size">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">最新バックアップ:</span>
+                        <span class="stat-value" id="latest-backup">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phase 2: 定期バックアップ設定セクション -->
+        <div class="backup-settings-section">
+            <h3>
+                <i class="fas fa-clock" style="margin-right: 8px;"></i>
+                定期バックアップ設定
+            </h3>
+            
+            <div class="settings-container">
+                <!-- 自動バックアップ有効/無効 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="auto-backup-enabled">自動バックアップ</label>
+                            <p class="setting-description">設定時刻に自動でバックアップを実行します</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-backup-enabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- バックアップ間隔 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="backup-interval">実行間隔</label>
+                            <p class="setting-description">バックアップを実行する間隔を設定します</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="backup-interval" class="form-control">
+                                <option value="daily">毎日</option>
+                                <option value="weekly">毎週</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 実行時刻 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="backup-time">実行時刻</label>
+                            <p class="setting-description">自動バックアップを実行する時刻</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="time" id="backup-time" class="form-control" value="02:00">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 保持日数 -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="retention-days">保持日数</label>
+                            <p class="setting-description">この日数を過ぎたバックアップは自動削除されます</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="number" id="retention-days" class="form-control" 
+                                   min="1" max="365" value="30">
+                            <span class="unit-label">日</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 最大バックアップサイズ -->
+                <div class="form-group">
+                    <div class="setting-row">
+                        <div class="setting-label">
+                            <label for="max-backup-size">最大バックアップサイズ</label>
+                            <p class="setting-description">この容量を超えるバックアップは作成されません</p>
+                        </div>
+                        <div class="setting-control">
+                            <input type="number" id="max-backup-size" class="form-control" 
+                                   min="1" max="10240" value="1024">
+                            <span class="unit-label">MB</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 設定保存・読み込みボタン -->
+                <div class="settings-actions">
+                    <button type="button" id="save-backup-settings" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 設定を保存
+                    </button>
+                    <button type="button" id="load-backup-settings" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> 設定を読み込み
+                    </button>
+                    <button type="button" id="cleanup-backups" class="btn btn-warning">
+                        <i class="fas fa-broom"></i> 古いバックアップを削除
+                    </button>
+                </div>
+            </div>
+
+            <!-- 統計情報・スケジュール情報 -->
+            <div class="backup-schedule-info">
+                <div class="schedule-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">自動バックアップ:</span>
+                        <span class="stat-value" id="auto-backup-status">無効</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">次回実行予定:</span>
+                        <span class="stat-value" id="next-backup-time">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">自動バックアップ数:</span>
+                        <span class="stat-value" id="auto-backup-count">-</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">手動バックアップ数:</span>
+                        <span class="stat-value" id="manual-backup-count">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 復旧確認モーダル（Phase 3） -->
+    <div id="restore-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚠️ データ復旧の実行</h3>
+                <span class="modal-close" onclick="closeRestoreModal()">&times;</span>
+            </div>
+            
+            <div class="modal-body">
+                <!-- 復旧対象情報 -->
+                <div class="restore-info">
+                    <div class="info-group">
+                        <label>復旧対象:</label>
+                        <span id="restore-backup-name" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>作成日時:</label>
+                        <span id="restore-backup-date" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>サイズ:</label>
+                        <span id="restore-backup-size" class="info-value">-</span>
+                    </div>
+                    <div class="info-group">
+                        <label>タイプ:</label>
+                        <span id="restore-backup-type" class="info-value">-</span>
+                    </div>
+                </div>
+                
+                <!-- 警告メッセージ -->
+                <div class="warning-message">
+                    <div class="warning-item">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>警告:</strong> 現在のデータが完全に置き換えられます
+                    </div>
+                    <div class="safety-item">
+                        <i class="fas fa-shield-alt"></i>
+                        復旧前に自動バックアップを作成します
+                    </div>
+                    <div class="caution-item">
+                        <i class="fas fa-ban"></i>
+                        この操作は取り消せません
+                    </div>
+                </div>
+                
+                <!-- 明示的文字列入力 -->
+                <div class="confirmation-input">
+                    <label for="confirmation-text">確認のため、以下を正確に入力してください:</label>
+                    <div class="confirmation-target">「復旧を実行します」</div>
+                    <input type="text" id="confirmation-text" class="form-control" 
+                           placeholder="復旧を実行します" 
+                           oninput="validateConfirmationText()">
+                    <small class="help-text">完全一致しないと実行ボタンが有効化されません</small>
+                </div>
+                
+                <!-- 復旧進行状況 -->
+                <div id="restore-progress-container" class="restore-progress-container" style="display: none;">
+                    <div class="progress-header">
+                        <h4>復旧実行中...</h4>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="restore-progress-fill"></div>
+                        </div>
+                        <div class="progress-text" id="restore-progress-text">準備中...</div>
+                        <div class="progress-percentage" id="restore-progress-percentage">0%</div>
+                    </div>
+                    <div class="progress-status" id="restore-progress-status">初期化中...</div>
+                </div>
+            </div>
+            
+            <!-- 実行ボタン -->
+            <div class="modal-footer">
+                <button type="button" id="execute-restore-btn" class="btn btn-danger" 
+                        onclick="executeRestore()" disabled>
+                    <i class="fas fa-history"></i> 復旧実行
+                </button>
+                <button type="button" id="cancel-restore-btn" class="btn btn-secondary" 
+                        onclick="closeRestoreModal()">
+                    <i class="fas fa-times"></i> キャンセル
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

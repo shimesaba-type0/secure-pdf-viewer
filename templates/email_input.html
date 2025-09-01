@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+
+{% block title %}メール認証 - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/email_input.css') }}?v=10">
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <h2>ワンタイムパスワード認証</h2>
+        
+        {% if error %}
+            <div class="error-message">{{ error }}</div>
+        {% endif %}
+        
+        {% if success %}
+            <div class="success-message">{{ success }}</div>
+        {% endif %}
+        
+        <div class="description">
+            <p>あなたのメールアドレスを入力し、送信をクリック・またはタップしてください。</p>
+        </div>
+        
+        <form method="POST" class="login-form">
+            <div class="form-group spacing floating-label">
+                <input type="email" id="email" name="email" required class="form-control" 
+                       value="{{ email or '' }}">
+                <label for="email">メールアドレス</label>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">送信</button>
+        </form>
+        
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/email-input.js') }}"></script>
+{% endblock %}

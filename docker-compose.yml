@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: secure-pdf-viewer
+    ports:
+      - "0.0.0.0:5000:5000"
+    volumes:
+      - ./:/app
+      - ./instance:/app/instance
+      - ./logs:/app/logs
+      - ./static/pdfs:/app/static/pdfs
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - db-init
+
+  db-init:
+    build: .
+    container_name: secure-pdf-db-init
+    volumes:
+      - ./:/app
+      - ./instance:/app/instance
+    env_file:
+      - .env
+    command: python database/migrations.py
+    restart: "no"
+

@@ -1,0 +1,989 @@
+{% extends "layout.html" %}
+
+{% block title %}セキュリティ監視ダッシュボード - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+    <style>
+        .security-card {
+            border-left: 4px solid #007bff;
+            margin-bottom: 20px;
+        }
+        .security-card.alert-critical {
+            border-left-color: #dc3545;
+        }
+        .security-card.alert-high {
+            border-left-color: #fd7e14;
+        }
+        .security-card.alert-medium {
+            border-left-color: #ffc107;
+        }
+        .security-card.status-ok {
+            border-left-color: #28a745;
+        }
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .risk-score {
+            font-size: 3rem;
+            font-weight: bold;
+        }
+        .risk-score.low {
+            color: #28a745;
+        }
+        .risk-score.medium {
+            color: #ffc107;
+        }
+        .risk-score.high {
+            color: #fd7e14;
+        }
+        .risk-score.critical {
+            color: #dc3545;
+        }
+        .alert-item {
+            border-left: 4px solid #6c757d;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f8f9fa;
+        }
+        .alert-item.critical {
+            border-left-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        .alert-item.high {
+            border-left-color: #fd7e14;
+            background-color: #fff3cd;
+        }
+        .alert-item.medium {
+            border-left-color: #ffc107;
+            background-color: #fff3cd;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.3);
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .refresh-btn {
+            cursor: pointer;
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-indicator.ok { background-color: #28a745; }
+        .status-indicator.warning { background-color: #ffc107; }
+        .status-indicator.error { background-color: #dc3545; }
+        
+        /* 詳細情報セクション用スタイル */
+        .bg-danger-light {
+            background-color: #f8d7da !important;
+            color: #721c24 !important;
+            padding: 0.5rem !important;
+            border-radius: 0.25rem !important;
+        }
+        .bg-light {
+            background-color: #f8f9fa !important;
+            padding: 0.5rem !important;
+            border-radius: 0.25rem !important;
+        }
+        
+        /* 管理者詳細情報のボーダースタイル */
+        .border-success {
+            border: 2px solid #28a745 !important;
+        }
+        .border-warning {
+            border: 2px solid #ffc107 !important;
+        }
+        
+        /* 詳細情報カード内の統計表示 */
+        #integrity-details h6 {
+            font-size: 1.2rem !important;
+            font-weight: bold !important;
+            margin-bottom: 0.25rem !important;
+        }
+        
+        #anomaly-details .border {
+            border-width: 2px !important;
+        }
+        
+        /* 詳細情報セクション全体のスタイル強化 */
+        #anomaly-details, #integrity-details {
+            min-height: 100px;
+        }
+        
+        .rounded {
+            border-radius: 0.375rem !important;
+        }
+        
+        .p-2 {
+            padding: 0.5rem !important;
+        }
+        
+        .mb-2 {
+            margin-bottom: 0.5rem !important;
+        }
+        
+        /* ログ完全性詳細の改良スタイル */
+        .stat-box {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 1rem 0.5rem;
+            transition: all 0.2s ease;
+        }
+        .stat-box:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .stat-box.stat-success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .stat-box.stat-danger {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        .stat-box.stat-warning {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+        }
+        .stat-number {
+            font-size: 1.5rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+        .integrity-progress {
+            background: #f8f9fa;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+        .progress-label {
+            font-weight: 500;
+            color: #495057;
+        }
+        .progress-percentage {
+            font-weight: bold;
+        }
+        .alert-sm {
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .g-2 > * {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+        
+        /* セキュリティアラート履歴の改良スタイル */
+        .stat-box.stat-info {
+            background: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        .alert-card {
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            transition: all 0.2s ease;
+            border-left: 4px solid #6c757d;
+        }
+        .alert-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+        }
+        .alert-card[data-severity="critical"] {
+            border-left-color: #dc3545;
+            background: linear-gradient(to right, #fff5f5, #fff);
+        }
+        .alert-card[data-severity="high"] {
+            border-left-color: #fd7e14;
+            background: linear-gradient(to right, #fffaf5, #fff);
+        }
+        .alert-card[data-severity="medium"] {
+            border-left-color: #ffc107;
+            background: linear-gradient(to right, #fffef5, #fff);
+        }
+        .severity-icon {
+            font-size: 1.2rem;
+            margin-right: 0.5rem;
+        }
+        .risk-badge {
+            background: #f8f9fa;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.85rem;
+        }
+        .no-alerts-message {
+            background: #f8f9fa;
+            border-radius: 0.5rem;
+            color: #6c757d;
+        }
+        
+        /* 手動スキャン結果の改良スタイル */
+        .recommendations-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+        .recommendation-list {
+            margin-bottom: 0;
+            padding-left: 1.25rem;
+        }
+        .recommendation-list li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">
+                        🛡️ セキュリティ監視ダッシュボード
+                    </h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <a href="/admin" class="btn btn-secondary">
+                                📊 ダッシュボード
+                            </a>
+                            <button type="button" class="btn btn-secondary refresh-btn" onclick="refreshAllData()">
+                                🔄 更新
+                            </button>
+                            <button type="button" class="btn btn-primary" onclick="openAuditLogs()">
+                                📋 監査ログ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- リアルタイム監視状況 -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card security-card status-loading" id="anomaly-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">異常検出状況</h6>
+                                <div class="metric-value text-primary" id="anomaly-count">
+                                    <span class="loading-spinner"></span>
+                                </div>
+                                <small class="text-muted">アクティブなアラート</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card security-card status-loading" id="integrity-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">ログ完全性</h6>
+                                <div class="metric-value text-success" id="integrity-percentage">
+                                    <span class="loading-spinner"></span>
+                                </div>
+                                <small class="text-muted">完全性保持率</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card security-card status-loading" id="risk-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">最高リスクスコア</h6>
+                                <div class="risk-score low" id="max-risk-score">
+                                    <span class="loading-spinner"></span>
+                                </div>
+                                <small class="text-muted">過去1時間</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card security-card status-loading" id="admin-count-card">
+                            <div class="card-body text-center">
+                                <h6 class="card-title">活動中管理者</h6>
+                                <div class="metric-value text-info" id="active-admin-count">
+                                    <span class="loading-spinner"></span>
+                                </div>
+                                <small class="text-muted">過去1時間</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 詳細情報セクション -->
+                <div class="row">
+                    <!-- 管理者別異常検出 -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>管理者別異常検出</h5>
+                                <button class="btn btn-sm btn-secondary refresh-btn" onclick="loadAnomalyDetails()">
+                                    🔄
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="anomaly-details">
+                                    <div class="text-center">
+                                        <span class="loading-spinner"></span> データ読み込み中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ログ完全性詳細 -->
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>ログ完全性詳細</h5>
+                                <div>
+                                    <button class="btn btn-sm btn-primary" onclick="runIntegrityCheck()">
+                                        ✅ 検証実行
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary refresh-btn" onclick="loadIntegrityDetails()">
+                                        🔄
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="integrity-details">
+                                    <div class="text-center">
+                                        <span class="loading-spinner"></span> データ読み込み中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- セキュリティアラート履歴 -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5>セキュリティアラート履歴</h5>
+                                <div>
+                                    <span class="badge bg-danger" id="critical-alert-count">0</span> Critical
+                                    <span class="badge bg-warning" id="high-alert-count">0</span> High
+                                    <span class="badge bg-info" id="medium-alert-count">0</span> Medium
+                                    <button class="btn btn-sm btn-secondary refresh-btn ms-2" onclick="loadSecurityAlerts()">
+                                        🔄
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="security-alerts">
+                                    <div class="text-center">
+                                        <span class="loading-spinner"></span> データ読み込み中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 手動スキャン実行パネル -->
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>手動異常検出スキャン</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label for="scan-admin-email" class="form-label">管理者メールアドレス</label>
+                                    <input type="email" class="form-control" id="scan-admin-email" placeholder="admin@example.com">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="scan-timeframe" class="form-label">検査時間範囲</label>
+                                    <select class="form-select" id="scan-timeframe">
+                                        <option value="3600">1時間</option>
+                                        <option value="7200">2時間</option>
+                                        <option value="21600">6時間</option>
+                                        <option value="43200">12時間</option>
+                                        <option value="86400">24時間</option>
+                                    </select>
+                                </div>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="checkbox" id="send-alerts">
+                                    <label class="form-check-label" for="send-alerts">
+                                        異常検出時にアラート送信
+                                    </label>
+                                </div>
+                                <button type="button" class="btn btn-primary" onclick="runManualScan()">
+                                    🔍 スキャン実行
+                                </button>
+                                <div id="scan-results" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>セキュリティステータス</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-2">
+                                    <span class="status-indicator ok"></span>
+                                    <strong>システムセキュリティ:</strong> 
+                                    <span class="badge bg-success">正常</span>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="status-indicator" id="anomaly-status-indicator"></span>
+                                    <strong>異常検出:</strong> 
+                                    <span id="anomaly-status-text">確認中...</span>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="status-indicator" id="integrity-status-indicator"></span>
+                                    <strong>ログ完全性:</strong> 
+                                    <span id="integrity-status-text">確認中...</span>
+                                </div>
+                                <div class="mb-2">
+                                    <span class="status-indicator ok"></span>
+                                    <strong>管理者認証:</strong> 
+                                    <span class="badge bg-success">正常</span>
+                                </div>
+                                <hr>
+                                <small class="text-muted">
+                                    最終更新: <span id="last-update-time">--:--:--</span>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        // グローバル変数
+        let refreshInterval;
+
+        // ページ読み込み時の初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshAllData();
+            // 30秒間隔で自動更新
+            refreshInterval = setInterval(refreshAllData, 30000);
+        });
+
+        // 全データの更新
+        function refreshAllData() {
+            loadAnomalyStatus();
+            loadIntegrityStatus();
+            loadAnomalyDetails();
+            loadIntegrityDetails();
+            loadSecurityAlerts();
+            document.getElementById('last-update-time').textContent = new Date().toLocaleTimeString();
+        }
+
+        // 異常検出状況の読み込み
+        async function loadAnomalyStatus() {
+            try {
+                const response = await fetch('/admin/api/security/anomaly-status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const { summary, total_admins, anomalous_admins } = data;
+                    
+                    // 異常検出数の更新
+                    document.getElementById('anomaly-count').textContent = anomalous_admins;
+                    const anomalyCard = document.getElementById('anomaly-card');
+                    anomalyCard.className = 'card security-card ' + (anomalous_admins > 0 ? 'alert-high' : 'status-ok');
+                    
+                    // 活動中管理者数の更新
+                    document.getElementById('active-admin-count').textContent = total_admins;
+                    
+                    // 最高リスクスコアの更新
+                    const maxRisk = Math.max(...summary.map(s => s.risk_score), 0);
+                    const riskElement = document.getElementById('max-risk-score');
+                    riskElement.textContent = maxRisk;
+                    riskElement.className = 'risk-score ' + getRiskClass(maxRisk);
+                    
+                    // ステータス更新
+                    updateAnomalyStatus(anomalous_admins > 0, anomalous_admins);
+                }
+            } catch (error) {
+                console.error('異常検出状況の読み込みエラー:', error);
+                document.getElementById('anomaly-count').innerHTML = '<span style="color: #dc3545;">⚠️</span>';
+            }
+        }
+
+        // ログ完全性状況の読み込み
+        async function loadIntegrityStatus() {
+            try {
+                const response = await fetch('/admin/api/security/log-integrity');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const { integrity_percentage, has_issues } = data.data;
+                    
+                    // 完全性パーセンテージの更新
+                    document.getElementById('integrity-percentage').textContent = integrity_percentage.toFixed(1) + '%';
+                    const integrityCard = document.getElementById('integrity-card');
+                    integrityCard.className = 'card security-card ' + (has_issues ? 'alert-medium' : 'status-ok');
+                    
+                    // ステータス更新
+                    updateIntegrityStatus(has_issues, integrity_percentage);
+                }
+            } catch (error) {
+                console.error('ログ完全性状況の読み込みエラー:', error);
+                document.getElementById('integrity-percentage').innerHTML = '<span style="color: #dc3545;">⚠️</span>';
+            }
+        }
+
+        // 管理者別異常検出詳細の読み込み
+        async function loadAnomalyDetails() {
+            try {
+                const response = await fetch('/admin/api/security/anomaly-status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    let html = '';
+                    
+                    if (data.summary.length === 0) {
+                        html = '<p class="text-muted">活動中の管理者がいません</p>';
+                    } else {
+                        data.summary.forEach(admin => {
+                            const statusClass = admin.anomalies_detected ? 'border-warning' : 'border-success';
+                            html += `
+                                <div class="border ${statusClass} p-2 mb-2 rounded">
+                                    <div class="d-flex justify-content-between">
+                                        <strong>${admin.admin_email}</strong>
+                                        <span class="badge ${admin.anomalies_detected ? 'bg-warning' : 'bg-success'}">
+                                            リスクスコア: ${admin.risk_score}
+                                        </span>
+                                    </div>
+                                    ${admin.anomalies_detected ? 
+                                        `<small class="text-warning">${admin.anomaly_count}件の異常を検出</small>` :
+                                        '<small class="text-success">異常なし</small>'
+                                    }
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    document.getElementById('anomaly-details').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('異常検出詳細の読み込みエラー:', error);
+                document.getElementById('anomaly-details').innerHTML = '<p class="text-danger">データの読み込みに失敗しました</p>';
+            }
+        }
+
+        // ログ完全性詳細の読み込み
+        async function loadIntegrityDetails() {
+            try {
+                const response = await fetch('/admin/api/security/log-integrity');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const result = data.data;
+                    const integrityPercentage = result.total_logs > 0 ? ((result.valid_logs / result.total_logs) * 100) : 100;
+                    
+                    const html = `
+                        <!-- 完全性サマリーカード -->
+                        <div class="integrity-summary mb-3">
+                            <div class="row g-2">
+                                <div class="col-3">
+                                    <div class="stat-box text-center">
+                                        <div class="stat-number">${result.total_logs}</div>
+                                        <div class="stat-label">📊 総ログ数</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center stat-success">
+                                        <div class="stat-number">${result.valid_logs}</div>
+                                        <div class="stat-label">✅ 有効ログ</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center ${result.invalid_logs > 0 ? 'stat-danger' : ''}">
+                                        <div class="stat-number">${result.invalid_logs}</div>
+                                        <div class="stat-label">❌ 無効ログ</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center ${result.unverified_logs > 0 ? 'stat-warning' : ''}">
+                                        <div class="stat-number">${result.unverified_logs}</div>
+                                        <div class="stat-label">⏳ 未検証</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 完全性プログレスバー -->
+                        <div class="integrity-progress mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="progress-label">🔐 ログ完全性</span>
+                                <span class="progress-percentage">${integrityPercentage.toFixed(1)}%</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar ${integrityPercentage >= 95 ? 'bg-success' : integrityPercentage >= 80 ? 'bg-warning' : 'bg-danger'}" 
+                                     style="width: ${integrityPercentage}%"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- アラート情報 -->
+                        ${result.tampered_log_ids.length > 0 ? 
+                            `<div class="alert alert-danger alert-sm">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">⚠️</span>
+                                    <div>
+                                        <strong>改ざん検出:</strong> ${result.tampered_log_ids.length}件<br>
+                                        <small>ログID: ${result.tampered_log_ids.slice(0, 5).join(', ')}
+                                        ${result.tampered_log_ids.length > 5 ? '...' : ''}</small>
+                                    </div>
+                                </div>
+                            </div>` : ''
+                        }
+                        
+                        ${result.unverified_logs > 0 ? 
+                            `<div class="alert alert-info alert-sm">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">ℹ️</span>
+                                    <small><strong>${result.unverified_logs}件</strong>のログがチェックサム未設定です</small>
+                                </div>
+                            </div>` : ''
+                        }
+                        
+                        <!-- 処理時間 -->
+                        <div class="text-end">
+                            <small class="text-muted">⏱️ 検証時間: ${result.processing_time?.toFixed(2) || 0}秒</small>
+                        </div>
+                    `;
+                    
+                    document.getElementById('integrity-details').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('ログ完全性詳細の読み込みエラー:', error);
+                document.getElementById('integrity-details').innerHTML = '<p class="text-danger">データの読み込みに失敗しました</p>';
+            }
+        }
+
+        // セキュリティアラート履歴の読み込み
+        async function loadSecurityAlerts() {
+            try {
+                const response = await fetch('/admin/api/security/alerts');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 統計情報の更新
+                    document.getElementById('critical-alert-count').textContent = data.stats.critical_alerts;
+                    document.getElementById('high-alert-count').textContent = data.stats.high_alerts;
+                    document.getElementById('medium-alert-count').textContent = data.stats.medium_alerts;
+                    
+                    // アラート統計の表示
+                    const totalAlerts = data.stats.critical_alerts + data.stats.high_alerts + data.stats.medium_alerts;
+                    let html = `
+                        <!-- アラート統計サマリー -->
+                        <div class="alert-summary mb-3">
+                            <div class="row g-2">
+                                <div class="col-3">
+                                    <div class="stat-box text-center">
+                                        <div class="stat-number">${totalAlerts}</div>
+                                        <div class="stat-label">🚨 総アラート</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center ${data.stats.critical_alerts > 0 ? 'stat-danger' : ''}">
+                                        <div class="stat-number">${data.stats.critical_alerts}</div>
+                                        <div class="stat-label">🔴 Critical</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center ${data.stats.high_alerts > 0 ? 'stat-warning' : ''}">
+                                        <div class="stat-number">${data.stats.high_alerts}</div>
+                                        <div class="stat-label">🟡 High</div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="stat-box text-center ${data.stats.medium_alerts > 0 ? 'stat-info' : ''}">
+                                        <div class="stat-number">${data.stats.medium_alerts}</div>
+                                        <div class="stat-label">🔵 Medium</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- アラート一覧 -->
+                        <div class="alerts-list">
+                    `;
+                    
+                    if (data.alerts.length === 0) {
+                        html += `
+                            <div class="no-alerts-message">
+                                <div class="text-center p-4">
+                                    <div class="mb-3">✅</div>
+                                    <p class="text-muted mb-0">過去24時間にセキュリティアラートはありません</p>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        data.alerts.slice(0, 10).forEach((alert, index) => {
+                            const severityIcon = alert.severity === 'critical' ? '🚨' : 
+                                               alert.severity === 'high' ? '⚠️' : 
+                                               alert.severity === 'medium' ? 'ℹ️' : '📝';
+                            html += `
+                                <div class="alert-card mb-2" data-severity="${alert.severity}">
+                                    <div class="alert-card-header">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div class="alert-title">
+                                                <span class="severity-icon">${severityIcon}</span>
+                                                <strong>${alert.admin_email}</strong>
+                                                <span class="badge severity-badge bg-${getSeverityColor(alert.severity)}">${alert.severity.toUpperCase()}</span>
+                                            </div>
+                                            <small class="text-muted">${alert.timestamp}</small>
+                                        </div>
+                                    </div>
+                                    <div class="alert-card-body">
+                                        <div class="risk-info mb-2">
+                                            <span class="risk-badge">🎯 リスクスコア: <strong>${alert.risk_score}</strong></span>
+                                        </div>
+                                        <div class="anomaly-types mb-2">
+                                            <small class="text-secondary">🔍 検出異常: ${alert.anomaly_types.join(', ')}</small>
+                                        </div>
+                                        <div class="alert-meta">
+                                            <small class="text-muted">ID: ${alert.alert_id}</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        if (data.alerts.length > 10) {
+                            html += `
+                                <div class="text-center mt-3">
+                                    <small class="text-muted">他に${data.alerts.length - 10}件のアラートがあります</small>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    html += '</div>';
+                    
+                    document.getElementById('security-alerts').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('セキュリティアラート履歴の読み込みエラー:', error);
+                document.getElementById('security-alerts').innerHTML = '<p class="text-danger">データの読み込みに失敗しました</p>';
+            }
+        }
+
+        // 手動スキャンの実行
+        async function runManualScan() {
+            const adminEmail = document.getElementById('scan-admin-email').value;
+            const timeframe = parseInt(document.getElementById('scan-timeframe').value);
+            const sendAlerts = document.getElementById('send-alerts').checked;
+            
+            if (!adminEmail) {
+                alert('管理者メールアドレスを入力してください');
+                return;
+            }
+            
+            const resultsElement = document.getElementById('scan-results');
+            resultsElement.innerHTML = '<div class="text-center"><span class="loading-spinner"></span> スキャン実行中...</div>';
+            
+            try {
+                const response = await fetch('/admin/api/security/trigger-anomaly-scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        admin_email: adminEmail,
+                        timeframe: timeframe,
+                        send_alerts: sendAlerts
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const result = data.anomaly_result;
+                    const riskClass = result.risk_score >= 80 ? 'stat-danger' : 
+                                    result.risk_score >= 60 ? 'stat-warning' :
+                                    result.risk_score >= 40 ? 'stat-info' : 'stat-success';
+                    
+                    let html = `
+                        <!-- スキャン結果サマリー -->
+                        <div class="scan-result-summary mb-3">
+                            <div class="row g-2">
+                                <div class="col-4">
+                                    <div class="stat-box text-center ${riskClass}">
+                                        <div class="stat-number">${result.risk_score}</div>
+                                        <div class="stat-label">🎯 リスクスコア</div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="stat-box text-center ${result.anomalies_detected ? 'stat-danger' : 'stat-success'}">
+                                        <div class="stat-number">${result.anomalies_detected ? '⚠️' : '✅'}</div>
+                                        <div class="stat-label">異常検出</div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="stat-box text-center">
+                                        <div class="stat-number">${result.anomaly_types.length}</div>
+                                        <div class="stat-label">🔍 検出数</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 詳細結果 -->
+                        <div class="scan-result-details">
+                            ${result.anomaly_types.length > 0 ? 
+                                `<div class="alert alert-warning alert-sm">
+                                    <h6 class="mb-2">🔍 検出された異常</h6>
+                                    ${result.anomaly_types.map(type => `<span class="badge bg-warning me-1">${type}</span>`).join('')}
+                                </div>` : 
+                                `<div class="alert alert-success alert-sm">
+                                    <div class="d-flex align-items-center">
+                                        <span class="me-2">✅</span>
+                                        <span><strong>異常は検出されませんでした</strong></span>
+                                    </div>
+                                </div>`
+                            }
+                            
+                            ${result.recommendations && result.recommendations.length > 0 ? 
+                                `<div class="recommendations-box mt-3">
+                                    <h6 class="mb-2">💡 推奨対応</h6>
+                                    <ul class="recommendation-list">
+                                        ${result.recommendations.map(r => `<li>${r}</li>`).join('')}
+                                    </ul>
+                                </div>` : ''
+                            }
+                        </div>
+                    `;
+                    
+                    if (data.alert_result) {
+                        html += `
+                            <div class="alert-sent-box mt-3">
+                                <div class="alert alert-info alert-sm">
+                                    <div class="d-flex align-items-center">
+                                        <span class="me-2">📢</span>
+                                        <div>
+                                            <strong>アラート送信完了</strong><br>
+                                            <small>ID: ${data.alert_result.alert_id} | 重要度: 
+                                            <span class="badge bg-${getSeverityColor(data.alert_result.severity)}">${data.alert_result.severity.toUpperCase()}</span>
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    resultsElement.innerHTML = html;
+                } else {
+                    resultsElement.innerHTML = `<div class="alert alert-danger">エラー: ${data.error}</div>`;
+                }
+            } catch (error) {
+                console.error('手動スキャン実行エラー:', error);
+                resultsElement.innerHTML = '<div class="alert alert-danger">スキャンの実行に失敗しました</div>';
+            }
+        }
+
+        // ログ完全性検証の実行
+        async function runIntegrityCheck() {
+            if (!confirm('ログ完全性検証を実行しますか？大量のログがある場合、時間がかかる可能性があります。')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/admin/api/security/integrity-check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        batch_size: 1000,
+                        add_missing_checksums: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('ログ完全性検証が完了しました');
+                    loadIntegrityStatus();
+                    loadIntegrityDetails();
+                } else {
+                    alert('検証の実行に失敗しました: ' + data.error);
+                }
+            } catch (error) {
+                console.error('ログ完全性検証実行エラー:', error);
+                alert('検証の実行に失敗しました');
+            }
+        }
+
+        // 監査ログ画面を開く
+        function openAuditLogs() {
+            window.open('/admin/audit-logs', '_blank');
+        }
+
+        // ユーティリティ関数
+        function getRiskClass(riskScore) {
+            if (riskScore >= 80) return 'critical';
+            if (riskScore >= 60) return 'high';
+            if (riskScore >= 40) return 'medium';
+            return 'low';
+        }
+
+        function getSeverityColor(severity) {
+            switch(severity) {
+                case 'critical': return 'danger';
+                case 'high': return 'warning';
+                case 'medium': return 'info';
+                default: return 'secondary';
+            }
+        }
+
+        function updateAnomalyStatus(hasAnomalies, count) {
+            const indicator = document.getElementById('anomaly-status-indicator');
+            const text = document.getElementById('anomaly-status-text');
+            
+            if (hasAnomalies) {
+                indicator.className = 'status-indicator error';
+                text.innerHTML = `<span class="badge bg-danger">${count}件の異常を検出</span>`;
+            } else {
+                indicator.className = 'status-indicator ok';
+                text.innerHTML = '<span class="badge bg-success">異常なし</span>';
+            }
+        }
+
+        function updateIntegrityStatus(hasIssues, percentage) {
+            const indicator = document.getElementById('integrity-status-indicator');
+            const text = document.getElementById('integrity-status-text');
+            
+            if (hasIssues || percentage < 95) {
+                indicator.className = 'status-indicator warning';
+                text.innerHTML = `<span class="badge bg-warning">${percentage.toFixed(1)}%</span>`;
+            } else {
+                indicator.className = 'status-indicator ok';
+                text.innerHTML = `<span class="badge bg-success">${percentage.toFixed(1)}%</span>`;
+            }
+        }
+
+        // ページを離れる際のクリーンアップ
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+{% endblock %}

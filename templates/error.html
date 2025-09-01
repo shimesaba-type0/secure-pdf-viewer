@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+
+{% block title %}エラー - Secure PDF Viewer{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <h2>エラー</h2>
+    <div class="error-message">
+        <p>{{ error }}</p>
+        {% if "管理者権限が必要です" in error %}
+        <div id="redirect-info" class="redirect-info">
+            <p><span id="countdown">3</span>秒後に閲覧画面にリダイレクトします...</p>
+        </div>
+        {% endif %}
+    </div>
+    <div class="error-actions">
+        {% if is_admin_user %}
+        <a href="/admin" class="btn btn-primary">管理画面に戻る</a>
+        {% endif %}
+        <a href="/" class="btn btn-secondary">閲覧画面に戻る</a>
+    </div>
+</div>
+
+{% if "管理者権限が必要です" in error %}
+<script>
+let countdown = 3;
+const countdownElement = document.getElementById('countdown');
+const redirectInfo = document.getElementById('redirect-info');
+
+const timer = setInterval(() => {
+    countdown--;
+    if (countdownElement) {
+        countdownElement.textContent = countdown;
+    }
+    
+    if (countdown <= 0) {
+        clearInterval(timer);
+        window.location.href = '/';
+    }
+}, 1000);
+</script>
+
+<style>
+.redirect-info {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #e8f4fd;
+    border: 1px solid #b3d8f0;
+    border-radius: 5px;
+    color: #0066cc;
+}
+
+.redirect-info p {
+    margin: 0;
+    font-size: 14px;
+}
+
+#countdown {
+    font-weight: bold;
+    color: #004499;
+}
+</style>
+{% endif %}
+{% endblock %}

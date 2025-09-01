@@ -1,0 +1,589 @@
+{% extends "layout.html" %}
+
+{% block title %}インシデント検索デモ - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+.demo-container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.demo-header {
+    text-align: center;
+    margin-bottom: 2rem;
+    padding: 2rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+}
+
+.demo-section {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 2rem;
+    padding: 2rem;
+}
+
+.demo-section h3 {
+    color: #333;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 0.5rem;
+}
+
+.incident-search-form {
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.form-group {
+    flex: 1;
+    min-width: 250px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+    color: #555;
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-primary {
+    background: #667eea;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #5a6fd8;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+.btn-success {
+    background: #28a745;
+    color: white;
+}
+
+.btn-warning {
+    background: #ffc107;
+    color: #212529;
+}
+
+.sample-incidents {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.incident-card {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 1rem;
+    background: #f8f9fa;
+    transition: all 0.3s;
+}
+
+.incident-card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.incident-id {
+    font-family: monospace;
+    font-weight: bold;
+    color: #495057;
+    background: #fff;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid #ced4da;
+    cursor: pointer;
+}
+
+.incident-id:hover {
+    background: #e9ecef;
+}
+
+.incident-details {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.status-resolved {
+    background: #28a745;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.status-pending {
+    background: #dc3545;
+    color: #ffffff;
+    font-weight: bold;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.search-result {
+    border: 2px solid #28a745;
+    border-radius: 8px;
+    padding: 1.5rem;
+    background: #f8fff8;
+    margin-top: 1rem;
+}
+
+.search-result h4 {
+    color: #28a745;
+    margin-bottom: 1rem;
+}
+
+.incident-details-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.incident-details-table th,
+.incident-details-table td {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.incident-details-table th {
+    background: #f8f9fa;
+    font-weight: bold;
+    width: 150px;
+}
+
+.message {
+    padding: 1rem;
+    margin: 1rem 0;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.message-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.message-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.message-info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.hidden {
+    display: none;
+}
+
+.test-cases {
+    margin-top: 2rem;
+}
+
+.test-case {
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+.test-case h5 {
+    margin: 0 0 0.5rem 0;
+    color: #333;
+}
+
+.test-case-description {
+    color: #666;
+    margin-bottom: 0.5rem;
+}
+
+.test-case-action {
+    margin-top: 0.5rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="demo-container">
+    <div class="demo-header">
+        <h1>🔍 インシデント検索機能デモ</h1>
+        <p>管理者向けインシデント検索機能の動作を確認できます</p>
+    </div>
+
+    <!-- 検索フォーム -->
+    <div class="demo-section">
+        <h3>インシデント検索</h3>
+        <div class="incident-search-form">
+            <div class="form-group">
+                <label for="demoIncidentId">インシデントID</label>
+                <input type="text" id="demoIncidentId" class="form-control" 
+                       placeholder="BLOCK-20250727020529-0069" maxlength="24">
+                <small>下のサンプルインシデントをクリックすると自動入力されます</small>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="searchDemoIncident()">検索</button>
+            <button type="button" class="btn btn-secondary" onclick="clearDemoSearch()">クリア</button>
+        </div>
+
+        <!-- メッセージ表示エリア -->
+        <div id="demoMessage" class="hidden"></div>
+
+        <!-- 検索結果表示エリア -->
+        <div id="demoSearchResult" class="hidden"></div>
+    </div>
+
+    <!-- サンプルインシデント一覧 -->
+    <div class="demo-section">
+        <h3>📋 サンプルインシデント一覧</h3>
+        <p>以下のインシデントIDをクリックすると検索フォームに自動入力されます</p>
+        
+        <div class="sample-incidents">
+            {% for incident in sample_incidents %}
+            <div class="incident-card">
+                <div class="incident-id" onclick="fillIncidentId('{{ incident.incident_id }}')">
+                    {{ incident.incident_id }}
+                </div>
+                <div class="incident-details">
+                    <strong>IP:</strong> {{ incident.ip_address }}<br>
+                    <strong>理由:</strong> {{ incident.block_reason }}<br>
+                    <strong>状態:</strong> 
+                    <span class="{% if incident.resolved %}status-resolved{% else %}status-pending{% endif %}">
+                        {% if incident.resolved %}解決済み{% else %}未解決{% endif %}
+                    </span><br>
+                    <strong>作成日時:</strong> {{ incident.created_at }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- テストケース -->
+    <div class="demo-section">
+        <h3>🧪 テストケース</h3>
+        <p>以下のテストケースで様々な動作を確認できます</p>
+        
+        <div class="test-cases">
+            <div class="test-case">
+                <h5>✅ 正常系: 有効なインシデントID検索</h5>
+                <div class="test-case-description">
+                    上記のサンプルインシデントIDを使用して正常な検索結果を確認
+                </div>
+                <div class="test-case-action">
+                    <button class="btn btn-success" onclick="testValidSearch()">テスト実行</button>
+                </div>
+            </div>
+
+            <div class="test-case">
+                <h5>❌ 異常系: 存在しないインシデントID</h5>
+                <div class="test-case-description">
+                    存在しないインシデントIDで「インシデントが見つかりません」エラーを確認
+                </div>
+                <div class="test-case-action">
+                    <button class="btn btn-warning" onclick="testNotFoundSearch()">テスト実行</button>
+                </div>
+            </div>
+
+            <div class="test-case">
+                <h5>❌ 異常系: 無効な形式のインシデントID</h5>
+                <div class="test-case-description">
+                    無効な形式のIDで「無効なインシデントID形式です」エラーを確認
+                </div>
+                <div class="test-case-action">
+                    <button class="btn btn-warning" onclick="testInvalidFormatSearch()">テスト実行</button>
+                </div>
+            </div>
+
+            <div class="test-case">
+                <h5>❌ 異常系: 空のインシデントID</h5>
+                <div class="test-case-description">
+                    空の入力で「インシデントIDを入力してください」エラーを確認
+                </div>
+                <div class="test-case-action">
+                    <button class="btn btn-warning" onclick="testEmptySearch()">テスト実行</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="demo-section">
+        <h3>📝 操作手順</h3>
+        <ol>
+            <li><strong>サンプルインシデント選択:</strong> 上記のインシデントカードをクリックして検索フォームに自動入力</li>
+            <li><strong>手動入力:</strong> または直接インシデントIDを入力 (形式: BLOCK-YYYYMMDDHHMMSS-XXXX)</li>
+            <li><strong>検索実行:</strong> 「検索」ボタンをクリックして結果を確認</li>
+            <li><strong>結果確認:</strong> 検索結果の詳細情報や解除ボタンの動作を確認</li>
+            <li><strong>テストケース:</strong> 各種エラーケースのテストボタンで異常系動作を確認</li>
+        </ol>
+    </div>
+</div>
+
+<script>
+// インシデントID自動入力
+function fillIncidentId(incidentId) {
+    document.getElementById('demoIncidentId').value = incidentId;
+    showDemoMessage('インシデントIDが入力されました: ' + incidentId, 'info');
+}
+
+// 検索実行
+async function searchDemoIncident() {
+    const incidentId = document.getElementById('demoIncidentId').value.trim();
+    
+    if (!incidentId) {
+        showDemoMessage('インシデントIDを入力してください', 'error');
+        return;
+    }
+    
+    // インシデントID形式の簡易チェック
+    const incidentIdPattern = /^BLOCK-\d{14}-[A-Z0-9]{4}$/;
+    if (!incidentIdPattern.test(incidentId)) {
+        showDemoMessage('無効なインシデントID形式です。正しい形式: BLOCK-YYYYMMDDHHMMSS-XXXX', 'error');
+        return;
+    }
+    
+    try {
+        console.log('Searching for incident ID:', incidentId);
+        const response = await fetch(`/admin/api/incident-search?incident_id=${encodeURIComponent(incidentId)}`);
+        console.log('Response status:', response.status);
+        
+        const data = await response.json();
+        console.log('Response data:', data);
+        
+        if (response.status === 401) {
+            showDemoMessage('認証エラー: 管理者としてログインしてください', 'error');
+            return;
+        }
+        
+        if (data.success) {
+            displayDemoSearchResult(data.incident);
+            showDemoMessage('インシデントが見つかりました', 'success');
+        } else {
+            clearDemoSearchResult();
+            showDemoMessage(data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Search error:', error);
+        clearDemoSearchResult();
+        showDemoMessage('検索エラーが発生しました: ' + error.message, 'error');
+    }
+}
+
+// 検索結果表示
+function displayDemoSearchResult(incident) {
+    const resultDiv = document.getElementById('demoSearchResult');
+    
+    const status = incident.resolved ? '解決済み' : '未解決';
+    const statusClass = incident.resolved ? 'status-resolved' : 'status-pending';
+    const createdAt = new Date(incident.created_at).toLocaleString('ja-JP');
+    const resolvedAt = incident.resolved_at ? new Date(incident.resolved_at).toLocaleString('ja-JP') : '-';
+    
+    const actionButton = incident.resolved ? 
+        '<span class="btn btn-secondary" disabled>解決済み</span>' :
+        `<button class="btn btn-warning" onclick="resolveDemoIncident('${incident.incident_id}')">解除</button>`;
+    
+    resultDiv.innerHTML = `
+        <div class="search-result">
+            <h4>🔍 検索結果</h4>
+            <table class="incident-details-table">
+                <tr>
+                    <th>インシデントID:</th>
+                    <td><code class="incident-id">${escapeHtml(incident.incident_id)}</code></td>
+                </tr>
+                <tr>
+                    <th>IPアドレス:</th>
+                    <td><code>${escapeHtml(incident.ip_address)}</code></td>
+                </tr>
+                <tr>
+                    <th>制限理由:</th>
+                    <td>${escapeHtml(incident.block_reason)}</td>
+                </tr>
+                <tr>
+                    <th>発生時刻:</th>
+                    <td>${createdAt}</td>
+                </tr>
+                <tr>
+                    <th>状態:</th>
+                    <td><span class="${statusClass}">${status}</span></td>
+                </tr>
+                <tr>
+                    <th>解決時刻:</th>
+                    <td>${resolvedAt}</td>
+                </tr>
+                ${incident.resolved_by ? `
+                <tr>
+                    <th>解決者:</th>
+                    <td>${escapeHtml(incident.resolved_by)}</td>
+                </tr>
+                ` : ''}
+                ${incident.admin_notes ? `
+                <tr>
+                    <th>管理者メモ:</th>
+                    <td>${escapeHtml(incident.admin_notes)}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                    <th>操作:</th>
+                    <td>${actionButton}</td>
+                </tr>
+            </table>
+        </div>
+    `;
+    
+    resultDiv.classList.remove('hidden');
+}
+
+// 検索クリア
+function clearDemoSearch() {
+    document.getElementById('demoIncidentId').value = '';
+    clearDemoSearchResult();
+    showDemoMessage('検索をクリアしました', 'info');
+}
+
+function clearDemoSearchResult() {
+    const resultDiv = document.getElementById('demoSearchResult');
+    resultDiv.innerHTML = '';
+    resultDiv.classList.add('hidden');
+}
+
+// メッセージ表示
+function showDemoMessage(message, type) {
+    const messageDiv = document.getElementById('demoMessage');
+    messageDiv.className = 'message message-' + type;
+    messageDiv.textContent = message;
+    messageDiv.classList.remove('hidden');
+    
+    // 3秒後に自動削除
+    setTimeout(() => {
+        messageDiv.classList.add('hidden');
+    }, 3000);
+}
+
+// インシデント解除
+async function resolveDemoIncident(incidentId) {
+    if (!confirm(`インシデント ${incidentId} を解除しますか？\\nこの操作により関連するIP制限も解除されます。`)) {
+        return;
+    }
+    
+    const adminNotes = prompt('解除理由（任意）:') || 'デモページからの解除';
+    
+    try {
+        const response = await fetch('/admin/api/resolve-incident', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                incident_id: incidentId,
+                admin_notes: adminNotes
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            showDemoMessage(`インシデント ${incidentId} を解除しました`, 'success');
+            // 検索結果を再表示
+            setTimeout(() => searchDemoIncident(), 1000);
+        } else {
+            showDemoMessage(`インシデント解除に失敗しました: ${data.message}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error resolving incident:', error);
+        showDemoMessage('インシデント解除中にエラーが発生しました', 'error');
+    }
+}
+
+// テストケース実行
+function testValidSearch() {
+    const sampleId = '{{ sample_incidents[0].incident_id if sample_incidents }}';
+    console.log('Sample ID from template:', sampleId);
+    
+    if (sampleId && sampleId !== 'None' && sampleId !== '') {
+        fillIncidentId(sampleId);
+        setTimeout(() => searchDemoIncident(), 500);
+    } else {
+        // サンプルデータがない場合はデフォルトのテストIDを使用
+        const testId = 'BLOCK-20250727022000-TEST';
+        showDemoMessage('テンプレートにサンプルデータがないため、テスト用IDを使用します: ' + testId, 'info');
+        fillIncidentId(testId);
+        setTimeout(() => searchDemoIncident(), 500);
+    }
+}
+
+function testNotFoundSearch() {
+    document.getElementById('demoIncidentId').value = 'BLOCK-20990101000000-ZZZZ';
+    showDemoMessage('存在しないインシデントIDでテストします', 'info');
+    setTimeout(() => searchDemoIncident(), 500);
+}
+
+function testInvalidFormatSearch() {
+    document.getElementById('demoIncidentId').value = 'INVALID-FORMAT-ID';
+    showDemoMessage('無効な形式のインシデントIDでテストします', 'info');
+    setTimeout(() => searchDemoIncident(), 500);
+}
+
+function testEmptySearch() {
+    document.getElementById('demoIncidentId').value = '';
+    showDemoMessage('空の入力でテストします', 'info');
+    setTimeout(() => searchDemoIncident(), 500);
+}
+
+// HTMLエスケープ
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

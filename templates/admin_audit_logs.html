@@ -1,0 +1,990 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ title }} - Secure PDF Viewer{% endblock %}
+
+{% block extra_css %}
+<style>
+/* 監査ログ分析画面専用CSS */
+.audit-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.audit-header {
+    display: flex;
+    justify-content: between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.audit-title {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.audit-subtitle {
+    color: #7f8c8d;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+/* 統計ダッシュボード */
+.stats-dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stats-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    text-align: center;
+    transition: transform 0.2s ease;
+}
+
+.stats-card:hover {
+    transform: translateY(-5px);
+}
+
+.stats-number {
+    display: block;
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 5px;
+}
+
+.stats-label {
+    color: #666;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stats-card.low { color: #28a745; }
+.stats-card.medium { color: #ffc107; }
+.stats-card.high { color: #dc3545; }
+.stats-card.critical { color: #6f42c1; }
+
+/* フィルター・検索セクション */
+.filters-section {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+
+.filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.filter-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #2c3e50;
+}
+
+.filter-group select,
+.filter-group input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: background-color 0.2s ease;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+}
+
+.btn-success {
+    background-color: #28a745;
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #1e7e34;
+}
+
+/* グラフセクション */
+.charts-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.chart-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.chart-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+.chart-container {
+    position: relative;
+    height: 300px;
+}
+
+/* ログテーブルセクション */
+.logs-section {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.logs-header {
+    display: flex;
+    justify-content: between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.logs-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0;
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.logs-table th,
+.logs-table td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.logs-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #2c3e50;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.logs-table tbody tr:hover {
+    background-color: #f5f5f5;
+}
+
+.risk-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.risk-low { background-color: #d4edda; color: #155724; }
+.risk-medium { background-color: #fff3cd; color: #856404; }
+.risk-high { background-color: #f8d7da; color: #721c24; }
+.risk-critical { background-color: #e2d9f3; color: #432874; }
+
+.success-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.success-true { background-color: #d4edda; color: #155724; }
+.success-false { background-color: #f8d7da; color: #721c24; }
+
+/* ページネーション */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    margin-top: 20px;
+}
+
+.pagination button {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    background: white;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.pagination button:hover:not(:disabled) {
+    background-color: #f8f9fa;
+}
+
+.pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination .active {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+/* ローディング表示 */
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 40px;
+    color: #666;
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* エラー表示 */
+.error-message {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 20px 0;
+    border-left: 4px solid #dc3545;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .audit-container {
+        padding: 10px;
+    }
+    
+    .stats-dashboard {
+        grid-template-columns: 1fr;
+    }
+    
+    .filters-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .charts-section {
+        grid-template-columns: 1fr;
+    }
+    
+    .filter-actions {
+        justify-content: center;
+    }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// 監査ログ分析JavaScript
+class AuditLogAnalysis {
+    constructor() {
+        this.currentPage = 1;
+        this.currentFilters = {};
+        this.charts = {};
+        
+        this.init();
+    }
+    
+    init() {
+        // 初期統計データ読み込み
+        this.loadStats();
+        
+        // グラフ初期化
+        this.initCharts();
+        
+        // ログテーブル読み込み
+        this.loadLogs();
+        
+        // イベントリスナー設定
+        this.setupEventListeners();
+    }
+    
+    setupEventListeners() {
+        // フィルター適用ボタン
+        document.getElementById('applyFilters')?.addEventListener('click', () => {
+            this.applyFilters();
+        });
+        
+        // フィルターリセットボタン
+        document.getElementById('resetFilters')?.addEventListener('click', () => {
+            this.resetFilters();
+        });
+        
+        // エクスポートボタン
+        document.getElementById('exportCSV')?.addEventListener('click', () => {
+            this.exportData('csv');
+        });
+        
+        document.getElementById('exportJSON')?.addEventListener('click', () => {
+            this.exportData('json');
+        });
+        
+        // 期間選択変更
+        document.getElementById('periodSelect')?.addEventListener('change', (e) => {
+            this.updatePeriod(e.target.value);
+        });
+    }
+    
+    async loadStats() {
+        try {
+            const response = await fetch('/admin/api/audit-logs/stats');
+            if (!response.ok) throw new Error('統計データの取得に失敗しました');
+            
+            const stats = await response.json();
+            this.updateStatsDisplay(stats);
+            
+        } catch (error) {
+            console.error('統計データ読み込みエラー:', error);
+            this.showError('統計データの読み込みに失敗しました');
+        }
+    }
+    
+    updateStatsDisplay(stats) {
+        console.log('Stats data:', stats); // デバッグ用
+        
+        // 統計カードの更新
+        const totalElement = document.getElementById('totalActions');
+        if (totalElement) {
+            totalElement.textContent = stats.total_actions || stats.total || 0;
+        }
+        
+        // stats.statsが配列の場合、リスクレベル別に集計
+        let riskCounts = stats.risk_level_counts || {};
+        if (stats.stats && Array.isArray(stats.stats)) {
+            riskCounts = { low: 0, medium: 0, high: 0, critical: 0 };
+            // 実際の集計はサーバー側で行うべきですが、一時的な対応
+            stats.stats.forEach(item => {
+                if (item.risk_level && riskCounts.hasOwnProperty(item.risk_level)) {
+                    riskCounts[item.risk_level] += item.count || 1;
+                }
+            });
+        }
+        
+        const riskElements = {
+            'low': document.getElementById('lowRiskCount'),
+            'medium': document.getElementById('mediumRiskCount'),
+            'high': document.getElementById('highRiskCount'),
+            'critical': document.getElementById('criticalRiskCount')
+        };
+        
+        Object.entries(riskElements).forEach(([risk, element]) => {
+            if (element) {
+                element.textContent = riskCounts[risk] || 0;
+            }
+        });
+    }
+    
+    initCharts() {
+        // 管理者別活動状況
+        this.initAdminActivityChart();
+        
+        // リスクレベル分布
+        this.initRiskDistributionChart();
+        
+        // 日別活動推移
+        this.initDailyActivityChart();
+        
+        // リソース別アクセス
+        this.initResourceAccessChart();
+    }
+    
+    async initAdminActivityChart() {
+        try {
+            const response = await fetch('/admin/api/audit-logs/chart-data?type=admin_activity');
+            const data = await response.json();
+            console.log('Admin Activity Chart Data:', data); // デバッグ用
+            
+            const ctx = document.getElementById('adminActivityChart');
+            if (ctx) {
+                this.charts.adminActivity = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('管理者活動グラフエラー:', error);
+        }
+    }
+    
+    async initRiskDistributionChart() {
+        try {
+            const response = await fetch('/admin/api/audit-logs/chart-data?type=risk_trend');
+            const data = await response.json();
+            
+            const ctx = document.getElementById('riskDistributionChart');
+            if (ctx) {
+                this.charts.riskDistribution = new Chart(ctx, {
+                    type: 'pie',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('リスク分布グラフエラー:', error);
+        }
+    }
+    
+    async initDailyActivityChart() {
+        try {
+            const response = await fetch('/admin/api/audit-logs/chart-data?type=daily_activity');
+            const data = await response.json();
+            
+            const ctx = document.getElementById('dailyActivityChart');
+            if (ctx) {
+                this.charts.dailyActivity = new Chart(ctx, {
+                    type: 'line',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('日別活動グラフエラー:', error);
+        }
+    }
+    
+    async initResourceAccessChart() {
+        try {
+            const response = await fetch('/admin/api/audit-logs/chart-data?type=resource_access');
+            const data = await response.json();
+            
+            const ctx = document.getElementById('resourceAccessChart');
+            if (ctx) {
+                this.charts.resourceAccess = new Chart(ctx, {
+                    type: 'bar',
+                    data: data,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('リソースアクセスグラフエラー:', error);
+        }
+    }
+    
+    async loadLogs(page = 1) {
+        try {
+            this.showLoading();
+            
+            const params = new URLSearchParams({
+                page: page,
+                limit: 50,
+                ...this.currentFilters
+            });
+            
+            const response = await fetch(`/admin/api/audit-logs?${params}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`ログデータの取得に失敗しました: ${response.status} ${errorText}`);
+            }
+            
+            const data = await response.json();
+            console.log('API Response:', data); // デバッグ用
+            
+            // データ構造の確認
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // APIレスポンス構造に応じた処理
+            let actions, pagination;
+            if (data.actions && typeof data.actions === 'object' && data.actions.actions) {
+                // 入れ子構造の場合
+                actions = data.actions.actions;
+                pagination = {
+                    page: data.actions.page || 1,
+                    limit: data.actions.limit || 50,
+                    total: data.actions.total || 0,
+                    has_next: data.actions.actions.length >= data.actions.limit,
+                    has_prev: data.actions.page > 1
+                };
+            } else {
+                // 通常構造の場合
+                actions = data.actions || data || [];
+                pagination = data.pagination || {};
+            }
+            
+            this.updateLogsTable(actions);
+            this.updatePagination(pagination);
+            
+        } catch (error) {
+            console.error('ログデータ読み込みエラー:', error);
+            this.showError('ログデータの読み込みに失敗しました');
+        } finally {
+            this.hideLoading();
+        }
+    }
+    
+    updateLogsTable(actions) {
+        const tbody = document.querySelector('#logsTable tbody');
+        if (!tbody) return;
+        
+        // actionsが配列でない場合のエラーハンドリング
+        if (!Array.isArray(actions)) {
+            console.error('Actions is not an array:', actions);
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">データ形式エラー</td></tr>';
+            return;
+        }
+        
+        if (actions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;">データがありません</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = actions.map(action => `
+            <tr onclick="showActionDetails(${action.id})" style="cursor: pointer;">
+                <td>${action.id}</td>
+                <td>${action.admin_email}</td>
+                <td>${this.getActionTypeLabel(action.action_type)}</td>
+                <td>${action.resource_type || ''}</td>
+                <td>${action.created_at}</td>
+                <td><span class="risk-badge risk-${action.risk_level}">${this.getRiskLevelLabel(action.risk_level)}</span></td>
+                <td><span class="success-badge success-${action.success}">${action.success ? '成功' : '失敗'}</span></td>
+                <td>${action.ip_address}</td>
+            </tr>
+        `).join('');
+    }
+    
+    updatePagination(pagination) {
+        const container = document.getElementById('pagination');
+        if (!container) return;
+        
+        container.innerHTML = `
+            <button ${!pagination.has_prev ? 'disabled' : ''} onclick="auditAnalysis.loadLogs(${pagination.page - 1})">
+                ← 前へ
+            </button>
+            <span>ページ ${pagination.page} / ${Math.ceil(pagination.total / pagination.limit)}</span>
+            <button ${!pagination.has_next ? 'disabled' : ''} onclick="auditAnalysis.loadLogs(${pagination.page + 1})">
+                次へ →
+            </button>
+        `;
+    }
+    
+    applyFilters() {
+        this.currentFilters = {
+            admin_email: document.getElementById('adminEmailFilter')?.value || '',
+            action_type: document.getElementById('actionTypeFilter')?.value || '',
+            resource_type: document.getElementById('resourceTypeFilter')?.value || '',
+            risk_level: document.getElementById('riskLevelFilter')?.value || '',
+            success: document.getElementById('successFilter')?.value || '',
+            start_date: document.getElementById('startDateFilter')?.value || '',
+            end_date: document.getElementById('endDateFilter')?.value || ''
+        };
+        
+        // 空の値を除去
+        Object.keys(this.currentFilters).forEach(key => {
+            if (!this.currentFilters[key]) {
+                delete this.currentFilters[key];
+            }
+        });
+        
+        this.currentPage = 1;
+        this.loadLogs(1);
+    }
+    
+    resetFilters() {
+        // フィルター入力をクリア
+        ['adminEmailFilter', 'actionTypeFilter', 'resourceTypeFilter', 
+         'riskLevelFilter', 'successFilter', 'startDateFilter', 'endDateFilter'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.value = '';
+        });
+        
+        this.currentFilters = {};
+        this.currentPage = 1;
+        this.loadLogs(1);
+    }
+    
+    async exportData(format) {
+        try {
+            const params = new URLSearchParams({
+                format: format,
+                ...this.currentFilters
+            });
+            
+            const response = await fetch(`/admin/api/audit-logs/export?${params}`);
+            if (!response.ok) throw new Error('エクスポートに失敗しました');
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = response.headers.get('Content-Disposition')?.split('filename=')[1] || `audit_logs.${format}`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+        } catch (error) {
+            console.error('エクスポートエラー:', error);
+            this.showError('エクスポートに失敗しました');
+        }
+    }
+    
+    async updatePeriod(period) {
+        await this.loadStats();
+        // グラフを更新
+        Object.values(this.charts).forEach(chart => {
+            if (chart) chart.destroy();
+        });
+        this.charts = {};
+        this.initCharts();
+    }
+    
+    getActionTypeLabel(type) {
+        const labels = {
+            'admin_login': 'ログイン',
+            'admin_logout': 'ログアウト',
+            'user_update': 'ユーザー更新',
+            'setting_update': '設定変更',
+            'log_view': 'ログ閲覧',
+            'log_export': 'ログエクスポート'
+        };
+        return labels[type] || type;
+    }
+    
+    getRiskLevelLabel(level) {
+        const labels = {
+            'low': '低',
+            'medium': '中',
+            'high': '高',
+            'critical': '重要'
+        };
+        return labels[level] || level;
+    }
+    
+    showLoading() {
+        const loading = document.getElementById('loading');
+        if (loading) loading.style.display = 'block';
+    }
+    
+    hideLoading() {
+        const loading = document.getElementById('loading');
+        if (loading) loading.style.display = 'none';
+    }
+    
+    showError(message) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.textContent = message;
+        
+        const container = document.querySelector('.audit-container');
+        if (container) {
+            container.insertBefore(errorDiv, container.firstChild);
+            
+            // 5秒後に削除
+            setTimeout(() => {
+                errorDiv.remove();
+            }, 5000);
+        }
+    }
+}
+
+// グローバル関数
+async function showActionDetails(actionId) {
+    try {
+        const response = await fetch(`/admin/api/audit-logs/action-details/${actionId}`);
+        if (!response.ok) throw new Error('詳細情報の取得に失敗しました');
+        
+        const details = await response.json();
+        
+        // モーダルまたは詳細表示の実装
+        alert(`操作詳細:\n管理者: ${details.admin_email}\n操作: ${details.action_type}\n時刻: ${details.created_at}\n成功: ${details.success ? 'はい' : 'いいえ'}`);
+        
+    } catch (error) {
+        console.error('詳細表示エラー:', error);
+    }
+}
+
+// 初期化
+let auditAnalysis;
+document.addEventListener('DOMContentLoaded', () => {
+    auditAnalysis = new AuditLogAnalysis();
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="audit-container">
+    <div class="audit-header">
+        <div>
+            <h1 class="audit-title">{{ title }}</h1>
+            <p class="audit-subtitle">管理者操作の詳細分析・統計・監査レポート</p>
+        </div>
+    </div>
+    
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    <!-- 統計ダッシュボード -->
+    <div class="stats-dashboard">
+        <div class="stats-card">
+            <span class="stats-number" id="totalActions">-</span>
+            <span class="stats-label">総操作数</span>
+        </div>
+        <div class="stats-card low">
+            <span class="stats-number" id="lowRiskCount">-</span>
+            <span class="stats-label">低リスク操作</span>
+        </div>
+        <div class="stats-card medium">
+            <span class="stats-number" id="mediumRiskCount">-</span>
+            <span class="stats-label">中リスク操作</span>
+        </div>
+        <div class="stats-card high">
+            <span class="stats-number" id="highRiskCount">-</span>
+            <span class="stats-label">高リスク操作</span>
+        </div>
+        <div class="stats-card critical">
+            <span class="stats-number" id="criticalRiskCount">-</span>
+            <span class="stats-label">重要操作</span>
+        </div>
+    </div>
+    
+    <!-- フィルター・検索 -->
+    <div class="filters-section">
+        <h3>検索・フィルター</h3>
+        <div class="filters-grid">
+            <div class="filter-group">
+                <label for="adminEmailFilter">管理者メール</label>
+                <input type="email" id="adminEmailFilter" placeholder="admin@example.com">
+            </div>
+            <div class="filter-group">
+                <label for="actionTypeFilter">操作種別</label>
+                <select id="actionTypeFilter">
+                    <option value="">すべて</option>
+                    <option value="admin_login">ログイン</option>
+                    <option value="admin_logout">ログアウト</option>
+                    <option value="user_update">ユーザー更新</option>
+                    <option value="setting_update">設定変更</option>
+                    <option value="log_view">ログ閲覧</option>
+                    <option value="log_export">ログエクスポート</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="resourceTypeFilter">リソース種別</label>
+                <select id="resourceTypeFilter">
+                    <option value="">すべて</option>
+                    <option value="user">ユーザー</option>
+                    <option value="setting">設定</option>
+                    <option value="admin_actions">監査ログ</option>
+                    <option value="session">セッション</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="riskLevelFilter">リスクレベル</label>
+                <select id="riskLevelFilter">
+                    <option value="">すべて</option>
+                    <option value="low">低リスク</option>
+                    <option value="medium">中リスク</option>
+                    <option value="high">高リスク</option>
+                    <option value="critical">重要</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="successFilter">成功/失敗</label>
+                <select id="successFilter">
+                    <option value="">すべて</option>
+                    <option value="true">成功</option>
+                    <option value="false">失敗</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="startDateFilter">開始日時</label>
+                <input type="datetime-local" id="startDateFilter">
+            </div>
+            <div class="filter-group">
+                <label for="endDateFilter">終了日時</label>
+                <input type="datetime-local" id="endDateFilter">
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="button" class="btn btn-primary" id="applyFilters">
+                🔍 検索
+            </button>
+            <button type="button" class="btn btn-secondary" id="resetFilters">
+                🔄 リセット
+            </button>
+            <button type="button" class="btn btn-success" id="exportCSV">
+                📊 CSV出力
+            </button>
+            <button type="button" class="btn btn-success" id="exportJSON">
+                📄 JSON出力
+            </button>
+        </div>
+    </div>
+    
+    <!-- グラフセクション -->
+    <div class="charts-section">
+        <div class="chart-card">
+            <h3 class="chart-title">管理者別活動状況</h3>
+            <div class="chart-container">
+                <canvas id="adminActivityChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-title">リスクレベル分布</h3>
+            <div class="chart-container">
+                <canvas id="riskDistributionChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-title">日別活動推移</h3>
+            <div class="chart-container">
+                <canvas id="dailyActivityChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="chart-card">
+            <h3 class="chart-title">リソース別アクセス</h3>
+            <div class="chart-container">
+                <canvas id="resourceAccessChart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ログテーブル -->
+    <div class="logs-section">
+        <div class="logs-header">
+            <h3 class="logs-title">監査ログ詳細</h3>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            読み込み中...
+        </div>
+        
+        <div class="table-responsive">
+            <table class="logs-table" id="logsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>管理者</th>
+                        <th>操作種別</th>
+                        <th>リソース</th>
+                        <th>実行日時</th>
+                        <th>リスク</th>
+                        <th>結果</th>
+                        <th>IPアドレス</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- JavaScriptで動的生成 -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="pagination" class="pagination">
+            <!-- JavaScriptで動的生成 -->
+        </div>
+    </div>
+</div>
+{% endblock %}

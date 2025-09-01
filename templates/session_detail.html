@@ -1,0 +1,318 @@
+{% extends "layout.html" %}
+
+{% block title %}セッション詳細 - {{ session.session_id[:16] }}... - Secure PDF Viewer{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/sse-manager.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="session-detail-container">
+    <div class="session-detail-header">
+        <h2>🔍 セッション詳細情報</h2>
+        <div class="header-actions">
+            <a href="/admin/sessions" class="btn btn-secondary">
+                ← セッション一覧に戻る
+            </a>
+            <a href="/admin" class="btn btn-info">
+                管理画面に戻る
+            </a>
+        </div>
+    </div>
+    
+    <div class="detail-grid">
+        <div class="detail-item">
+            <div class="detail-label">📋 セッションID</div>
+            <div class="detail-value">
+                <code class="session-id-code">{{ session.session_id }}</code>
+            </div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">📧 メールアドレス</div>
+            <div class="detail-value">{{ session.email_address }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">📱 デバイス</div>
+            <div class="detail-value device-info">
+                {% if session.device_type == 'mobile' %}
+                    📱 スマホ
+                {% elif session.device_type == 'tablet' %}
+                    📱 タブレット
+                {% elif session.device_type == 'desktop' %}
+                    💻 PC
+                {% else %}
+                    ❓ その他
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">⏰ 開始時刻</div>
+            <div class="detail-value">{{ session.start_time }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">⏳ 残り時間</div>
+            <div class="detail-value">{{ session.remaining_time }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">⌛ 経過時間</div>
+            <div class="detail-value">{{ session.elapsed_hours }}時間</div>
+        </div>
+        
+        <div class="detail-item memo-item">
+            <div class="detail-label">📝 管理者メモ</div>
+            <div class="detail-value">
+                <div class="memo-area" id="memo-display" onclick="editMemo()">
+                    <div class="memo-content" id="memo-content">
+                        {{ session.memo or '（メモなし）' }}
+                    </div>
+                    <div class="memo-edit-hint">
+                        <span class="edit-icon">✏️</span>
+                        <span class="edit-text">クリックして編集</span>
+                    </div>
+                </div>
+                <div class="memo-edit-form" id="memo-edit" style="display: none;">
+                    <textarea id="memo-textarea" maxlength="500" rows="4">{{ session.memo or '' }}</textarea>
+                    <div class="memo-actions">
+                        <button class="btn btn-success" onclick="saveMemo()">保存</button>
+                        <button class="btn btn-secondary" onclick="cancelEdit()">キャンセル</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function editMemo() {
+    document.getElementById('memo-display').style.display = 'none';
+    document.getElementById('memo-edit').style.display = 'block';
+    document.getElementById('memo-textarea').focus();
+}
+
+function cancelEdit() {
+    document.getElementById('memo-display').style.display = 'block';
+    document.getElementById('memo-edit').style.display = 'none';
+}
+
+function saveMemo() {
+    const textarea = document.getElementById('memo-textarea');
+    const newMemo = textarea.value.trim();
+    
+    fetch('/admin/api/update-session-memo', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: '{{ session.session_id }}',
+            memo: newMemo
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // 表示を更新
+            document.getElementById('memo-content').textContent = newMemo || '（メモなし）';
+            cancelEdit();
+            
+            // 成功メッセージ
+            showNotification('メモを更新しました', 'success');
+        } else {
+            alert('エラー: ' + (data.error || data.message));
+        }
+    })
+    .catch(error => {
+        console.error('メモ更新エラー:', error);
+        alert('メモの更新に失敗しました');
+    });
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
+        <span>${message}</span>
+        <button class="notification-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#d4edda' : '#f8d7da'};
+        color: ${type === 'success' ? '#155724' : '#721c24'};
+        padding: 10px 15px;
+        border-radius: 4px;
+        border: 1px solid ${type === 'success' ? '#c3e6cb' : '#f5c6cb'};
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 5000);
+}
+</script>
+
+<style>
+.session-detail-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.session-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e1e5e9;
+}
+
+.session-detail-header h2 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.header-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+.detail-item {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e1e5e9;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.detail-item.memo-item {
+    grid-column: 1 / -1; /* 全幅表示 */
+}
+
+.detail-label {
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.detail-value {
+    color: #555;
+    font-size: 1rem;
+    line-height: 1.5;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.session-id-code {
+    background: #f8f9fa;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    word-break: break-all;
+    display: block;
+}
+
+.device-info {
+    font-size: 1.2rem;
+}
+
+.memo-area {
+    background: #f8f9fa;
+    border: 2px dashed #dee2e6;
+    border-radius: 6px;
+    padding: 1rem;
+    min-height: 120px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.memo-area:hover {
+    border-color: #3498db;
+    background: #f0f8ff;
+}
+
+.memo-content {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    margin-bottom: 0.5rem;
+    max-width: 100%;
+}
+
+.memo-edit-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #666;
+    font-size: 0.9rem;
+    opacity: 0.7;
+}
+
+.edit-icon {
+    font-size: 1rem;
+}
+
+.memo-edit-form textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 120px;
+}
+
+.memo-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .session-detail-container {
+        padding: 1rem;
+    }
+    
+    .session-detail-header {
+        flex-direction: column;
+        gap: 1rem;
+        align-items: stretch;
+    }
+    
+    .detail-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .header-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}
