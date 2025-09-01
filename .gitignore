@@ -243,3 +243,5 @@ logs/*
 database/main.db
 database/*.db
 instance/*.db
+*.db
+secure_pdf_viewer.db
