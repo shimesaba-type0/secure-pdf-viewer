@@ -9,6 +9,7 @@ from flask import (
     jsonify,
     Response,
     send_from_directory,
+    make_response,
 )
 import os
 import uuid
@@ -23,10 +24,8 @@ from config.timezone import (
     parse_datetime_local,
     format_for_display,
     get_app_timezone,
-    compare_app_datetimes,
     add_app_timedelta,
 )
-from werkzeug.utils import secure_filename
 import sqlite3
 import hashlib
 import logging
@@ -5619,6 +5618,506 @@ def delete_admin_user_api(admin_id):
     except Exception as e:
         logger.error(f"管理者削除エラー: {str(e)}")
         return jsonify({"error": "管理者の削除に失敗しました"}), 500
+
+
+# =====================================
+# Sub-Phase 3C: 監査ログ分析機能
+# =====================================
+
+
+@app.route("/admin/audit-logs")
+@require_admin_session
+def admin_audit_logs():
+    """
+    監査ログ分析画面
+    管理者操作の詳細分析・統計・レポート機能を提供
+    """
+    try:
+        # 基本統計情報を取得
+        from database.models import get_admin_action_stats
+
+        # 直近7日間の基本統計
+        basic_stats = get_admin_action_stats(period="7d")
+
+        return render_template(
+            "admin_audit_logs.html", basic_stats=basic_stats, title="管理者監査ログ分析"
+        )
+
+    except Exception as e:
+        logger.error(f"監査ログ画面エラー: {str(e)}")
+        return render_template(
+            "admin_audit_logs.html", error="監査ログの読み込みに失敗しました", title="管理者監査ログ分析"
+        )
+
+
+@app.route("/admin/api/audit-logs", methods=["GET"])
+@require_admin_api_access
+@log_admin_operation("log_view", "admin_actions", risk_level="low")
+def admin_api_audit_logs():
+    """
+    監査ログ検索API
+    フィルタリング・ページネーション・ソート機能を提供
+    """
+    try:
+        from database.models import get_admin_actions
+        from config.timezone import (
+            get_app_datetime_string,
+            add_app_timedelta,
+            get_app_now,
+        )
+
+        # パラメータ取得
+        admin_email = request.args.get("admin_email")
+        action_type = request.args.get("action_type")
+        resource_type = request.args.get("resource_type")
+        resource_id = request.args.get("resource_id")
+        risk_level = request.args.get("risk_level")
+        success = request.args.get("success")
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        # ページネーションパラメータ
+        try:
+            page = max(1, int(request.args.get("page", 1)))
+            limit = max(1, min(100, int(request.args.get("limit", 50))))  # 最大100件
+        except ValueError:
+            page = 1
+            limit = 50
+
+        # success パラメータの変換
+        success_bool = None
+        if success and success.lower() in ["true", "false"]:
+            success_bool = success.lower() == "true"
+
+        # 監査ログ取得
+        actions = get_admin_actions(
+            admin_email=admin_email,
+            action_type=action_type,
+            resource_type=resource_type,
+            risk_level=risk_level,
+            success=success_bool,
+            start_date=start_date,
+            end_date=end_date,
+            page=page,
+            limit=limit,
+        )
+
+        # 総件数取得（簡易実装）
+        total_count = len(actions) if len(actions) < limit else (page * limit) + 1
+
+        # ページネーション情報
+        pagination = {
+            "page": page,
+            "limit": limit,
+            "total": total_count,
+            "has_next": len(actions) == limit,
+            "has_prev": page > 1,
+        }
+
+        return jsonify(
+            {
+                "actions": actions,
+                "pagination": pagination,
+                "filters": {
+                    "admin_email": admin_email,
+                    "action_type": action_type,
+                    "resource_type": resource_type,
+                    "risk_level": risk_level,
+                    "success": success,
+                },
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"監査ログAPI取得エラー: {str(e)}")
+        return jsonify({"error": "監査ログの取得に失敗しました"}), 400
+
+
+@app.route("/admin/api/audit-logs/stats", methods=["GET"])
+@require_admin_api_access
+@log_admin_operation("log_view", "admin_actions", risk_level="medium")
+def admin_api_audit_logs_stats():
+    """
+    監査ログ統計API
+    管理者別・操作別・リスクレベル別の統計情報を提供
+    """
+    try:
+        from database.models import get_admin_action_stats
+
+        # 統計期間パラメータ
+        period = request.args.get("period", "7d")  # 7d, 30d, 90d
+        group_by = request.args.get(
+            "group_by", "action_type"
+        )  # action_type, admin_email, risk_level
+
+        # 統計データ取得
+        stats = get_admin_action_stats(period=period, group_by=group_by)
+
+        return jsonify(stats)
+
+    except Exception as e:
+        logger.error(f"監査ログ統計API エラー: {str(e)}")
+        return jsonify({"error": "統計情報の取得に失敗しました"}), 500
+
+
+@app.route("/admin/api/audit-logs/export", methods=["GET"])
+@require_admin_api_access
+@log_admin_operation("log_export", "admin_actions", risk_level="medium")
+def admin_api_audit_logs_export():
+    """
+    監査ログエクスポートAPI
+    CSV・JSON形式でのログエクスポート機能
+    """
+    try:
+        from database.models import get_admin_actions
+        from config.timezone import get_app_datetime_string
+        import csv
+        import io
+
+        # エクスポート形式
+        format_type = request.args.get("format", "csv").lower()
+
+        # フィルタリングパラメータ（検索APIと同じ）
+        admin_email = request.args.get("admin_email")
+        action_type = request.args.get("action_type")
+        resource_type = request.args.get("resource_type")
+        risk_level = request.args.get("risk_level")
+        start_date = request.args.get("start_date")
+        end_date = request.args.get("end_date")
+
+        # 全件取得（エクスポート用なのでページネーション無し）
+        actions_result = get_admin_actions(
+            admin_email=admin_email,
+            action_type=action_type,
+            resource_type=resource_type,
+            risk_level=risk_level,
+            start_date=start_date,
+            end_date=end_date,
+            limit=10000,  # 最大1万件
+        )
+
+        # 実際のactionsリストを取得
+        actions = actions_result.get("actions", []) if isinstance(actions_result, dict) else []
+
+        # エクスポートファイル名
+        timestamp = get_app_datetime_string().replace(":", "-").replace(" ", "_")
+
+        if format_type == "csv":
+            # CSV形式でエクスポート
+            output = io.StringIO()
+            writer = csv.writer(output)
+
+            # ヘッダー行
+            writer.writerow(
+                [
+                    "ID",
+                    "管理者メール",
+                    "操作種別",
+                    "リソース種別",
+                    "リソースID",
+                    "作成日時",
+                    "リスクレベル",
+                    "成功",
+                    "IPアドレス",
+                    "エラーメッセージ",
+                ]
+            )
+
+            # データ行
+            for action in actions:
+                writer.writerow(
+                    [
+                        action.get("id", ""),
+                        action.get("admin_email", ""),
+                        action.get("action_type", ""),
+                        action.get("resource_type", ""),
+                        action.get("resource_id", ""),
+                        action.get("created_at", ""),
+                        action.get("risk_level", ""),
+                        "はい" if action.get("success", True) else "いいえ",
+                        action.get("ip_address", ""),
+                        action.get("error_message", ""),
+                    ]
+                )
+
+            response = make_response(output.getvalue().encode("utf-8"))
+            response.headers["Content-Type"] = "text/csv; charset=utf-8"
+            response.headers[
+                "Content-Disposition"
+            ] = f"attachment; filename=audit_logs_{timestamp}.csv"
+
+            return response
+
+        elif format_type == "json":
+            # JSON形式でエクスポート
+            export_data = {
+                "actions": actions,
+                "export_info": {
+                    "exported_at": get_app_datetime_string(),
+                    "total_records": len(actions),
+                    "filters": {
+                        "admin_email": admin_email,
+                        "action_type": action_type,
+                        "resource_type": resource_type,
+                        "risk_level": risk_level,
+                        "date_range": f"{start_date} - {end_date}"
+                        if start_date and end_date
+                        else None,
+                    },
+                },
+            }
+
+            response = make_response(
+                json.dumps(export_data, ensure_ascii=False, indent=2)
+            )
+            response.headers["Content-Type"] = "application/json"
+            response.headers[
+                "Content-Disposition"
+            ] = f"attachment; filename=audit_logs_{timestamp}.json"
+
+            return response
+
+        else:
+            return jsonify({"error": "サポートされていない形式です（csv, json のみ対応）"}), 400
+
+    except Exception as e:
+        logger.error(f"監査ログエクスポートエラー: {str(e)}")
+        return jsonify({"error": "エクスポートに失敗しました"}), 500
+
+
+@app.route("/admin/api/audit-logs/chart-data", methods=["GET"])
+@require_admin_api_access
+@log_admin_operation("log_view", "admin_actions", risk_level="low")
+def admin_api_audit_logs_chart_data():
+    """
+    監査ログChart.js用データ生成API
+    グラフ表示用のデータ形式に変換して提供
+    """
+    try:
+        from database.models import get_admin_action_stats
+        from database import get_db
+
+        chart_type = request.args.get("type", "admin_activity")
+        period = request.args.get("period", "7d")
+
+        if chart_type == "admin_activity":
+            # 管理者別活動状況
+            admin_stats = get_admin_action_stats(period=period, group_by="admin_email")
+            
+            # stats配列からlabelsとdataを作成
+            labels = []
+            data = []
+            for stat in admin_stats.get("stats", []):
+                labels.append(stat.get("admin_email", "不明"))
+                data.append(stat.get("count", 0))
+
+            chart_data = {
+                "labels": labels,
+                "datasets": [
+                    {
+                        "label": "管理者別操作数",
+                        "data": data,
+                        "backgroundColor": [
+                            "#007bff",
+                            "#28a745",
+                            "#dc3545",
+                            "#ffc107",
+                            "#17a2b8",
+                            "#6c757d",
+                            "#343a40",
+                            "#f8f9fa",
+                        ],
+                    }
+                ],
+            }
+
+        elif chart_type == "risk_trend":
+            # リスクレベル推移
+            risk_stats = get_admin_action_stats(period=period, group_by="risk_level")
+            
+            # 各リスクレベルの値を取得
+            risk_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+            for stat in risk_stats.get("stats", []):
+                risk_level = stat.get("risk_level", "")
+                count = stat.get("count", 0)
+                if risk_level in risk_counts:
+                    risk_counts[risk_level] = count
+
+            chart_data = {
+                "labels": ["低リスク", "中リスク", "高リスク", "重要リスク"],
+                "datasets": [
+                    {
+                        "label": "リスクレベル別操作数",
+                        "data": [
+                            risk_counts["low"],
+                            risk_counts["medium"],
+                            risk_counts["high"],
+                            risk_counts["critical"],
+                        ],
+                        "backgroundColor": ["#28a745", "#ffc107", "#dc3545", "#6f42c1"],
+                    }
+                ],
+            }
+
+        elif chart_type == "resource_access":
+            # リソース別アクセス
+            resource_stats = get_admin_action_stats(period=period, group_by="resource_type")
+            
+            # stats配列からlabelsとdataを作成
+            labels = []
+            data = []
+            for stat in resource_stats.get("stats", []):
+                resource_type = stat.get("resource_type", "不明")
+                labels.append(resource_type if resource_type else "不明")
+                data.append(stat.get("count", 0))
+
+            chart_data = {
+                "labels": labels,
+                "datasets": [
+                    {
+                        "label": "リソース別操作数",
+                        "data": data,
+                        "backgroundColor": [
+                            "#007bff",
+                            "#28a745",
+                            "#dc3545",
+                            "#ffc107",
+                            "#17a2b8",
+                        ],
+                    }
+                ],
+            }
+
+        elif chart_type == "daily_activity":
+            # 日別活動状況 - 過去7日間の日次データを生成
+            from config.timezone import get_app_now, add_app_timedelta
+            
+            with get_db() as db:
+                days = 7 if period == "7d" else (30 if period == "30d" else 7)
+                labels = []
+                data = []
+                
+                for i in range(days):
+                    date_obj = add_app_timedelta(get_app_now(), days=-i)
+                    date_str = date_obj.strftime("%Y-%m-%d")
+                    labels.insert(0, date_str)
+                    
+                    # その日の操作数を取得
+                    sql = """
+                        SELECT COUNT(*) FROM admin_actions 
+                        WHERE DATE(created_at) = ?
+                    """
+                    count = db.execute(sql, [date_str]).fetchone()[0]
+                    data.insert(0, count)
+
+            chart_data = {
+                "labels": labels,
+                "datasets": [
+                    {
+                        "label": "日別操作数",
+                        "data": data,
+                        "borderColor": "#007bff",
+                        "backgroundColor": "rgba(0, 123, 255, 0.1)",
+                        "fill": True,
+                    }
+                ],
+            }
+
+        else:
+            # デフォルト: 操作種別統計
+            stats = get_admin_action_stats(period=period, group_by="action_type")
+            
+            # stats配列からlabelsとdataを作成
+            labels = []
+            data = []
+            for stat in stats.get("stats", []):
+                labels.append(stat.get("action_type", "不明"))
+                data.append(stat.get("count", 0))
+
+            chart_data = {
+                "labels": labels,
+                "datasets": [
+                    {
+                        "label": "操作種別数",
+                        "data": data,
+                        "backgroundColor": ["#007bff", "#28a745", "#dc3545", "#ffc107"],
+                    }
+                ],
+            }
+
+        return jsonify(chart_data)
+
+    except Exception as e:
+        logger.error(f"監査ログChart.jsデータ生成エラー: {str(e)}")
+        return jsonify({"error": "グラフデータの生成に失敗しました"}), 500
+
+
+@app.route("/admin/api/audit-logs/action-details/<int:action_id>", methods=["GET"])
+@require_admin_api_access
+@log_admin_operation("log_view", "admin_actions", risk_level="low")
+def admin_api_audit_log_action_details(action_id):
+    """
+    監査ログ詳細情報API
+    特定の操作の詳細情報（before/after状態など）を取得
+    """
+    try:
+        from database import get_db
+        import json
+
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            # 特定のアクション詳細を取得
+            row = db.execute(
+                """
+                SELECT id, admin_email, action_type, resource_type, resource_id,
+                       action_details, before_state, after_state, created_at,
+                       risk_level, success, error_message, ip_address, user_agent,
+                       session_id, admin_session_id, request_id
+                FROM admin_actions
+                WHERE id = ?
+            """,
+                (action_id,),
+            ).fetchone()
+
+            if not row:
+                return jsonify({"error": "指定された操作が見つかりません"}), 404
+
+            # 詳細情報を構築
+            def safe_json_parse(json_str):
+                """安全にJSONを解析する"""
+                if not json_str:
+                    return None
+                try:
+                    return json.loads(json_str)
+                except (json.JSONDecodeError, TypeError):
+                    return json_str  # JSON解析に失敗した場合は文字列として返す
+
+            action_details = {
+                "id": row["id"],
+                "admin_email": row["admin_email"],
+                "action_type": row["action_type"],
+                "resource_type": row["resource_type"],
+                "resource_id": row["resource_id"],
+                "action_details": safe_json_parse(row["action_details"]),
+                "before_state": safe_json_parse(row["before_state"]),
+                "after_state": safe_json_parse(row["after_state"]),
+                "created_at": row["created_at"],
+                "risk_level": row["risk_level"],
+                "success": bool(row["success"]),
+                "error_message": row["error_message"],
+                "ip_address": row["ip_address"],
+                "user_agent": row["user_agent"],
+                "session_id": row["session_id"],
+                "admin_session_id": row["admin_session_id"],
+                "request_id": row["request_id"],
+            }
+
+            return jsonify(action_details)
+
+    except Exception as e:
+        logger.error(f"監査ログ詳細取得エラー: {str(e)}")
+        return jsonify({"error": "詳細情報の取得に失敗しました"}), 500
 
 
 if __name__ == "__main__":

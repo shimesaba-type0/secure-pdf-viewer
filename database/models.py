@@ -292,6 +292,31 @@ def create_tables(db):
         )
     """
     )
+    
+    # 管理者操作監査ログテーブル（TASK-021 Sub-Phase 3A）
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admin_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_email TEXT NOT NULL,
+            action_type TEXT NOT NULL,
+            resource_type TEXT,
+            resource_id TEXT,
+            action_details JSON,
+            before_state JSON,
+            after_state JSON,
+            ip_address TEXT NOT NULL,
+            user_agent TEXT,
+            session_id TEXT,
+            admin_session_id TEXT,
+            created_at TEXT NOT NULL,
+            risk_level TEXT DEFAULT 'low',
+            success BOOLEAN DEFAULT TRUE,
+            error_message TEXT,
+            request_id TEXT
+        )
+    """
+    )
 
     # CSRFトークンテーブル（TASK-021 Phase 2A）
     db.execute(
