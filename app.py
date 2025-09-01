@@ -41,6 +41,7 @@ from database.models import (
     create_admin_session,
     verify_admin_session,
     admin_complete_logout,
+    log_admin_action,
 )
 from database.backup import BackupManager
 import threading
@@ -325,6 +326,257 @@ def require_admin_session(f):
 # Sub-Phase 1C: 既存デコレータを強化版に統合
 # require_admin_permission は require_admin_session の別名として定義
 require_admin_permission = require_admin_session
+
+
+# ========================================
+# TASK-021 Phase 3B: 管理者操作デコレータ機能
+# ========================================
+
+# 操作種別とリスクレベルの定義
+ADMIN_ACTION_TYPES = {
+    # セッション管理
+    "admin_login": "管理者ログイン",
+    "admin_logout": "管理者ログアウト",
+    "session_regenerate": "セッションID再生成",
+    # ユーザー管理
+    "user_view": "ユーザー情報閲覧",
+    "user_create": "ユーザー作成",
+    "user_update": "ユーザー情報更新",
+    "user_delete": "ユーザー削除",
+    "permission_change": "権限変更",
+    # システム設定
+    "setting_view": "設定値閲覧",
+    "setting_update": "設定値変更",
+    "security_config": "セキュリティ設定変更",
+    "pdf_security_config": "PDF設定変更",
+    # ログ・監査
+    "log_view": "ログ閲覧",
+    "log_export": "ログエクスポート",
+    "incident_view": "インシデント閲覧",
+    "incident_resolve": "インシデント解決",
+    # システム運用
+    "backup_create": "バックアップ作成",
+    "backup_restore": "バックアップ復元",
+    "system_maintenance": "システムメンテナンス",
+    "emergency_stop": "緊急停止",
+    # API操作
+    "api_call": "API呼び出し",
+    "bulk_operation": "一括操作",
+    "data_export": "データエクスポート",
+    "configuration_import": "設定インポート",
+}
+
+RESOURCE_TYPES = {
+    "user": "ユーザー",
+    "session": "セッション",
+    "setting": "設定",
+    "log": "ログ",
+    "backup": "バックアップ",
+    "pdf": "PDF文書",
+    "api_endpoint": "APIエンドポイント",
+    "admin_panel": "管理画面",
+    "security_policy": "セキュリティポリシー",
+}
+
+RISK_LEVELS = {
+    "low": {
+        "name": "低リスク",
+        "actions": ["admin_login", "user_view", "log_view", "setting_view"],
+        "color": "#28a745",
+    },
+    "medium": {
+        "name": "中リスク",
+        "actions": ["user_update", "setting_update", "log_export"],
+        "color": "#ffc107",
+    },
+    "high": {
+        "name": "高リスク",
+        "actions": [
+            "user_delete",
+            "permission_change",
+            "backup_restore",
+            "emergency_stop",
+        ],
+        "color": "#dc3545",
+    },
+    "critical": {
+        "name": "重要リスク",
+        "actions": ["system_maintenance", "security_config", "bulk_operation"],
+        "color": "#6f42c1",
+    },
+}
+
+
+def classify_risk_level(action_type: str) -> str:
+    """操作種別からリスクレベルを分類"""
+    for risk_level, config in RISK_LEVELS.items():
+        if action_type in config["actions"]:
+            return risk_level
+    return "medium"  # デフォルト
+
+
+def capture_current_state(resource_type: str, kwargs: dict) -> dict:
+    """操作対象の現在状態をキャプチャ"""
+    try:
+        state = {
+            "resource_type": resource_type,
+            "captured_at": get_app_datetime_string(),
+            "parameters": kwargs,
+        }
+
+        # リソース種別に応じた詳細情報取得
+        if resource_type == "user":
+            user_id = kwargs.get("user_id")
+            if user_id:
+                state["user_id"] = user_id
+                state["user_details"] = f"User ID: {user_id}"
+
+        elif resource_type == "setting":
+            setting_key = kwargs.get("setting_key")
+            if setting_key:
+                try:
+                    current_value = get_setting(setting_key)
+                    state["setting_key"] = setting_key
+                    state["current_value"] = current_value
+                except Exception:
+                    state["setting_key"] = setting_key
+                    state["current_value"] = None
+
+        elif resource_type == "session":
+            session_id = kwargs.get("session_id")
+            if session_id:
+                state["session_id"] = session_id
+
+        return state
+
+    except Exception as e:
+        # エラーが発生した場合でも基本情報は返す
+        return {
+            "resource_type": resource_type,
+            "captured_at": get_app_datetime_string(),
+            "capture_error": str(e),
+            "parameters": kwargs,
+        }
+
+
+def log_admin_operation(
+    action_type: str,
+    resource_type: str = None,
+    capture_state: bool = False,
+    risk_level: str = None,
+):
+    """
+    管理者操作を自動記録するデコレータ
+
+    Args:
+        action_type: 操作種別
+        resource_type: リソース種別
+        capture_state: 操作前後の状態をキャプチャするか
+        risk_level: リスクレベル（指定しない場合は自動分類）
+
+    使用例:
+        @app.route('/admin/api/update-user', methods=['POST'])
+        @require_admin_session
+        @log_admin_operation("user_update", "user", capture_state=True, risk_level="medium")
+        def update_user():
+            # ユーザー更新処理
+            pass
+    """
+    from functools import wraps
+    import json
+
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # 操作前状態の記録
+            before_state = None
+            if capture_state and resource_type:
+                before_state = capture_current_state(resource_type, kwargs)
+
+            # リクエスト情報の収集
+            admin_email = session.get("email")
+            ip_address = request.environ.get(
+                "HTTP_X_FORWARDED_FOR", request.remote_addr
+            )
+            if ip_address and "," in ip_address:
+                ip_address = ip_address.split(",")[0].strip()
+
+            user_agent = request.headers.get("User-Agent", "")
+            session_id = session.get("session_id")
+            admin_session_id = session.get("admin_session_id")
+
+            # リスクレベル決定
+            final_risk_level = risk_level or classify_risk_level(action_type)
+
+            try:
+                # 実際の処理実行
+                result = f(*args, **kwargs)
+
+                # 操作後状態の記録
+                after_state = None
+                if capture_state and resource_type:
+                    after_state = capture_current_state(resource_type, kwargs)
+
+                # 成功ログ記録
+                log_admin_action(
+                    admin_email=admin_email,
+                    action_type=action_type,
+                    resource_type=resource_type,
+                    action_details=json.dumps(
+                        {"args": list(args), "kwargs": kwargs}, ensure_ascii=False
+                    ),
+                    before_state=json.dumps(before_state, ensure_ascii=False)
+                    if before_state
+                    else None,
+                    after_state=json.dumps(after_state, ensure_ascii=False)
+                    if after_state
+                    else None,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    session_id=session_id,
+                    admin_session_id=admin_session_id,
+                    risk_level=final_risk_level,
+                    success=True,
+                )
+
+                print(
+                    f"[AUDIT] Admin action logged: {admin_email} - {action_type} ({final_risk_level}) - SUCCESS"
+                )
+
+                return result
+
+            except Exception as e:
+                # エラーログ記録
+                log_admin_action(
+                    admin_email=admin_email,
+                    action_type=action_type,
+                    resource_type=resource_type,
+                    action_details=json.dumps(
+                        {"args": list(args), "kwargs": kwargs}, ensure_ascii=False
+                    ),
+                    before_state=json.dumps(before_state, ensure_ascii=False)
+                    if before_state
+                    else None,
+                    after_state=None,  # エラーが発生した場合は after_state は記録しない
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    session_id=session_id,
+                    admin_session_id=admin_session_id,
+                    risk_level=final_risk_level,
+                    success=False,
+                    error_message=str(e),
+                )
+
+                print(
+                    f"[AUDIT] Admin action logged: {admin_email} - {action_type} ({final_risk_level}) - ERROR: {str(e)}"
+                )
+
+                # 元の例外を再発生
+                raise
+
+        return decorated_function
+
+    return decorator
 
 
 def get_consistent_hash(text):
@@ -1849,6 +2101,24 @@ def verify_otp():
                 )
                 print(f"DEBUG: Admin session creation result: {admin_session_result}")
 
+                # Phase 3B: 管理者ログイン操作のログ記録
+                if admin_session_result and admin_session_result.get("success"):
+                    log_admin_action(
+                        admin_email=email,
+                        action_type="admin_login",
+                        resource_type="session",
+                        action_details='{"login_method": "otp", "device_type": "'
+                        + device_type
+                        + '"}',
+                        ip_address=client_ip,
+                        user_agent=user_agent,
+                        session_id=session_id,
+                        admin_session_id=admin_session_result.get("admin_session_id"),
+                        risk_level="low",
+                        success=True,
+                    )
+                    print(f"[AUDIT] Admin login logged: {email} - SUCCESS")
+
             conn.commit()
             conn.close()
 
@@ -1980,6 +2250,33 @@ def logout():
             print(
                 f"DEBUG: Admin logout detected for {user_email}, session_id: {session_id}"
             )
+
+            # Phase 3B: 管理者ログアウト操作のログ記録（ログアウト前に記録）
+            try:
+                client_ip = request.environ.get(
+                    "HTTP_X_FORWARDED_FOR", request.remote_addr
+                )
+                if client_ip and "," in client_ip:
+                    client_ip = client_ip.split(",")[0].strip()
+
+                user_agent = request.headers.get("User-Agent", "")
+                admin_session_id = session.get("admin_session_id")
+
+                log_admin_action(
+                    admin_email=user_email,
+                    action_type="admin_logout",
+                    resource_type="session",
+                    action_details='{"logout_type": "manual"}',
+                    ip_address=client_ip,
+                    user_agent=user_agent,
+                    session_id=session_id,
+                    admin_session_id=admin_session_id,
+                    risk_level="low",
+                    success=True,
+                )
+                print(f"[AUDIT] Admin logout logged: {user_email} - SUCCESS")
+            except Exception as log_error:
+                print(f"WARNING: Failed to log admin logout: {log_error}")
 
             # 管理者の完全ログアウト処理
             logout_success = admin_complete_logout(user_email, session_id)
@@ -2662,6 +2959,7 @@ def update_session_limits():
 
 @app.route("/admin/api/csrf-token")
 @require_admin_session
+@log_admin_operation("api_call", "security_policy", risk_level="low")
 def get_csrf_token():
     """管理者用CSRFトークン取得API"""
     session_id = session.get("session_id")
@@ -3024,6 +3322,7 @@ def get_session_info():
 
 @app.route("/admin/api/active-sessions")
 @require_admin_api_access
+@log_admin_operation("log_view", "session", risk_level="medium")
 def get_active_sessions():
     """管理画面用：アクティブセッション一覧を取得"""
     # セッション有効期限チェック
@@ -3155,6 +3454,7 @@ def get_active_sessions():
 
 @app.route("/admin/api/update-session-memo", methods=["POST"])
 @require_admin_api_access
+@log_admin_operation("user_update", "session", capture_state=True, risk_level="medium")
 def update_session_memo():
     """セッションのメモを更新"""
     session_check = require_valid_session()
@@ -3212,6 +3512,7 @@ def update_session_memo():
 
 @app.route("/admin/api/pdf-security-settings", methods=["GET"])
 @require_admin_api_access
+@log_admin_operation("setting_view", "pdf", risk_level="low")
 def get_pdf_security_settings():
     """PDF セキュリティ設定を取得"""
     session_check = require_valid_session()
@@ -3227,6 +3528,9 @@ def get_pdf_security_settings():
 
 @app.route("/admin/api/pdf-security-settings", methods=["POST"])
 @require_admin_api_access
+@log_admin_operation(
+    "pdf_security_config", "pdf", capture_state=True, risk_level="critical"
+)
 def update_pdf_security_settings():
     """PDF セキュリティ設定を更新"""
     session_check = require_valid_session()
@@ -3275,6 +3579,7 @@ def update_pdf_security_settings():
 
 @app.route("/admin/api/pdf-security-validate", methods=["POST"])
 @require_admin_api_access
+@log_admin_operation("setting_view", "pdf", risk_level="low")
 def validate_pdf_security_settings():
     """PDF セキュリティ設定の妥当性チェック"""
     session_check = require_valid_session()
@@ -3902,6 +4207,7 @@ def cleanup_expired_schedules():
 # ブロックインシデント管理API
 @app.route("/admin/api/block-incidents")
 @require_admin_api_access
+@log_admin_operation("incident_view", "log", risk_level="medium")
 def get_block_incidents():
     """ブロックインシデント一覧取得API"""
     # セッション有効期限チェック
@@ -3956,6 +4262,7 @@ def get_block_incidents():
 
 @app.route("/admin/api/incident-stats")
 @require_admin_api_access
+@log_admin_operation("log_view", "log", risk_level="medium")
 def get_incident_stats():
     """インシデント統計情報取得API"""
     # セッション有効期限チェック
@@ -3985,6 +4292,7 @@ def get_incident_stats():
 
 @app.route("/admin/api/incident-search", methods=["GET"])
 @require_admin_api_access
+@log_admin_operation("incident_view", "log", risk_level="medium")
 def api_incident_search():
     """インシデントID検索API"""
     # セッション有効期限チェック
@@ -4036,6 +4344,7 @@ def api_incident_search():
 
 @app.route("/admin/api/resolve-incident", methods=["POST"])
 @require_admin_api_access
+@log_admin_operation("incident_resolve", "log", capture_state=True, risk_level="high")
 def resolve_incident():
     """インシデント解除API"""
     # セッション有効期限チェック

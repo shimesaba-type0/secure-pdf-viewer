@@ -2220,6 +2220,7 @@ def log_admin_action(
     success=True,
     error_message=None,
     request_id=None,
+    risk_level="medium",
 ):
     """
     管理者操作をログに記録
@@ -2258,8 +2259,9 @@ def log_admin_action(
             if not request_id:
                 request_id = secrets.token_urlsafe(16)
 
-            # リスクレベルを自動判定
-            risk_level = get_risk_level_for_action(action_type)
+            # リスクレベルを自動判定（パラメータで渡されない場合のみ）
+            if risk_level == "medium":
+                risk_level = get_risk_level_for_action(action_type)
 
             # JSONデータの準備
             action_details_json = json.dumps(action_details) if action_details else None
