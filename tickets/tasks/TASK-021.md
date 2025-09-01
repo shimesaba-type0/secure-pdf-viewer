@@ -373,8 +373,9 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - ✅ 非管理者アクセス拒否確認（403 FORBIDDEN + 統一エラーレスポンス）
 - ✅ エンタープライズレベルセキュリティ基準達成
 
-- **Phase 3 監査ログ強化**: **1/4フェーズ完了（25%）** ⏳ **実装中**
+- **Phase 3 監査ログ強化**: **2/4フェーズ完了（50%）** ⏳ **実装中**
   - ✅ **Sub-Phase 3A: データベース基盤構築（実装完了・テスト完了・動作確認済み）**
+  - ✅ **Sub-Phase 3B: デコレータ統合（実装完了・テスト完了・ブラウザ動作確認済み）**
 
 **🎯 Phase 3A 実装成果（2025-09-01）:**
 - `admin_actions`テーブル作成（17カラム、9インデックス）
@@ -387,7 +388,24 @@ INSERT INTO settings (key, value, value_type, description, category) VALUES
 - 包括的テストカバレッジ（10テストケース）
 - 手動動作確認完了（5操作種別、統計・フィルタ機能確認済み）
 
+**🎯 Phase 3B 実装成果（2025-09-01）:**
+- `@log_admin_operation` デコレータ実装（自動ログ記録）
+- リスクレベル自動分類機能（low/medium/high/critical）
+- 状態キャプチャ機能（操作前後状態記録・capture_current_state）
+- 管理者API 10個にデコレータ適用完了
+  - `/admin/api/csrf-token` (低リスク)
+  - `/admin/api/active-sessions` (中リスク)
+  - `/admin/api/update-session-memo` (中リスク・状態キャプチャ)
+  - `/admin/api/pdf-security-settings` GET/POST (低リスク/重要リスク・状態キャプチャ)
+  - `/admin/api/pdf-security-validate` (低リスク)
+  - `/admin/api/block-incidents` (中リスク)
+  - `/admin/api/incident-stats` (中リスク)
+  - `/admin/api/incident-search` (中リスク)
+  - `/admin/api/resolve-incident` (高リスク・状態キャプチャ)
+- 管理者ログイン・ログアウト処理統合（自動ログ記録）
+- 包括的テストコード実装（11テストケース）
+- ブラウザ動作確認完了（管理者API自動ログ記録確認済み）
+
 **📋 Phase 3 残フェーズ:**
-- Sub-Phase 3B: デコレータ統合（自動ログ記録）
 - Sub-Phase 3C: 監査ログ分析機能（専用画面）
 - Sub-Phase 3D: セキュリティ強化（完全性保証・異常検出）
