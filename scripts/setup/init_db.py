@@ -94,6 +94,20 @@ def main():
             init_db()
             print("✅ Database initialization completed successfully!")
             
+            # マイグレーション実行
+            print("🔄 Running database migrations...")
+            from database.migrations import run_all_migrations
+            
+            conn = get_db_connection()
+            try:
+                run_all_migrations(conn)
+                print("✅ Database migrations completed successfully!")
+            except Exception as e:
+                print(f"❌ Migration failed: {e}")
+                raise
+            finally:
+                conn.close()
+            
             # 初期化後の状態確認
             print("\n" + "="*50)
             check_database()
