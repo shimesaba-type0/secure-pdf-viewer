@@ -9,9 +9,14 @@
 """
 
 import sys
-import argparse
-from database import init_db, reset_db, get_db_connection, DATABASE_PATH
 import os
+import argparse
+
+# アプリケーションルートをPythonパスに追加
+app_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, app_root)
+
+from database import init_db, reset_db, get_db_connection, DATABASE_PATH
 
 def check_database():
     """データベースの状態をチェック"""
