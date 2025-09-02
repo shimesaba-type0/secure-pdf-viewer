@@ -33,8 +33,18 @@ def migrate_password_to_passphrase(db):
     """
     shared_password を shared_passphrase に移行
     """
-    # 現在の shared_password 設定を取得
+    # shared_passphraseが既に存在するかチェック
     db.row_factory = sqlite3.Row
+    existing_passphrase = db.execute(
+        'SELECT value FROM settings WHERE key = ?', 
+        ('shared_passphrase',)
+    ).fetchone()
+    
+    if existing_passphrase:
+        print(f"shared_passphrase already exists, skipping migration")
+        return True
+    
+    # 現在の shared_password 設定を取得
     current_setting = db.execute(
         'SELECT value FROM settings WHERE key = ?', 
         ('shared_password',)
