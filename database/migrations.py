@@ -211,20 +211,31 @@ def run_migration_002(db):
         print("Created security_events table")
         
         # インデックス作成
-        indexes = [
+        security_indexes = [
             'CREATE INDEX IF NOT EXISTS idx_security_events_user_email ON security_events(user_email)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_event_type ON security_events(event_type)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_risk_level ON security_events(risk_level)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_occurred_at ON security_events(occurred_at)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_pdf_file_path ON security_events(pdf_file_path)',
-            'CREATE INDEX IF NOT EXISTS idx_security_events_session_id ON security_events(session_id)',
-            'CREATE INDEX IF NOT EXISTS idx_access_logs_user_email ON access_logs(user_email)',
-            'CREATE INDEX IF NOT EXISTS idx_access_logs_pdf_file_path ON access_logs(pdf_file_path)'
+            'CREATE INDEX IF NOT EXISTS idx_security_events_session_id ON security_events(session_id)'
         ]
         
-        for index_sql in indexes:
+        for index_sql in security_indexes:
             db.execute(index_sql)
         print("Created security event indexes")
+        
+        # access_logsテーブルが存在する場合のみインデックス作成
+        if table_exists:
+            access_logs_indexes = [
+                'CREATE INDEX IF NOT EXISTS idx_access_logs_user_email ON access_logs(user_email)',
+                'CREATE INDEX IF NOT EXISTS idx_access_logs_pdf_file_path ON access_logs(pdf_file_path)'
+            ]
+            
+            for index_sql in access_logs_indexes:
+                db.execute(index_sql)
+            print("Created access_logs indexes")
+        else:
+            print("access_logs table does not exist, skipping access_logs indexes")
         
         # マイグレーション実行記録
         db.execute('''
