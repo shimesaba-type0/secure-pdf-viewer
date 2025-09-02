@@ -1902,6 +1902,7 @@ def email_input():
                 )
 
         except Exception as e:
+            app.logger.error(f"OTP generation/sending failed: {str(e)}", exc_info=True)
             if "conn" in locals():
                 conn.close()
             return render_template(
@@ -2148,6 +2149,7 @@ def verify_otp():
             return redirect(url_for("index"))
 
         except Exception as e:
+            app.logger.error(f"OTP verification failed: {str(e)}", exc_info=True)
             if "conn" in locals():
                 conn.close()
             return render_template(
