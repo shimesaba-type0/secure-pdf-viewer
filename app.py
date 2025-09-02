@@ -2102,7 +2102,7 @@ def verify_otp():
                 print(f"DEBUG: Admin session creation result: {admin_session_result}")
 
                 # Phase 3B: 管理者ログイン操作のログ記録
-                if admin_session_result and admin_session_result.get("success"):
+                if admin_session_result:
                     log_admin_action(
                         admin_email=email,
                         action_type="admin_login",
