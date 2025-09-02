@@ -2113,7 +2113,7 @@ def verify_otp():
                         ip_address=client_ip,
                         user_agent=user_agent,
                         session_id=session_id,
-                        admin_session_id=admin_session_result.get("admin_session_id"),
+                        admin_session_id=session_id,
                         risk_level="low",
                         success=True,
                     )
