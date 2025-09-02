@@ -155,30 +155,39 @@ def run_migration_002(db):
         # トランザクション開始
         db.execute('BEGIN TRANSACTION')
         
-        # access_logs テーブルに新しいカラムを追加
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN user_email TEXT')
-            print("Added user_email column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("user_email column already exists in access_logs")
+        # access_logs テーブルの存在を確認
+        table_exists = db.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='access_logs'
+        """).fetchone()
         
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN duration_seconds INTEGER')
-            print("Added duration_seconds column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("duration_seconds column already exists in access_logs")
-        
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN pdf_file_path TEXT')
-            print("Added pdf_file_path column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("pdf_file_path column already exists in access_logs")
+        if table_exists:
+            # access_logs テーブルに新しいカラムを追加
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN user_email TEXT')
+                print("Added user_email column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("user_email column already exists in access_logs")
+            
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN duration_seconds INTEGER')
+                print("Added duration_seconds column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("duration_seconds column already exists in access_logs")
+            
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN pdf_file_path TEXT')
+                print("Added pdf_file_path column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("pdf_file_path column already exists in access_logs")
+        else:
+            print("access_logs table does not exist, skipping column additions")
         
         # security_events テーブルを作成
         db.execute('''
