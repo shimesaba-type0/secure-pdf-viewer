@@ -274,6 +274,43 @@ def get_applied_migrations(db):
         return []
 
 
+def run_migration_003(db):
+    """マイグレーション003: PDFテーブルのカラム追加"""
+    print("Starting migration 003: Adding PDF table columns")
+    
+    try:
+        # published_date と unpublished_date カラムを追加
+        try:
+            db.execute("ALTER TABLE pdf_files ADD COLUMN published_date TEXT")
+            print("Added published_date column to pdf_files table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("published_date column already exists")
+            else:
+                raise e
+                
+        try:
+            db.execute("ALTER TABLE pdf_files ADD COLUMN unpublished_date TEXT")
+            print("Added unpublished_date column to pdf_files table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("unpublished_date column already exists")
+            else:
+                raise e
+        
+        # マイグレーション実行記録
+        db.execute('''
+            INSERT OR REPLACE INTO migrations (name, description)
+            VALUES (?, ?)
+        ''', ('003_pdf_table_columns', 'Add published_date and unpublished_date columns to pdf_files table'))
+        
+        print("Migration 003 completed successfully")
+        
+    except Exception as e:
+        print(f"Migration 003 failed: {e}")
+        raise
+
+
 def run_all_migrations(db):
     """全てのマイグレーションを実行"""
     applied_migrations = get_applied_migrations(db)
@@ -282,6 +319,7 @@ def run_all_migrations(db):
     available_migrations = [
         ('001_password_to_passphrase', run_migration_001),
         ('002_security_event_logging', run_migration_002),
+        ('003_pdf_table_columns', run_migration_003),
     ]
     
     for migration_name, migration_func in available_migrations:
