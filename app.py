@@ -754,21 +754,28 @@ def check_session_integrity():
     Returns:
         bool: True if valid, False if invalid
     """
+    app.logger.info(f"Session integrity check - Current session keys: {list(session.keys())}")
+    app.logger.info(f"Session integrity check - authenticated: {session.get('authenticated')}")
+    app.logger.info(f"Session integrity check - passphrase_verified: {session.get('passphrase_verified')}")
+    app.logger.info(f"Session integrity check - email: {session.get('email')}")
+    
     if not session.get("authenticated"):
-        print("DEBUG: Session integrity check failed - not authenticated")
+        app.logger.error("Session integrity check failed - not authenticated")
         return False
 
     # 両方の認証ステップが完了しているかチェック
     if not session.get("passphrase_verified") or not session.get("email"):
-        print(
-            f"DEBUG: Session integrity check failed - passphrase_verified: {session.get('passphrase_verified')}, email: {session.get('email')}"
+        app.logger.error(
+            f"Session integrity check failed - passphrase_verified: {session.get('passphrase_verified')}, email: {session.get('email')}"
         )
         return False
 
     session_id = session.get("session_id")
     if not session_id:
-        print("DEBUG: Session integrity check failed - no session_id")
+        app.logger.error("Session integrity check failed - no session_id")
         return False
+
+    app.logger.info(f"Session integrity check - session_id: {session_id}")
 
     # データベースのセッション統計と照合
     try:
@@ -781,29 +788,37 @@ def check_session_integrity():
             (session_id,),
         )
         db_session = cursor.fetchone()
+        app.logger.info(f"Database session found: {bool(db_session)}")
+        if db_session:
+            app.logger.info(f"DB session data: start_time={db_session[0]}, email_hash={db_session[1]}")
 
         conn.close()
 
         if not db_session:
             # データベースにセッション記録がない場合は無効
-            print(
-                f"DEBUG: Session integrity check failed - no database record for session_id: {session_id}"
+            app.logger.error(
+                f"Session integrity check failed - no database record for session_id: {session_id}"
             )
             return False
 
         # 認証完了時刻とデータベース記録の整合性チェック
         auth_time_str = session.get("auth_completed_at")
+        app.logger.info(f"Session integrity check - auth_time_str: {auth_time_str}")
         if auth_time_str:
             try:
                 auth_time = datetime.fromisoformat(auth_time_str)
-                # タイムゾーン統一システムを使用してデータベース時刻を変換
-                db_start_time_naive = datetime.fromtimestamp(db_session[0])
-                db_start_time = localize_datetime(db_start_time_naive)
+                # UTCタイムスタンプをアプリタイムゾーンの時刻に変換（統一関数使用）
+                import pytz
+                db_start_time_utc = datetime.fromtimestamp(db_session[0], tz=pytz.UTC)
+                db_start_time = to_app_timezone(db_start_time_utc)
+                
+                app.logger.info(f"Time comparison - auth_time: {auth_time}, db_start_time: {db_start_time}")
 
                 # 時刻の差が5分以上の場合は異常とみなす
                 time_diff = abs((auth_time - db_start_time).total_seconds())
+                app.logger.info(f"Time difference: {time_diff} seconds (limit: 300)")
                 if time_diff > 300:  # 5分
-                    print(
+                    app.logger.error(
                         f"DEBUG: Session integrity check failed - time mismatch: {time_diff} seconds"
                     )
                     return False
@@ -1939,6 +1954,7 @@ def verify_otp():
 
     if request.method == "POST":
         otp_code = request.form.get("otp_code", "").strip()
+        app.logger.info(f"OTP verification attempt for {email} with code: {otp_code}")
 
         # バリデーション
         if not otp_code:
@@ -1974,6 +1990,7 @@ def verify_otp():
             rate_limiter = RateLimitManager(conn)
 
             # 有効なOTPを検索
+            app.logger.info(f"Searching for OTP record: email={email}, code={otp_code}")
             otp_record = conn.execute(
                 """
                 SELECT id, otp_code, expires_at, used 
@@ -1984,6 +2001,8 @@ def verify_otp():
             """,
                 (email, otp_code),
             ).fetchone()
+            
+            app.logger.info(f"OTP record found: {bool(otp_record)}")
 
             if not otp_record:
                 # OTP認証失敗を記録（レート制限チェック）
@@ -2008,8 +2027,15 @@ def verify_otp():
                     )
 
             # 有効期限チェック
+            app.logger.info(f"Starting expiration check. expires_at raw: {otp_record['expires_at']}")
             expires_at = datetime.fromisoformat(otp_record["expires_at"])
             now = get_app_now()
+            app.logger.info(f"Before timezone conversion - expires_at: {expires_at}, now: {now}")
+            # タイムゾーン統一のため、両方をアプリタイムゾーンに変換
+            expires_at = to_app_timezone(expires_at)
+            now = to_app_timezone(now)
+            app.logger.info(f"After timezone conversion - expires_at: {expires_at}, now: {now}")
+            app.logger.info(f"Is expired? {now > expires_at}")
 
             if now > expires_at:
                 # 期限切れOTPを無効化
@@ -2030,6 +2056,7 @@ def verify_otp():
                 )
 
             # OTPを使用済みにマーク
+            app.logger.info(f"Marking OTP as used: id={otp_record['id']}")
             conn.execute(
                 """
                 UPDATE otp_tokens 
@@ -2038,10 +2065,13 @@ def verify_otp():
             """,
                 (get_app_datetime_string(), otp_record["id"]),
             )
+            app.logger.info("OTP marked as used successfully")
             conn.commit()
 
             # セッション制限チェック（認証完了前）
+            app.logger.info("Starting session limit check")
             session_limit_check = check_session_limit()
+            app.logger.info(f"Session limit check result: {session_limit_check}")
             if not session_limit_check["allowed"]:
                 conn.close()
                 error_message = f"接続数制限に達しています。現在 {session_limit_check['current_count']}/{session_limit_check['max_limit']} セッションが利用中です。しばらく時間をおいてから再度お試しください。"
@@ -2053,15 +2083,26 @@ def verify_otp():
             session["authenticated"] = True
             session["email"] = email
             session["auth_completed_at"] = get_app_now().isoformat()
+            
+            # デバッグ用：セッション内容を確認
+            app.logger.info(f"Current session keys: {list(session.keys())}")
+            app.logger.info(f"Session authenticated: {session.get('authenticated')}")
+            app.logger.info(f"Session email: {session.get('email')}")
+            app.logger.info(f"Session passphrase_verified: {session.get('passphrase_verified')}")
 
             # セッション統計を更新
+            app.logger.info("Updating session statistics")
             session_id = session.get("session_id", str(uuid.uuid4()))
             session["session_id"] = session_id
+            app.logger.info(f"Session ID set: {session_id}")
 
             # User-Agentからデバイスタイプを判定
             user_agent = request.headers.get("User-Agent", "")
             device_type = detect_device_type(user_agent)
 
+            # UTCタイムスタンプを保存（.timestamp()は常にUTC基準）
+            app_timestamp = int(now.timestamp())
+            
             conn.execute(
                 """
                 INSERT OR REPLACE INTO session_stats 
@@ -2072,7 +2113,7 @@ def verify_otp():
                     session_id,
                     get_consistent_hash(email),
                     email,
-                    int(now.timestamp()),
+                    app_timestamp,
                     request.remote_addr,
                     device_type,
                     get_app_datetime_string(),
@@ -2121,9 +2162,12 @@ def verify_otp():
 
             conn.commit()
             conn.close()
+            app.logger.info("Database transaction committed and connection closed")
 
             # セッション制限警告のSSE通知を送信
+            app.logger.info("Checking for session limit warnings")
             if session_limit_check.get("warning"):
+                app.logger.info("Session limit warning detected, sending SSE notification")
                 try:
                     sse_queue.put(
                         {
@@ -2146,6 +2190,7 @@ def verify_otp():
                 except:
                     pass  # SSE失敗は無視
 
+            app.logger.info(f"OTP verification successful, redirecting to index for {email}")
             return redirect(url_for("index"))
 
         except Exception as e:
@@ -4047,12 +4092,16 @@ def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
         # New schema or migration already done
         pass
 
+    # Set current timestamp for upload_date
+    from config.timezone import get_app_now, get_app_datetime_string
+    upload_date = get_app_datetime_string()
+    
     cursor.execute(
         """
-        INSERT INTO pdf_files (original_filename, stored_filename, file_path, file_size)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO pdf_files (original_filename, stored_filename, file_path, file_size, upload_date)
+        VALUES (?, ?, ?, ?, ?)
     """,
-        (original_filename, stored_filename, filepath, file_size),
+        (original_filename, stored_filename, filepath, file_size, upload_date),
     )
 
     conn.commit()
