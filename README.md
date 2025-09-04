@@ -77,7 +77,9 @@ cd secure-pdf-viewer
 
 # 環境変数設定
 cp .env.example .env
-# .env ファイルを編集（開発環境用設定）
+# [重要] .env ファイルを必ず編集してください
+# 特にPDF_ALLOWED_REFERRER_DOMAINSにアクセス元のIPアドレス/ネットワークを追加
+# 例: PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.1.0/24
 
 # データベース初期化・マイグレーション実行
 docker-compose run --rm db-init
@@ -87,6 +89,17 @@ docker-compose up -d
 
 # 初期パスフレーズ設定
 docker-compose exec app python scripts/setup/setup_initial_passphrase.py
+
+# セットアップ完了確認
+echo "=== セットアップ完了確認 ==="
+docker-compose ps
+docker-compose exec app python -c "
+import sqlite3
+conn = sqlite3.connect('instance/database.db')
+migrations = conn.execute('SELECT name FROM migrations ORDER BY id').fetchall()
+print('適用済みマイグレーション:', [m[0] for m in migrations])
+conn.close()
+"
 
 # ログ確認
 docker-compose logs -f app
@@ -144,11 +157,15 @@ ADMIN_EMAIL=admin@example.com
 CLOUDFLARE_DOMAIN=your-domain.com
 TIMEZONE=UTC  # 本番環境推奨
 
-# PDF配信セキュリティ
+# PDF配信セキュリティ（重要）
 PDF_DOWNLOAD_PREVENTION_ENABLED=true
-PDF_ALLOWED_REFERRER_DOMAINS=your-domain.com
+# [重要] PDF閲覧を許可するReferrer（必須設定）
+# アクセス元のIPアドレス、ドメイン、ネットワークを指定
+# 設定例: localhost,127.0.0.1,192.168.1.0/24,yourdomain.com
+# 注意: この設定が正しくないとPDFが表示されません（403 Forbidden）
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.1.0/24
 PDF_USER_AGENT_CHECK_ENABLED=true
-PDF_STRICT_MODE=true
+PDF_STRICT_MODE=false  # 開発環境では false 推奨
 ```
 
 ### 運用・メンテナンス
@@ -180,6 +197,37 @@ print('Database initialized successfully')
 
 ### よくある問題
 
+**PDFが表示されない（403 Forbidden エラー）** *** 最重要 ***
+```bash
+# 原因: PDF_ALLOWED_REFERRER_DOMAINSの設定不備
+# 解決方法:
+# 1. .envファイルでアクセス元IPアドレスを追加
+echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.1.0/24" >> .env
+
+# 2. 環境変数変更後は必ず再起動（restartでは不十分）
+docker-compose down && docker-compose up -d
+
+# 3. 設定確認
+docker-compose exec app printenv | grep PDF_ALLOWED_REFERRER_DOMAINS
+```
+
+**管理画面でPDFファイルリストが表示されない**
+```bash
+# 原因: データベースマイグレーション未実行
+# 解決方法:
+docker-compose exec app python -c "
+from database.migrations import run_all_migrations
+import sqlite3
+conn = sqlite3.connect('instance/database.db')
+run_all_migrations(conn)
+conn.close()
+print('マイグレーション完了')
+"
+
+# アプリケーション再起動
+docker-compose restart app
+```
+
 **ポート競合エラー**
 ```bash
 netstat -tulpn | grep :5000
@@ -189,6 +237,12 @@ netstat -tulpn | grep :5000
 **データベースエラー**
 ```bash
 docker-compose run --rm db-init
+```
+
+**環境変数が反映されない**
+```bash
+# .env変更後はrestartではなく down/up が必要
+docker-compose down && docker-compose up -d
 ```
 
 **メール送信エラー**

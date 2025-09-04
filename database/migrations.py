@@ -33,8 +33,18 @@ def migrate_password_to_passphrase(db):
     """
     shared_password を shared_passphrase に移行
     """
-    # 現在の shared_password 設定を取得
+    # shared_passphraseが既に存在するかチェック
     db.row_factory = sqlite3.Row
+    existing_passphrase = db.execute(
+        'SELECT value FROM settings WHERE key = ?', 
+        ('shared_passphrase',)
+    ).fetchone()
+    
+    if existing_passphrase:
+        print(f"shared_passphrase already exists, skipping migration")
+        return True
+    
+    # 現在の shared_password 設定を取得
     current_setting = db.execute(
         'SELECT value FROM settings WHERE key = ?', 
         ('shared_password',)
@@ -155,30 +165,39 @@ def run_migration_002(db):
         # トランザクション開始
         db.execute('BEGIN TRANSACTION')
         
-        # access_logs テーブルに新しいカラムを追加
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN user_email TEXT')
-            print("Added user_email column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("user_email column already exists in access_logs")
+        # access_logs テーブルの存在を確認
+        table_exists = db.execute("""
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='access_logs'
+        """).fetchone()
         
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN duration_seconds INTEGER')
-            print("Added duration_seconds column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("duration_seconds column already exists in access_logs")
-        
-        try:
-            db.execute('ALTER TABLE access_logs ADD COLUMN pdf_file_path TEXT')
-            print("Added pdf_file_path column to access_logs")
-        except sqlite3.OperationalError as e:
-            if "duplicate column name" not in str(e).lower():
-                raise
-            print("pdf_file_path column already exists in access_logs")
+        if table_exists:
+            # access_logs テーブルに新しいカラムを追加
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN user_email TEXT')
+                print("Added user_email column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("user_email column already exists in access_logs")
+            
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN duration_seconds INTEGER')
+                print("Added duration_seconds column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("duration_seconds column already exists in access_logs")
+            
+            try:
+                db.execute('ALTER TABLE access_logs ADD COLUMN pdf_file_path TEXT')
+                print("Added pdf_file_path column to access_logs")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                print("pdf_file_path column already exists in access_logs")
+        else:
+            print("access_logs table does not exist, skipping column additions")
         
         # security_events テーブルを作成
         db.execute('''
@@ -202,20 +221,31 @@ def run_migration_002(db):
         print("Created security_events table")
         
         # インデックス作成
-        indexes = [
+        security_indexes = [
             'CREATE INDEX IF NOT EXISTS idx_security_events_user_email ON security_events(user_email)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_event_type ON security_events(event_type)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_risk_level ON security_events(risk_level)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_occurred_at ON security_events(occurred_at)',
             'CREATE INDEX IF NOT EXISTS idx_security_events_pdf_file_path ON security_events(pdf_file_path)',
-            'CREATE INDEX IF NOT EXISTS idx_security_events_session_id ON security_events(session_id)',
-            'CREATE INDEX IF NOT EXISTS idx_access_logs_user_email ON access_logs(user_email)',
-            'CREATE INDEX IF NOT EXISTS idx_access_logs_pdf_file_path ON access_logs(pdf_file_path)'
+            'CREATE INDEX IF NOT EXISTS idx_security_events_session_id ON security_events(session_id)'
         ]
         
-        for index_sql in indexes:
+        for index_sql in security_indexes:
             db.execute(index_sql)
         print("Created security event indexes")
+        
+        # access_logsテーブルが存在する場合のみインデックス作成
+        if table_exists:
+            access_logs_indexes = [
+                'CREATE INDEX IF NOT EXISTS idx_access_logs_user_email ON access_logs(user_email)',
+                'CREATE INDEX IF NOT EXISTS idx_access_logs_pdf_file_path ON access_logs(pdf_file_path)'
+            ]
+            
+            for index_sql in access_logs_indexes:
+                db.execute(index_sql)
+            print("Created access_logs indexes")
+        else:
+            print("access_logs table does not exist, skipping access_logs indexes")
         
         # マイグレーション実行記録
         db.execute('''
@@ -244,6 +274,43 @@ def get_applied_migrations(db):
         return []
 
 
+def run_migration_003(db):
+    """マイグレーション003: PDFテーブルのカラム追加"""
+    print("Starting migration 003: Adding PDF table columns")
+    
+    try:
+        # published_date と unpublished_date カラムを追加
+        try:
+            db.execute("ALTER TABLE pdf_files ADD COLUMN published_date TEXT")
+            print("Added published_date column to pdf_files table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("published_date column already exists")
+            else:
+                raise e
+                
+        try:
+            db.execute("ALTER TABLE pdf_files ADD COLUMN unpublished_date TEXT")
+            print("Added unpublished_date column to pdf_files table")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower():
+                print("unpublished_date column already exists")
+            else:
+                raise e
+        
+        # マイグレーション実行記録
+        db.execute('''
+            INSERT OR REPLACE INTO migrations (name, description)
+            VALUES (?, ?)
+        ''', ('003_pdf_table_columns', 'Add published_date and unpublished_date columns to pdf_files table'))
+        
+        print("Migration 003 completed successfully")
+        
+    except Exception as e:
+        print(f"Migration 003 failed: {e}")
+        raise
+
+
 def run_all_migrations(db):
     """全てのマイグレーションを実行"""
     applied_migrations = get_applied_migrations(db)
@@ -252,6 +319,7 @@ def run_all_migrations(db):
     available_migrations = [
         ('001_password_to_passphrase', run_migration_001),
         ('002_security_event_logging', run_migration_002),
+        ('003_pdf_table_columns', run_migration_003),
     ]
     
     for migration_name, migration_func in available_migrations:

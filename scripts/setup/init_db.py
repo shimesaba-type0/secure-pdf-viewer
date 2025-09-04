@@ -9,9 +9,14 @@
 """
 
 import sys
-import argparse
-from database import init_db, reset_db, get_db_connection, DATABASE_PATH
 import os
+import argparse
+
+# アプリケーションルートをPythonパスに追加
+app_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, app_root)
+
+from database import init_db, reset_db, get_db_connection, DATABASE_PATH
 
 def check_database():
     """データベースの状態をチェック"""
@@ -93,6 +98,20 @@ def main():
             print("🚀 Initializing database...")
             init_db()
             print("✅ Database initialization completed successfully!")
+            
+            # マイグレーション実行
+            print("🔄 Running database migrations...")
+            from database.migrations import run_all_migrations
+            
+            conn = get_db_connection()
+            try:
+                run_all_migrations(conn)
+                print("✅ Database migrations completed successfully!")
+            except Exception as e:
+                print(f"❌ Migration failed: {e}")
+                raise
+            finally:
+                conn.close()
             
             # 初期化後の状態確認
             print("\n" + "="*50)

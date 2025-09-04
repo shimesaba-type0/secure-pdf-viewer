@@ -384,6 +384,23 @@ def create_tables(db):
     """
     )
 
+    # PDFファイル管理テーブル
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pdf_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            original_filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER,
+            is_published BOOLEAN DEFAULT FALSE,
+            upload_date TEXT,
+            published_date TEXT,
+            unpublished_date TEXT
+        )
+    """
+    )
+
     # インデックス作成
     create_indexes(db)
 
@@ -425,6 +442,11 @@ def create_indexes(db):
         "CREATE INDEX IF NOT EXISTS idx_admin_actions_ip_address ON admin_actions(ip_address)",
         "CREATE INDEX IF NOT EXISTS idx_admin_actions_email_time ON admin_actions(admin_email, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_admin_actions_type_time ON admin_actions(action_type, created_at)",
+        # PDF管理用インデックス
+        "CREATE INDEX IF NOT EXISTS idx_pdf_files_original_filename ON pdf_files(original_filename)",
+        "CREATE INDEX IF NOT EXISTS idx_pdf_files_is_published ON pdf_files(is_published)",
+        "CREATE INDEX IF NOT EXISTS idx_pdf_files_upload_date ON pdf_files(upload_date)",
+        "CREATE INDEX IF NOT EXISTS idx_pdf_files_published_date ON pdf_files(published_date)",
     ]
 
     for index_sql in indexes:

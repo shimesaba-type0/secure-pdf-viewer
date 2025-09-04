@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: .
@@ -28,6 +26,6 @@ services:
       - ./instance:/app/instance
     env_file:
       - .env
-    command: python database/migrations.py
+    command: python scripts/setup/init_db.py
     restart: "no"
 
