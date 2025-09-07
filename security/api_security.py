@@ -5,12 +5,14 @@ TASK-021 Phase 2: API セキュリティ強化機能
 セキュリティ強化機能を提供する。
 """
 
+import hashlib
 import secrets
 import sqlite3
-import hashlib
 from datetime import datetime, timedelta
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
+
 from flask import Response
+
 from database.timezone_utils import get_current_app_timestamp
 
 # get_db_path関数は実行時にapp.pyからインポートする
@@ -49,7 +51,8 @@ def generate_csrf_token(session_id: str) -> str:
 
         cursor.execute(
             """
-            INSERT OR REPLACE INTO csrf_tokens (token, session_id, created_at, expires_at, is_used)
+            INSERT OR REPLACE INTO csrf_tokens
+            (token, session_id, created_at, expires_at, is_used)
             VALUES (?, ?, ?, ?, ?)
         """,
             (token_hash, session_id, timestamp, expires_at, False),
@@ -193,6 +196,7 @@ def create_error_response(
 def add_security_headers(response: Response) -> Response:
     """
     レスポンスにセキュリティヘッダーを追加
+    CDN環境対応版
 
     Args:
         response: Flaskレスポンスオブジェクト
@@ -200,7 +204,7 @@ def add_security_headers(response: Response) -> Response:
     Returns:
         Response: セキュリティヘッダーが追加されたレスポンス
     """
-    # OWASP推奨のセキュリティヘッダー
+    # 基本セキュリティヘッダー
     security_headers = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
@@ -211,7 +215,96 @@ def add_security_headers(response: Response) -> Response:
     for header, value in security_headers.items():
         response.headers[header] = value
 
+    # デバッグヘッダーは削除済み（本番環境対応）
+
+    # CDN環境対応ヘッダーの追加
+    return add_cdn_security_headers(response)
+
+
+def add_cdn_security_headers(response: Response) -> Response:
+    """
+    CDN環境向けセキュリティヘッダーの追加
+
+    Args:
+        response: Flaskレスポンスオブジェクト
+
+    Returns:
+        Response: CDNセキュリティヘッダーが追加されたレスポンス
+    """
+    import os
+
+    from flask import request
+
+    # CDN機能が無効の場合はスキップ
+    if not _get_env_bool("ENABLE_CDN_SECURITY", True):
+        return response
+
+    # CDN環境固有のヘッダー
+    cdn_headers = {
+        "X-CDN-Environment": "cloudflare",
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
+    }
+    
+    # 基本的なCSPポリシー（PDF.js CDN + Worker許可）
+    basic_csp_policy = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' cdnjs.cloudflare.com blob:; "
+        "worker-src 'self' blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self'; "
+        "connect-src 'self';"
+    )
+
+    # Real IP取得方法の明示
+    if request.headers.get("CF-Connecting-IP"):
+        cdn_headers["X-Real-IP-Source"] = "CF-Connecting-IP"
+    elif request.headers.get("X-Forwarded-For"):
+        cdn_headers["X-Real-IP-Source"] = "X-Forwarded-For"
+    else:
+        cdn_headers["X-Real-IP-Source"] = "remote_addr"
+
+    # Cloudflare環境でのCSP調整
+    cloudflare_domain = os.getenv("CLOUDFLARE_DOMAIN")
+    if cloudflare_domain:
+        # CloudflareドメインをCSPに追加（PDF.js Worker許可）
+        csp_policy = (
+            f"default-src 'self' {cloudflare_domain}; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' cdnjs.cloudflare.com blob:; "
+            "worker-src 'self' blob:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            f"frame-ancestors 'self' {cloudflare_domain};"
+        )
+        cdn_headers["Content-Security-Policy"] = csp_policy
+    else:
+        # 基本的なCSPポリシーを適用
+        cdn_headers["Content-Security-Policy"] = basic_csp_policy
+
+    # CDNキャッシュ制御の指示
+    if request.endpoint and "admin" in request.endpoint:
+        cdn_headers["CF-Cache-Status"] = "DYNAMIC"  # 管理画面はキャッシュしない
+
+    # ヘッダーの設定
+    for header, value in cdn_headers.items():
+        response.headers[header] = value
+
     return response
+
+
+def _get_env_bool(key: str, default: bool = False) -> bool:
+    """環境変数からbool値を取得"""
+    import os
+
+    value = os.getenv(key, "").lower()
+    if value in ("true", "1", "yes", "on"):
+        return True
+    elif value in ("false", "0", "no", "off"):
+        return False
+    else:
+        return default
 
 
 def apply_rate_limit(endpoint: str, user_id: str) -> bool:
@@ -406,7 +499,8 @@ def log_security_violation(
 
         cursor.execute(
             """
-            INSERT INTO security_violations (violation_type, details, ip_address, created_at)
+            INSERT INTO security_violations
+            (violation_type, details, ip_address, created_at)
             VALUES (?, ?, ?, ?)
         """,
             (violation_type, details_json, ip_address, current_time),
