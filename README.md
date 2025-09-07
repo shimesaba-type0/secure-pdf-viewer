@@ -43,6 +43,7 @@
 
 ### セキュリティ特徴
 - **多層防御アーキテクチャ**: CDN・アプリ・セッション・ファイルレベル
+- **Cloudflare CDNセキュリティ**: Real IP検出・リファラー検証・セキュリティヘッダー統一
 - **直接ダウンロード防止**: Referrer・User-Agent・認証チェック
 - **ウォーターマーク**: 動的生成・不正利用追跡
 - **リアルタイム監視**: 異常アクセス検知・自動ブロック
@@ -157,6 +158,12 @@ ADMIN_EMAIL=admin@example.com
 CLOUDFLARE_DOMAIN=your-domain.com
 TIMEZONE=UTC  # 本番環境推奨
 
+# Cloudflare CDNセキュリティ設定（CDN使用時）
+ENABLE_CDN_SECURITY=true
+CDN_ENVIRONMENT=cloudflare
+TRUST_CF_CONNECTING_IP=true
+STRICT_IP_VALIDATION=true
+
 # PDF配信セキュリティ（重要）
 PDF_DOWNLOAD_PREVENTION_ENABLED=true
 # [重要] PDF閲覧を許可するReferrer（必須設定）
@@ -267,6 +274,7 @@ docker-compose logs app | grep -i mail
 - **[監視・アラート](./docs/monitoring-alert-system-design.md)** - 監視機能・通知システム
 - **[レート制限](./docs/rate-limiting-system-design.md)** - アクセス制御・DoS対策
 - **[ログ・監査](./docs/security-event-logging-design.md)** - セキュリティログ・監査機能
+- **[Cloudflare CDNセキュリティ](./docs/cloudflare-cdn-security-design.md)** - CDN環境セキュリティ設計
 
 ### 実装ガイド
 - **[PDF直接ダウンロード防止](./docs/pdf-download-prevention-implementation.md)** - 実装詳細
@@ -277,6 +285,7 @@ docker-compose logs app | grep -i mail
 ### 運用ガイド
 - **[緊急停止機能](./docs/emergency-stop-feature.md)** - 緊急対応手順
 - **[インシデント検索](./docs/incident-search-functionality-design.md)** - ログ分析・調査
+- **[Cloudflare CDNセットアップ](./docs/cloudflare-cdn-setup.md)** - CDN環境構築・運用
 
 ## ライセンス
 
