@@ -246,6 +246,180 @@ sudo nginx -t
 sudo systemctl status nginx
 ```
 
+### Cloudflare設定（本番環境必須）
+
+CDNセキュリティ機能を有効活用するためのCloudflare設定手順：
+
+#### 1. 基本的なDNS・SSL設定
+
+```bash
+# Cloudflareダッシュボードでの設定手順
+```
+
+**DNS設定:**
+1. Cloudflareダッシュボードにログイン
+2. 対象ドメインを選択
+3. **DNS** → **Records** で以下を設定：
+   ```
+   Type: A
+   Name: your-domain (またはサブドメイン)
+   IPv4 address: YOUR_SERVER_IP
+   Proxy status: Proxied (オレンジ雲マーク)
+   ```
+4. **必須**: Proxy statusを「Proxied」に設定（CDNセキュリティ機能に必要）
+
+**SSL/TLS設定:**
+1. **SSL/TLS** → **Overview** で暗号化モードを設定：
+   ```
+   推奨: Full (strict) - 最高セキュリティ
+   最小: Full - 基本セキュリティ
+   ```
+2. **SSL/TLS** → **Edge Certificates** で以下を有効化：
+   - Always Use HTTPS: ON
+   - HTTP Strict Transport Security (HSTS): ON
+   - Minimum TLS Version: 1.2以上
+
+#### 2. CDNセキュリティ機能との連携設定
+
+**セキュリティ設定:**
+1. **Security** → **Settings** で以下を設定：
+   ```
+   Security Level: Medium (推奨)
+   Challenge Passage: 30 minutes
+   Browser Integrity Check: ON
+   ```
+
+2. **Security** → **WAF** でWebアプリケーションファイアウォール設定：
+   ```
+   WAF: ON (Pro/Business/Enterpriseプランで利用可能)
+   ```
+
+**キャッシュ設定（重要）:**
+1. **Caching** → **Configuration** で以下を設定：
+   ```
+   Caching Level: Standard
+   Browser Cache TTL: 4 hours (デフォルト)
+   ```
+
+2. **Page Rules**で重要パスのキャッシュを制御：
+   ```
+   パターン: your-domain.com/secure/*
+   設定: Cache Level = Bypass (セキュアPDF配信用)
+   
+   パターン: your-domain.com/admin*
+   設定: Cache Level = Bypass (管理画面用)
+   
+   パターン: your-domain.com/auth/*
+   設定: Cache Level = Bypass (認証用)
+   ```
+
+#### 3. 環境変数との連携
+
+`.env`ファイルでCloudflare設定と連携：
+
+```bash
+# Cloudflareドメイン設定（必須）
+CLOUDFLARE_DOMAIN=your-domain.com
+
+# CDNセキュリティ機能有効化（必須）
+ENABLE_CDN_SECURITY=true
+CDN_ENVIRONMENT=cloudflare
+TRUST_CF_CONNECTING_IP=true
+STRICT_IP_VALIDATION=true
+
+# PDF配信セキュリティ（Cloudflareドメイン追加）
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.1.0/24
+```
+
+#### 4. 動作確認
+
+**CDN機能確認:**
+```bash
+# 1. Real IP取得の確認
+curl -H "CF-Connecting-IP: 203.0.113.1" https://your-domain.com/
+# レスポンスヘッダーで "X-Real-IP-Source: CF-Connecting-IP" を確認
+
+# 2. CDN環境識別の確認
+curl -I https://your-domain.com/
+# レスポンスヘッダーで "X-CDN-Environment: cloudflare" を確認
+
+# 3. セキュリティヘッダーの確認
+curl -I https://your-domain.com/admin
+# 各種セキュリティヘッダーが適用されていることを確認
+```
+
+**Cloudflare機能確認:**
+1. **Analytics** → **Security** でセキュリティイベントを確認
+2. **Caching** → **Analytics** でキャッシュ効率を確認
+3. **Speed** → **Optimization** でパフォーマンスを確認
+
+#### 5. トラブルシューティング
+
+**よくある問題と解決方法:**
+
+**1. Real IPが正しく取得されない**
+```bash
+# 原因: Proxy statusが無効
+# 解決: CloudflareダッシュボードでProxy statusを「Proxied」に設定
+
+# 原因: CF-Connecting-IPヘッダーが届かない  
+# 解決: nginx設定でreal_ip_headerを確認
+# /etc/nginx/sites-available/secure-pdf-viewer で以下を確認:
+# real_ip_header CF-Connecting-IP;
+```
+
+**2. PDFが403エラーで表示されない**
+```bash
+# 原因: リファラー検証エラー
+# 解決1: .envファイルでCLOUDFLARE_DOMAINを正しく設定
+echo "CLOUDFLARE_DOMAIN=your-domain.com" >> .env
+
+# 解決2: PDF_ALLOWED_REFERRER_DOMAINSにCloudflareドメインを追加
+echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com" >> .env
+
+# アプリケーション再起動
+docker-compose down && docker-compose up -d
+```
+
+**3. 管理画面が表示されない**  
+```bash
+# 原因: Page Rulesのキャッシュ設定
+# 解決: Cloudflareダッシュボードで以下のPage Ruleを追加:
+# パターン: your-domain.com/admin*
+# 設定: Cache Level = Bypass
+```
+
+**4. SSL証明書エラー**
+```bash
+# 原因: SSL/TLS暗号化モードの設定不備
+# 解決: CloudflareでSSL/TLS暗号化モードを「Full (strict)」に設定
+# 注意: サーバー側に有効なSSL証明書が必要
+```
+
+**5. 外部からの直接アクセスが遮断されない**
+```bash
+# 原因: nginx設定のCloudflare IP範囲が古い
+# 解決: 最新のCloudflare IP範囲を確認・更新
+curl https://www.cloudflare.com/ips-v4
+curl https://www.cloudflare.com/ips-v6
+
+# nginx設定ファイル更新後
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**ログ確認コマンド:**
+```bash
+# アプリケーションログ
+docker-compose logs -f app
+
+# nginxログ
+sudo tail -f /var/log/nginx/secure-pdf-viewer-access.log
+sudo tail -f /var/log/nginx/secure-pdf-viewer-error.log
+
+# Cloudflareログ（ダッシュボード）
+# Analytics → Security Events で確認
+```
+
 ## トラブルシューティング
 
 ### よくある問題
