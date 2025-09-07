@@ -175,6 +175,34 @@ PDF_USER_AGENT_CHECK_ENABLED=true
 PDF_STRICT_MODE=false  # 開発環境では false 推奨
 ```
 
+### Nginx設定（本番環境推奨）
+
+Cloudflare CDN環境での最適化されたnginx設定を提供しています：
+
+```bash
+# nginx設定ファイルをコピー
+sudo cp config/nginx.conf.example /etc/nginx/sites-available/secure-pdf-viewer
+
+# 設定ファイル編集（必須）
+sudo nano /etc/nginx/sites-available/secure-pdf-viewer
+# - your-domain.com を実際のドメイン名に変更
+# - SSL証明書のパスを実際のパスに変更
+# - アプリケーションのポート（デフォルト5000）を確認
+
+# サイト有効化
+sudo ln -s /etc/nginx/sites-available/secure-pdf-viewer /etc/nginx/sites-enabled/
+
+# 設定テスト・適用
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+**セキュリティ機能:**
+- **Cloudflare + ローカルネット以外の完全遮断**: PDF直リンクを含む外部アクセスを無効化
+- **Real IP復元**: CF-Connecting-IPヘッダーによる正確なIP取得
+- **レート制限**: 認証・API・一般アクセスの段階的制限
+- **SSL最適化**: Modern Configuration準拠の高セキュリティ設定
+
 ### 運用・メンテナンス
 
 ```bash
@@ -182,8 +210,11 @@ PDF_STRICT_MODE=false  # 開発環境では false 推奨
 docker-compose down
 docker-compose up -d
 
-# ログローテーション
+# ログローテーション（アプリケーション）
 docker-compose exec app find /app/logs -name "*.log" -type f -mtime +7 -delete
+
+# ログローテーション（nginx - 必要に応じて）
+sudo logrotate -f /etc/logrotate.d/nginx
 
 # システム更新
 docker-compose pull
@@ -198,6 +229,10 @@ from database.models import init_db
 init_db()
 print('Database initialized successfully')
 "
+
+# nginx設定確認
+sudo nginx -t
+sudo systemctl status nginx
 ```
 
 ## トラブルシューティング
