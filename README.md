@@ -38,8 +38,17 @@
 ## システム構成
 
 ### インフラ構成
+
+**推奨: Cloudflare トンネル構成**
 ```
-インターネット → Cloudflare → localhost（Docker）
+インターネット → Cloudflare トンネル → nginx → Docker（アプリケーション）
+                      ↓
+                    メール（OTP送信）
+```
+
+**従来: Cloudflare CDN構成**
+```
+インターネット → Cloudflare CDN → nginx → Docker（アプリケーション）
                      ↓
                    メール（OTP送信）
 ```
@@ -82,6 +91,8 @@ sqlite3 --version
 
 ### 開発環境セットアップ
 
+#### Docker環境（推奨）
+
 ```bash
 # リポジトリクローン
 git clone <repository-url>
@@ -93,6 +104,10 @@ cp .env.example .env
 # 特にPDF_ALLOWED_REFERRER_DOMAINSにアクセス元のIPアドレス/ネットワークを追加
 # 例: PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.1.0/24
 
+# UID/GIDを自動設定して権限問題を回避
+export UID=$(id -u)
+export GID=$(id -g)
+
 # データベース初期化・マイグレーション実行
 docker-compose run --rm db-init
 
@@ -101,6 +116,42 @@ docker-compose up -d
 
 # 初期パスフレーズ設定
 docker-compose exec app python scripts/setup/setup_initial_passphrase.py
+```
+
+#### Python venv環境（開発・デバッグ用）
+
+```bash
+# リポジトリクローン
+git clone <repository-url>
+cd secure-pdf-viewer
+
+# Python仮想環境作成・有効化
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# または: venv\Scripts\activate  # Windows
+
+# 依存関係インストール
+pip install -r requirements.txt
+
+# 環境変数設定
+cp .env.example .env
+# [重要] .env ファイルを必ず編集してください
+
+# 必要なディレクトリ作成
+mkdir -p instance logs static/pdfs
+
+# データベース初期化
+python scripts/setup/init_db.py
+
+# 初期パスフレーズ設定
+python scripts/setup/setup_initial_passphrase.py
+
+# 開発サーバー起動
+export FLASK_ENV=development
+export FLASK_DEBUG=1
+python app.py
+# アクセス: http://localhost:5000
+```
 
 # セットアップ完了確認
 echo "=== セットアップ完了確認 ==="
@@ -135,6 +186,10 @@ sed -i 's/FLASK_DEBUG=1/FLASK_DEBUG=0/' docker-compose.yml
 # 必要なディレクトリ作成
 mkdir -p instance logs static/pdfs backups
 chmod 700 backups
+
+# UID/GIDを自動設定して権限問題を回避
+export UID=$(id -u)
+export GID=$(id -g)
 
 # データベース初期化・マイグレーション実行
 docker-compose run --rm db-init
@@ -188,7 +243,9 @@ PDF_STRICT_MODE=false  # 開発環境では false 推奨
 
 ### Nginx設定（本番環境推奨）
 
-Cloudflare CDN環境での最適化されたnginx設定を提供しています：
+#### Cloudflare トンネル環境（推奨）
+
+Cloudflare トンネル使用時の最適化設定：
 
 ```bash
 # nginx設定ファイルをコピー
@@ -196,9 +253,11 @@ sudo cp config/nginx.conf.example /etc/nginx/sites-available/secure-pdf-viewer
 
 # 設定ファイル編集（必須）
 sudo nano /etc/nginx/sites-available/secure-pdf-viewer
-# - your-domain.com を実際のドメイン名に変更
-# - SSL証明書のパスを実際のパスに変更
-# - アプリケーションのポート（デフォルト5000）を確認
+# - APPLICATION_HOST を実際のアプリケーションホスト:ポートに変更
+# 例: APPLICATION_HOST → 192.168.10.240:5000
+
+# 実際の設定変更例
+sudo sed -i 's/APPLICATION_HOST/192.168.10.240:5000/g' /etc/nginx/sites-available/secure-pdf-viewer
 
 # サイト有効化
 sudo ln -s /etc/nginx/sites-available/secure-pdf-viewer /etc/nginx/sites-enabled/
@@ -208,17 +267,34 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-**セキュリティ機能:**
-- **Cloudflare + ローカルネット以外の完全遮断**: PDF直リンクを含む外部アクセスを無効化
-- **Real IP復元**: CF-Connecting-IPヘッダーによる正確なIP取得
+**Cloudflare トンネルの利点:**
+- **SSL/TLS自動管理**: 証明書の自動取得・更新
+- **外部アクセス完全制御**: トンネル経由のみアクセス可能
+- **Real IP自動復元**: CF-Connecting-IPによる正確なクライアントIP
+- **HTTP/2プロトコルエラー解決**: SSE(/api/events)専用のHTTP/1.1設定
+
+#### 従来のCloudflare CDN環境
+
+従来のCDN設定も引き続きサポート：
+
+```bash
+# 従来設定使用時は上記設定を参考に以下を追加設定
+# - SSL証明書パスの設定
+# - Cloudflare IP範囲の制限設定
+# - HTTP→HTTPSリダイレクト設定
+```
+
+**共通セキュリティ機能:**
 - **レート制限**: 認証・API・一般アクセスの段階的制限
-- **SSL最適化**: Modern Configuration準拠の高セキュリティ設定
+- **PDF直リンク防止**: セキュアエンドポイント以外からのPDFアクセス禁止
+- **管理画面最適化**: 大容量データ処理対応のバッファ設定
 
 ### 運用・メンテナンス
 
 ```bash
 # システム停止・再起動
 docker-compose down
+export UID=$(id -u) GID=$(id -g)  # 権限設定を再適用
 docker-compose up -d
 
 # ログローテーション（アプリケーション）
@@ -246,15 +322,44 @@ sudo nginx -t
 sudo systemctl status nginx
 ```
 
-### Cloudflare設定（本番環境必須）
+### Cloudflare設定
 
-CDNセキュリティ機能を有効活用するためのCloudflare設定手順：
+#### Cloudflare トンネル設定（推奨）
 
-#### 1. 基本的なDNS・SSL設定
-
+**1. トンネル作成**
 ```bash
-# Cloudflareダッシュボードでの設定手順
+# Cloudflare Dashboard → Zero Trust → Networks → Tunnels
+# 1. "Create a tunnel" をクリック
+# 2. トンネル名を入力（例: secure-pdf-viewer）
+# 3. 環境に応じた cloudflared をインストール
+
+# Ubuntu/Debian例
+curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb
 ```
+
+**2. トンネル設定**
+```bash
+# Cloudflare Dashboard でのトンネル設定
+# Public hostname: your-domain.com
+# Service: HTTP://localhost:80  # nginxのポート
+# 追加設定：
+#   - Path: /* (全パス)
+#   - Additional headers: 必要に応じて
+```
+
+**3. トンネル起動**
+```bash
+# サービス登録・起動
+sudo cloudflared service install <TOKEN>
+sudo systemctl start cloudflared
+sudo systemctl enable cloudflared
+
+# 状態確認
+sudo systemctl status cloudflared
+```
+
+#### 従来のCloudflare CDN設定
 
 **DNS設定:**
 1. Cloudflareダッシュボードにログイン
@@ -266,7 +371,6 @@ CDNセキュリティ機能を有効活用するためのCloudflare設定手順�
    IPv4 address: YOUR_SERVER_IP
    Proxy status: Proxied (オレンジ雲マーク)
    ```
-4. **必須**: Proxy statusを「Proxied」に設定（CDNセキュリティ機能に必要）
 
 **SSL/TLS設定:**
 1. **SSL/TLS** → **Overview** で暗号化モードを設定：
