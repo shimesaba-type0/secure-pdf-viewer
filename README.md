@@ -102,7 +102,7 @@ cd secure-pdf-viewer
 cp .env.example .env
 # [重要] .env ファイルを必ず編集してください
 # 特にPDF_ALLOWED_REFERRER_DOMAINSにアクセス元のIPアドレス/ネットワークを追加
-# 例: PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.1.0/24
+# 例: PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.0.0/16
 
 # UID/GIDを自動設定して権限問題を回避
 export UID=$(id -u)
@@ -153,7 +153,9 @@ python app.py
 # アクセス: http://localhost:5000
 ```
 
-# セットアップ完了確認
+#### セットアップ完了確認（Docker環境）
+
+```bash
 echo "=== セットアップ完了確認 ==="
 docker-compose ps
 docker-compose exec app python -c "
@@ -234,9 +236,9 @@ STRICT_IP_VALIDATION=true
 PDF_DOWNLOAD_PREVENTION_ENABLED=true
 # [重要] PDF閲覧を許可するReferrer（必須設定）
 # アクセス元のIPアドレス、ドメイン、ネットワークを指定
-# 設定例: localhost,127.0.0.1,192.168.1.0/24,yourdomain.com
+# 設定例: localhost,127.0.0.1,192.168.0.0/16,yourdomain.com
 # 注意: この設定が正しくないとPDFが表示されません（403 Forbidden）
-PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.1.0/24
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.0.0/16
 PDF_USER_AGENT_CHECK_ENABLED=true
 PDF_STRICT_MODE=false  # 開発環境では false 推奨
 ```
@@ -252,12 +254,12 @@ Cloudflare トンネル使用時の最適化設定：
 sudo cp config/nginx.conf.example /etc/nginx/sites-available/secure-pdf-viewer
 
 # 設定ファイル編集（必須）
-sudo nano /etc/nginx/sites-available/secure-pdf-viewer
+sudo vim /etc/nginx/sites-available/secure-pdf-viewer
 # - APPLICATION_HOST を実際のアプリケーションホスト:ポートに変更
-# 例: APPLICATION_HOST → 192.168.10.240:5000
+# 例: APPLICATION_HOST → 192.0.2.100:5000
 
 # 実際の設定変更例
-sudo sed -i 's/APPLICATION_HOST/192.168.10.240:5000/g' /etc/nginx/sites-available/secure-pdf-viewer
+sudo sed -i 's/APPLICATION_HOST/192.0.2.100:5000/g' /etc/nginx/sites-available/secure-pdf-viewer
 
 # サイト有効化
 sudo ln -s /etc/nginx/sites-available/secure-pdf-viewer /etc/nginx/sites-enabled/
@@ -326,37 +328,108 @@ sudo systemctl status nginx
 
 #### Cloudflare トンネル設定（推奨）
 
-**1. トンネル作成**
-```bash
-# Cloudflare Dashboard → Zero Trust → Networks → Tunnels
-# 1. "Create a tunnel" をクリック
-# 2. トンネル名を入力（例: secure-pdf-viewer）
-# 3. 環境に応じた cloudflared をインストール
+**Cloudflareトンネルとは:**
+- クラウドベースの安全なトンネルサービス
+- 外部IPアドレス不要でWebサービスを公開可能
+- SSL/TLS証明書の自動管理とDDoS攻撃からの自動保護
+- ファイアウォール設定不要（アウトバウンド接続のみ）
 
-# Ubuntu/Debian例
-curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb
+**1. cloudflared のインストール**
+```bash
+# Ubuntu/Debian
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared-linux-amd64.deb
+
+# CentOS/RHEL/Rocky Linux
+wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-x86_64.rpm
+sudo rpm -i cloudflared-linux-x86_64.rpm
+
+# バージョン確認
+cloudflared version
 ```
 
-**2. トンネル設定**
+**2. Cloudflare認証**
 ```bash
-# Cloudflare Dashboard でのトンネル設定
-# Public hostname: your-domain.com
-# Service: HTTP://localhost:80  # nginxのポート
-# 追加設定：
-#   - Path: /* (全パス)
-#   - Additional headers: 必要に応じて
+# ブラウザでCloudflareにログインする画面が開きます
+cloudflared tunnel login
+# 認証が完了すると ~/.cloudflared/cert.pem が作成されます
 ```
 
-**3. トンネル起動**
+**3. トンネル作成**
 ```bash
-# サービス登録・起動
-sudo cloudflared service install <TOKEN>
+# トンネル作成
+cloudflared tunnel create pdf-viewer
+
+# 作成確認（UUIDを控えてください）
+cloudflared tunnel list
+```
+
+**4. 設定ファイル作成**
+```bash
+# システム用ディレクトリ作成
+sudo mkdir -p /etc/cloudflared
+
+# 認証ファイルの配置（権限対応）
+# 方法A: 一般ユーザーで認証した場合（コピーが必要）
+sudo mkdir -p /root/.cloudflared
+sudo cp ~/.cloudflared/cert.pem /root/.cloudflared/
+sudo cp ~/.cloudflared/*.json /root/.cloudflared/
+
+# 方法B: 最初からrootで認証する場合（コピー不要）
+# sudo cloudflared tunnel login  # rootで実行すれば/root/.cloudflaredに直接作成
+
+# 設定ファイル作成
+sudo vim /etc/cloudflared/config.yml
+```
+
+**5. 設定ファイルの内容**
+```yaml
+# /etc/cloudflared/config.yml
+tunnel: pdf-viewer
+credentials-file: /root/.cloudflared/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.json
+
+ingress:
+  - hostname: pdf-viewer.your-domain.com  # 実際のドメイン名に変更
+    service: https://localhost:443         # nginx HTTPS環境の場合
+    # service: http://localhost:80         # nginx HTTP環境の場合
+    originRequest:
+      httpHostHeader: pdf-viewer.your-domain.com  # 実際のドメイン名に変更
+      noTLSVerify: true                            # 自己署名証明書対応
+  - service: http_status:404
+```
+
+**6. DNS設定とテスト実行**
+```bash
+# Cloudflare DNS にトンネルルートを登録
+cloudflared tunnel route dns pdf-viewer pdf-viewer.your-domain.com
+
+# テスト実行（Ctrl+Cで停止）
+sudo cloudflared tunnel --config /etc/cloudflared/config.yml run pdf-viewer
+```
+
+**7. サービス化と起動**
+```bash
+# サービスとして登録
+sudo cloudflared service install
+
+# 起動と自動起動設定
 sudo systemctl start cloudflared
 sudo systemctl enable cloudflared
 
 # 状態確認
 sudo systemctl status cloudflared
+```
+
+**8. 動作確認**
+```bash
+# DNS伝播確認（CNAMEレコードになっているはず）
+dig pdf-viewer.your-domain.com
+
+# アクセステスト
+curl -I https://pdf-viewer.your-domain.com
+
+# ログ確認
+sudo journalctl -u cloudflared -f
 ```
 
 #### 従来のCloudflare CDN設定
@@ -432,7 +505,7 @@ TRUST_CF_CONNECTING_IP=true
 STRICT_IP_VALIDATION=true
 
 # PDF配信セキュリティ（Cloudflareドメイン追加）
-PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.1.0/24
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.0.2.0/24
 ```
 
 #### 4. 動作確認
@@ -533,7 +606,7 @@ sudo tail -f /var/log/nginx/secure-pdf-viewer-error.log
 # 原因: PDF_ALLOWED_REFERRER_DOMAINSの設定不備
 # 解決方法:
 # 1. .envファイルでアクセス元IPアドレスを追加
-echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.168.1.0/24" >> .env
+echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,192.0.2.0/24" >> .env
 
 # 2. 環境変数変更後は必ず再起動（restartでは不十分）
 docker-compose down && docker-compose up -d
