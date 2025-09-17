@@ -223,7 +223,7 @@ MAIL_PASSWORD=your-email-password
 ADMIN_EMAIL=admin@example.com
 
 # システム設定（必須）
-CLOUDFLARE_DOMAIN=your-domain.com
+CLOUDFLARE_DOMAIN=example.com
 TIMEZONE=UTC  # 本番環境推奨
 
 # Cloudflare CDNセキュリティ設定（CDN使用時）
@@ -236,9 +236,9 @@ STRICT_IP_VALIDATION=true
 PDF_DOWNLOAD_PREVENTION_ENABLED=true
 # [重要] PDF閲覧を許可するReferrer（必須設定）
 # アクセス元のIPアドレス、ドメイン、ネットワークを指定
-# 設定例: localhost,127.0.0.1,192.168.0.0/16,yourdomain.com
+# 設定例: localhost,127.0.0.1,192.168.0.0/16,example.com
 # 注意: この設定が正しくないとPDFが表示されません（403 Forbidden）
-PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.168.0.0/16
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,example.com,192.168.0.0/16
 PDF_USER_AGENT_CHECK_ENABLED=true
 PDF_STRICT_MODE=false  # 開発環境では false 推奨
 ```
@@ -389,11 +389,11 @@ tunnel: pdf-viewer
 credentials-file: /root/.cloudflared/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.json
 
 ingress:
-  - hostname: pdf-viewer.your-domain.com  # 実際のドメイン名に変更
+  - hostname: pdf-viewer.example.com  # 実際のドメイン名に変更
     service: https://localhost:443         # nginx HTTPS環境の場合
     # service: http://localhost:80         # nginx HTTP環境の場合
     originRequest:
-      httpHostHeader: pdf-viewer.your-domain.com  # 実際のドメイン名に変更
+      httpHostHeader: pdf-viewer.example.com  # 実際のドメイン名に変更
       noTLSVerify: true                            # 自己署名証明書対応
   - service: http_status:404
 ```
@@ -401,7 +401,7 @@ ingress:
 **6. DNS設定とテスト実行**
 ```bash
 # Cloudflare DNS にトンネルルートを登録
-cloudflared tunnel route dns pdf-viewer pdf-viewer.your-domain.com
+cloudflared tunnel route dns pdf-viewer pdf-viewer.example.com
 
 # テスト実行（Ctrl+Cで停止）
 sudo cloudflared tunnel --config /etc/cloudflared/config.yml run pdf-viewer
@@ -423,10 +423,10 @@ sudo systemctl status cloudflared
 **8. 動作確認**
 ```bash
 # DNS伝播確認（CNAMEレコードになっているはず）
-dig pdf-viewer.your-domain.com
+dig pdf-viewer.example.com
 
 # アクセステスト
-curl -I https://pdf-viewer.your-domain.com
+curl -I https://pdf-viewer.example.com
 
 # ログ確認
 sudo journalctl -u cloudflared -f
@@ -440,7 +440,7 @@ sudo journalctl -u cloudflared -f
 3. **DNS** → **Records** で以下を設定：
    ```
    Type: A
-   Name: your-domain (またはサブドメイン)
+   Name: example (またはサブドメイン)
    IPv4 address: YOUR_SERVER_IP
    Proxy status: Proxied (オレンジ雲マーク)
    ```
@@ -480,13 +480,13 @@ sudo journalctl -u cloudflared -f
 
 2. **Page Rules**で重要パスのキャッシュを制御：
    ```
-   パターン: your-domain.com/secure/*
+   パターン: example.com/secure/*
    設定: Cache Level = Bypass (セキュアPDF配信用)
    
-   パターン: your-domain.com/admin*
+   パターン: example.com/admin*
    設定: Cache Level = Bypass (管理画面用)
    
-   パターン: your-domain.com/auth/*
+   パターン: example.com/auth/*
    設定: Cache Level = Bypass (認証用)
    ```
 
@@ -496,7 +496,7 @@ sudo journalctl -u cloudflared -f
 
 ```bash
 # Cloudflareドメイン設定（必須）
-CLOUDFLARE_DOMAIN=your-domain.com
+CLOUDFLARE_DOMAIN=example.com
 
 # CDNセキュリティ機能有効化（必須）
 ENABLE_CDN_SECURITY=true
@@ -505,7 +505,7 @@ TRUST_CF_CONNECTING_IP=true
 STRICT_IP_VALIDATION=true
 
 # PDF配信セキュリティ（Cloudflareドメイン追加）
-PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.0.2.0/24
+PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,example.com,192.0.2.0/24
 ```
 
 #### 4. 動作確認
@@ -513,15 +513,15 @@ PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com,192.0.2.0/24
 **CDN機能確認:**
 ```bash
 # 1. Real IP取得の確認
-curl -H "CF-Connecting-IP: 203.0.113.1" https://your-domain.com/
+curl -H "CF-Connecting-IP: 203.0.113.1" https://example.com/
 # レスポンスヘッダーで "X-Real-IP-Source: CF-Connecting-IP" を確認
 
 # 2. CDN環境識別の確認
-curl -I https://your-domain.com/
+curl -I https://example.com/
 # レスポンスヘッダーで "X-CDN-Environment: cloudflare" を確認
 
 # 3. セキュリティヘッダーの確認
-curl -I https://your-domain.com/admin
+curl -I https://example.com/admin
 # 各種セキュリティヘッダーが適用されていることを確認
 ```
 
@@ -549,10 +549,10 @@ curl -I https://your-domain.com/admin
 ```bash
 # 原因: リファラー検証エラー
 # 解決1: .envファイルでCLOUDFLARE_DOMAINを正しく設定
-echo "CLOUDFLARE_DOMAIN=your-domain.com" >> .env
+echo "CLOUDFLARE_DOMAIN=example.com" >> .env
 
 # 解決2: PDF_ALLOWED_REFERRER_DOMAINSにCloudflareドメインを追加
-echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,your-domain.com" >> .env
+echo "PDF_ALLOWED_REFERRER_DOMAINS=localhost,127.0.0.1,example.com" >> .env
 
 # アプリケーション再起動
 docker-compose down && docker-compose up -d
@@ -562,7 +562,7 @@ docker-compose down && docker-compose up -d
 ```bash
 # 原因: Page Rulesのキャッシュ設定
 # 解決: Cloudflareダッシュボードで以下のPage Ruleを追加:
-# パターン: your-domain.com/admin*
+# パターン: example.com/admin*
 # 設定: Cache Level = Bypass
 ```
 
