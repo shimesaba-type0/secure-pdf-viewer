@@ -1,6 +1,10 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        HOST_UID: ${UID:-1000}
+        HOST_GID: ${GID:-1000}
     container_name: secure-pdf-viewer
     ports:
       - "0.0.0.0:5000:5000"
@@ -19,7 +23,11 @@ services:
       - db-init
 
   db-init:
-    build: .
+    build:
+      context: .
+      args:
+        HOST_UID: ${UID:-1000}
+        HOST_GID: ${GID:-1000}
     container_name: secure-pdf-db-init
     volumes:
       - ./:/app

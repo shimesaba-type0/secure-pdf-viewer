@@ -1,0 +1,171 @@
+# Secure PDF Viewer - Nginx Configuration Example
+# Cloudflare トンネル環境向けリバースプロキシ設定
+#
+# 使用方法:
+# 1. このファイルを /etc/nginx/sites-available/secure-pdf-viewer にコピー
+# 2. APPLICATION_HOST を実際のアプリケーションホスト/ポートに変更
+# 3. sudo ln -s /etc/nginx/sites-available/secure-pdf-viewer /etc/nginx/sites-enabled/
+# 4. sudo nginx -t && sudo systemctl reload nginx
+#
+# 注意: Cloudflare トンネル環境では以下が自動で処理されます:
+# - SSL/TLS 証明書の管理
+# - HTTP -> HTTPS リダイレクト
+# - 外部アクセス制限
+# - Real IP の復元（CF-Connecting-IP ヘッダー）
+
+# Real IPヘッダーの指定（Cloudflare トンネル環境）
+# トンネル経由ではlocalhost接続になるため、主に開発・デバッグ用
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+
+# レート制限設定
+limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+limit_req_zone $binary_remote_addr zone=api:10m rate=30r/m;
+limit_req_zone $binary_remote_addr zone=general:10m rate=60r/m;
+
+# メインサーバー設定
+# Cloudflare トンネル環境では HTTP のみで十分（トンネルが HTTPS を処理）
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;  # Cloudflare トンネルではサーバー名は任意
+    
+    # ログ設定
+    access_log /var/log/nginx/secure-pdf-viewer-access.log combined;
+    error_log /var/log/nginx/secure-pdf-viewer-error.log warn;
+    
+    # アップロードサイズ制限
+    client_max_body_size 100M;
+    
+    # タイムアウト設定
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 30s;
+    proxy_read_timeout 30s;
+    
+    # 静的ファイル配信（Dockerコンテナ経由）
+    location /static/ {
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+        expires 1h;
+        add_header Cache-Control "public, immutable";
+        
+        # PDF直リンク防止: PDFファイルへの直接アクセス禁止
+        location ~* \.pdf$ {
+            return 404;
+        }
+    }
+    
+    # 認証関連エンドポイント（厳しいレート制限）
+    location ~ ^/(auth/login|auth/verify-otp) {
+        limit_req zone=login burst=3 nodelay;
+        limit_req_status 429;
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+    }
+    
+    # API エンドポイント（SSE対応）
+    location ~ ^/api/?(.*)$ {
+        limit_req zone=api burst=30 nodelay;
+        limit_req_status 429;
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+    }
+    
+    # SSE専用エンドポイント（HTTP/1.1 強制でエラー回避）
+    location /api/events {
+        limit_req zone=api burst=10 nodelay;
+        limit_req_status 429;
+        
+        # SSE用HTTP/1.1設定
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+    }
+    
+    # セキュアPDF配信（最重要: PDF直リンクを完全制限）
+    location /secure/ {
+        limit_req zone=general burst=20 nodelay;
+        limit_req_status 429;
+        
+        # Cloudflareキャッシュを無効化
+        add_header Cache-Control "private, no-cache, no-store, must-revalidate";
+        add_header CF-Cache-Status "BYPASS";
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+        
+        # 大きなPDFファイル対応
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+    }
+    
+    # 管理画面（キャッシュ無効化＋大容量対応）
+    location ~ ^/admin/?(.*)$ {
+        limit_req zone=general burst=50 nodelay;
+        limit_req_status 429;
+        
+        # キャッシュを無効化
+        add_header Cache-Control "private, no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        
+        # 大きなファイル・データ対応
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+    }
+    
+    # メインアプリケーション
+    location / {
+        limit_req zone=general burst=30 nodelay;
+        limit_req_status 429;
+        
+        proxy_pass http://APPLICATION_HOST;  # 実際のアプリケーションホスト:ポート（例: 192.168.10.240:5000）
+        include /etc/nginx/proxy_params;
+    }
+    
+    # セキュリティ: 機密ファイルへのアクセス禁止
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+    
+    location ~ \.(env|py|pyc|db)$ {
+        deny all;
+        return 404;
+    }
+    
+    # ヘルスチェック用エンドポイント
+    location = /nginx-health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}
+
+
+# proxy_params の設定例（/etc/nginx/proxy_params がない場合）
+# 以下の内容を /etc/nginx/proxy_params として保存するか、
+# 各 location ブロックで直接記述してください
+#
+# proxy_set_header Host $http_host;
+# proxy_set_header X-Real-IP $remote_addr;
+# proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+# proxy_set_header X-Forwarded-Proto $scheme;
+# 
+# Cloudflare トンネル環境特有の設定:
+# proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+# proxy_set_header CF-Ray $http_cf_ray;
+

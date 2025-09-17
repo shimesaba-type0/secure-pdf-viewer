@@ -60,6 +60,11 @@ from security.api_security import (
     log_security_violation,
     cleanup_expired_csrf_tokens,
 )
+from security.cdn_security import (
+    get_real_ip,
+    log_cdn_access,
+    get_cdn_security_status,
+)
 from config.pdf_security_settings import (
     get_pdf_security_config,
     initialize_pdf_security_settings,
@@ -159,9 +164,7 @@ def require_admin_api_access(f):
                 return add_security_headers(response)
 
         # 5. 管理者セッション検証（既存のrequire_admin_sessionロジック使用）
-        client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
-        if client_ip and "," in client_ip:
-            client_ip = client_ip.split(",")[0].strip()
+        client_ip = get_real_ip()
 
         user_agent = request.headers.get("User-Agent", "")
         admin_session_data = verify_admin_session(session_id, client_ip, user_agent)
@@ -245,9 +248,7 @@ def require_admin_session(f):
 
         # 3. admin_sessionsテーブル確認とセッション環境検証
         if session_id:
-            client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
-            if client_ip and "," in client_ip:
-                client_ip = client_ip.split(",")[0].strip()
+            client_ip = get_real_ip()
 
             user_agent = request.headers.get("User-Agent", "")
 
@@ -1743,22 +1744,23 @@ def index():
 
     conn.close()
 
-    return render_template(
-        "viewer.html",
-        pdf_files=pdf_files,
-        published_pdf=published_pdf,
-        author_name=author_name,
-        publish_end_datetime_formatted=publish_end_datetime_formatted,
+    response = make_response(
+        render_template(
+            "viewer.html",
+            pdf_files=pdf_files,
+            published_pdf=published_pdf,
+            author_name=author_name,
+            publish_end_datetime_formatted=publish_end_datetime_formatted,
+        )
     )
+    return add_security_headers(response)
 
 
 @app.route("/auth/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         # クライアントIPを取得
-        client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
-        if client_ip and "," in client_ip:
-            client_ip = client_ip.split(",")[0].strip()
+        client_ip = get_real_ip()
 
         # IP制限チェック
         conn = sqlite3.connect(get_db_path())
@@ -1969,9 +1971,7 @@ def verify_otp():
 
         try:
             # クライアントIPを取得
-            client_ip = request.environ.get("HTTP_X_FORWARDED_FOR", request.remote_addr)
-            if client_ip and "," in client_ip:
-                client_ip = client_ip.split(",")[0].strip()
+            client_ip = get_real_ip()
 
             # データベース接続
             conn = sqlite3.connect(get_db_path())
@@ -2123,11 +2123,7 @@ def verify_otp():
             # 管理者の場合は管理者セッションも作成
             print(f"DEBUG: Checking if {email} is admin: {is_admin(email)}")
             if is_admin(email):
-                client_ip = request.environ.get(
-                    "HTTP_X_FORWARDED_FOR", request.remote_addr
-                )
-                if client_ip and "," in client_ip:
-                    client_ip = client_ip.split(",")[0].strip()
+                client_ip = get_real_ip()
 
                 print(
                     f"DEBUG: Creating admin session for {email} with session_id {session_id}"
@@ -2299,11 +2295,7 @@ def logout():
 
             # Phase 3B: 管理者ログアウト操作のログ記録（ログアウト前に記録）
             try:
-                client_ip = request.environ.get(
-                    "HTTP_X_FORWARDED_FOR", request.remote_addr
-                )
-                if client_ip and "," in client_ip:
-                    client_ip = client_ip.split(",")[0].strip()
+                client_ip = get_real_ip()
 
                 user_agent = request.headers.get("User-Agent", "")
                 admin_session_id = session.get("admin_session_id")
@@ -2489,21 +2481,24 @@ def admin():
     session_limit_enabled = get_setting(conn, "session_limit_enabled", True)
     conn.close()
 
-    return render_template(
-        "admin.html",
-        pdf_files=pdf_files,
-        author_name=author_name,
-        publish_end_datetime=publish_end_datetime,
-        publish_end_datetime_formatted=publish_end_datetime_formatted,
-        publish_start_formatted=publish_start_formatted,
-        last_unpublish_formatted=last_unpublish_formatted,
-        current_published_pdf=current_published_pdf,
-        scheduled_invalidation_datetime=scheduled_invalidation_datetime,
-        scheduled_invalidation_datetime_formatted=scheduled_invalidation_datetime_formatted,
-        scheduled_invalidation_seconds=scheduled_invalidation_seconds,
-        max_concurrent_sessions=max_concurrent_sessions,
-        session_limit_enabled=session_limit_enabled,
+    response = make_response(
+        render_template(
+            "admin.html",
+            pdf_files=pdf_files,
+            author_name=author_name,
+            publish_end_datetime=publish_end_datetime,
+            publish_end_datetime_formatted=publish_end_datetime_formatted,
+            publish_start_formatted=publish_start_formatted,
+            last_unpublish_formatted=last_unpublish_formatted,
+            current_published_pdf=current_published_pdf,
+            scheduled_invalidation_datetime=scheduled_invalidation_datetime,
+            scheduled_invalidation_datetime_formatted=scheduled_invalidation_datetime_formatted,
+            scheduled_invalidation_seconds=scheduled_invalidation_seconds,
+            max_concurrent_sessions=max_concurrent_sessions,
+            session_limit_enabled=session_limit_enabled,
+        )
     )
+    return add_security_headers(response)
 
 
 @app.route("/admin/sessions")
@@ -4460,9 +4455,7 @@ def resolve_incident():
 @app.route("/blocked")
 def blocked():
     """IP制限時のブロック表示画面"""
-    client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-    if client_ip:
-        client_ip = client_ip.split(",")[0].strip()
+    client_ip = get_real_ip()
 
     try:
         conn = sqlite3.connect(get_db_path())
@@ -4610,9 +4603,7 @@ def record_security_event():
         session_id = session.get("session_id")
 
         # リクエスト情報を取得
-        client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-        if client_ip:
-            client_ip = client_ip.split(",")[0].strip()
+        client_ip = get_real_ip()
         user_agent = request.headers.get("User-Agent", "")
 
         # イベント詳細情報
