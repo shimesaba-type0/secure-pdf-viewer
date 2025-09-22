@@ -292,7 +292,7 @@ def create_tables(db):
         )
     """
     )
-    
+
     # 管理者操作監査ログテーブル（TASK-021 Sub-Phase 3A）
     db.execute(
         """
@@ -1674,6 +1674,731 @@ def cleanup_expired_admin_sessions():
         return 0
 
 
+# ===== 管理者ロール別セッション管理機能 (GitHub Issue #10) =====
+
+
+def get_admin_role(email: str) -> str:
+    """
+    管理者のロールを取得
+
+    Args:
+        email: 管理者メールアドレス
+
+    Returns:
+        str: 'super_admin', 'admin', または None（存在しない場合）
+    """
+    if not email:
+        return None
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+            result = db.execute(
+                """
+                SELECT role FROM admin_users
+                WHERE email = ? AND is_active = TRUE
+                """,
+                (email,),
+            ).fetchone()
+
+            return result["role"] if result else None
+
+    except sqlite3.Error as e:
+        print(f"get_admin_role error: {e}")
+        return None
+
+
+def is_super_admin(email: str) -> bool:
+    """
+    スーパー管理者かチェック
+
+    Args:
+        email: 管理者メールアドレス
+
+    Returns:
+        bool: スーパー管理者の場合True
+    """
+    return get_admin_role(email) == "super_admin"
+
+
+def set_admin_role(email: str, role: str, changed_by: str):
+    """
+    管理者ロールを設定
+
+    Args:
+        email: 管理者メールアドレス
+        role: 新しいロール ('super_admin' または 'admin')
+        changed_by: 変更実行者のメールアドレス
+
+    Raises:
+        ValueError: 無効なロールが指定された場合
+    """
+    if role not in ["super_admin", "admin"]:
+        raise ValueError(f"Invalid role: {role}. Must be 'super_admin' or 'admin'")
+
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            # 現在のロールを取得
+            old_role = get_admin_role(email)
+            if old_role is None:
+                print(f"set_admin_role: Admin not found: {email}")
+                return False
+
+            # ロール更新
+            update_with_app_timestamp(
+                db,
+                "admin_users",
+                ["role"],
+                [role],
+                "email = ?",
+                [email],
+                timestamp_columns=["updated_at"],
+            )
+
+            # 操作ログ記録
+            log_admin_action(
+                changed_by,
+                "role_change",
+                resource_type="admin_user",
+                resource_id=email,
+                action_details={
+                    "old_role": old_role,
+                    "new_role": role,
+                    "target_email": email,
+                },
+                success=True,
+            )
+
+            db.commit()
+            print(f"Admin role changed: {email} from {old_role} to {role}")
+            return True
+
+    except sqlite3.Error as e:
+        print(f"set_admin_role database error: {e}")
+        return False
+
+
+def get_admin_session_count(admin_email: str) -> int:
+    """
+    管理者の現在のアクティブセッション数を取得
+
+    Args:
+        admin_email: 管理者メールアドレス
+
+    Returns:
+        int: アクティブセッション数
+    """
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            result = db.execute(
+                "SELECT COUNT(*) FROM admin_sessions WHERE admin_email = ? AND is_active = TRUE",
+                (admin_email,),
+            ).fetchone()
+            return result[0] if result else 0
+
+    except sqlite3.Error as e:
+        print(f"get_admin_session_count error: {e}")
+        return 0
+
+
+def check_admin_session_limit(admin_email: str) -> dict:
+    """
+    管理者のセッション制限をチェック
+
+    Args:
+        admin_email: 管理者メールアドレス
+
+    Returns:
+        dict: {
+            'allowed': bool,
+            'current_count': int,
+            'max_limit': int or None,
+            'role': str,
+            'unlimited': bool
+        }
+    """
+    from database import get_db
+
+    try:
+        role = get_admin_role(admin_email)
+        current_count = get_admin_session_count(admin_email)
+
+        # スーパー管理者の無制限チェック
+        if role == "super_admin":
+            with get_db() as db:
+                unlimited_enabled = get_setting(
+                    db, "super_admin_unlimited_sessions", True
+                )
+                if unlimited_enabled:
+                    return {
+                        "allowed": True,
+                        "current_count": current_count,
+                        "max_limit": None,
+                        "role": "super_admin",
+                        "unlimited": True,
+                    }
+
+        # 一般管理者の制限チェック
+        with get_db() as db:
+            max_limit = get_setting(db, "regular_admin_session_limit", 10)
+
+        return {
+            "allowed": current_count < max_limit,
+            "current_count": current_count,
+            "max_limit": max_limit,
+            "role": role or "admin",
+            "unlimited": False,
+        }
+
+    except Exception as e:
+        print(f"check_admin_session_limit error: {e}")
+        return {
+            "allowed": False,
+            "current_count": 0,
+            "max_limit": 10,
+            "role": "admin",
+            "unlimited": False,
+        }
+
+
+def cleanup_old_sessions_for_user(admin_email: str, keep_count: int = None):
+    """
+    ユーザーの古いセッションをクリーンアップ
+
+    Args:
+        admin_email: 管理者メールアドレス
+        keep_count: 保持するセッション数（Noneの場合はロール別制限を使用）
+    """
+    from database import get_db
+
+    try:
+        role = get_admin_role(admin_email)
+
+        # スーパー管理者で無制限が有効な場合はクリーンアップしない
+        if role == "super_admin":
+            with get_db() as db:
+                unlimited_enabled = get_setting(
+                    db, "super_admin_unlimited_sessions", True
+                )
+                if unlimited_enabled:
+                    print(
+                        f"cleanup_old_sessions_for_user: Skipping cleanup for super admin {admin_email}"
+                    )
+                    return
+
+        # 保持セッション数の決定
+        if keep_count is None:
+            with get_db() as db:
+                keep_count = get_setting(db, "regular_admin_session_limit", 10)
+
+        with get_db() as db:
+            # 現在のアクティブセッション数を確認
+            current_count = db.execute(
+                "SELECT COUNT(*) FROM admin_sessions WHERE admin_email = ? AND is_active = TRUE",
+                (admin_email,)
+            ).fetchone()[0]
+
+            if current_count <= keep_count:
+                print(f"cleanup_old_sessions_for_user: No cleanup needed for {admin_email} ({current_count}/{keep_count})")
+                return 0
+
+            # 削除対象のセッションを取得（古いものから削除）
+            sessions_to_delete = db.execute(
+                """
+                SELECT session_id FROM admin_sessions
+                WHERE admin_email = ? AND is_active = TRUE
+                ORDER BY last_verified_at ASC
+                LIMIT ?
+            """,
+                (admin_email, current_count - keep_count),
+            ).fetchall()
+
+            deleted_count = 0
+            for session in sessions_to_delete:
+                if delete_admin_session(session[0]):
+                    deleted_count += 1
+                    log_session_event(
+                        admin_email,
+                        session[0],
+                        "rotated",
+                        {"reason": "session_limit_exceeded", "keep_count": keep_count},
+                    )
+
+            print(
+                f"cleanup_old_sessions_for_user: Cleaned up {deleted_count} sessions for {admin_email}"
+            )
+            return deleted_count
+
+    except Exception as e:
+        print(f"cleanup_old_sessions_for_user error: {e}")
+        return 0
+
+
+def log_session_event(
+    admin_email: str, session_id: str, event_type: str, details: dict = None
+):
+    """
+    セッションイベントをログに記録
+
+    Args:
+        admin_email: 管理者メールアドレス
+        session_id: セッションID
+        event_type: イベントタイプ ('created', 'rotated', 'expired', 'limit_exceeded')
+        details: 詳細情報（dict）
+    """
+    import json
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            insert_with_app_timestamp(
+                db,
+                "admin_session_events",
+                ["admin_email", "session_id", "event_type", "event_details"],
+                [
+                    admin_email,
+                    session_id,
+                    event_type,
+                    json.dumps(details) if details else None,
+                ],
+                timestamp_columns=["created_at"],
+            )
+            db.commit()
+
+    except sqlite3.Error as e:
+        print(f"log_session_event database error: {e}")
+    except Exception as e:
+        print(f"log_session_event error: {e}")
+
+
+def rotate_session_if_needed(session_id: str, admin_email: str):
+    """
+    セッションローテーションが必要かチェックして実行
+
+    Args:
+        session_id: セッションID
+        admin_email: 管理者メールアドレス
+
+    Returns:
+        bool: ローテーションが実行された場合True
+    """
+    from database import get_db
+    import uuid
+
+    try:
+        with get_db() as db:
+            rotation_enabled = get_setting(db, "session_rotation_enabled", True)
+            if not rotation_enabled:
+                return False
+
+            max_age_hours = get_setting(db, "session_rotation_max_age_hours", 24)
+
+            session_info = db.execute(
+                "SELECT created_at FROM admin_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+
+            if session_info:
+                from config.timezone import get_app_now, to_app_timezone
+                from datetime import datetime, timedelta
+
+                try:
+                    created_at = to_app_timezone(
+                        datetime.fromisoformat(session_info[0])
+                    )
+                    age = get_app_now() - created_at
+
+                    if age > timedelta(hours=max_age_hours):
+                        # セッションローテーション実行
+                        new_session_id = str(uuid.uuid4())
+
+                        if regenerate_admin_session_id(session_id, new_session_id):
+                            log_session_event(
+                                admin_email,
+                                session_id,
+                                "rotated",
+                                {
+                                    "reason": "max_age_exceeded",
+                                    "age_hours": age.total_seconds() / 3600,
+                                    "new_session_id": new_session_id,
+                                },
+                            )
+                            return True
+
+                except (ValueError, TypeError) as e:
+                    print(f"rotate_session_if_needed: Invalid timestamp format: {e}")
+                    return False
+
+            return False
+
+    except Exception as e:
+        print(f"rotate_session_if_needed error: {e}")
+        return False
+
+
+def get_session_rotation_count(admin_email: str, hours: int = 24) -> int:
+    """
+    指定時間内のセッションローテーション回数を取得
+
+    Args:
+        admin_email: 管理者メールアドレス
+        hours: 集計時間（時間）
+
+    Returns:
+        int: ローテーション回数
+    """
+    from database import get_db
+    from config.timezone import get_app_now, add_app_timedelta
+
+    try:
+        cutoff_time = add_app_timedelta(get_app_now(), hours=-hours)
+        cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+
+        with get_db() as db:
+            result = db.execute(
+                """
+                SELECT COUNT(*) FROM admin_session_events
+                WHERE admin_email = ? AND event_type = 'rotated' AND created_at >= ?
+            """,
+                (admin_email, cutoff_str),
+            ).fetchone()
+
+            return result[0] if result else 0
+
+    except Exception as e:
+        print(f"get_session_rotation_count error: {e}")
+        return 0
+
+
+def is_trusted_network(ip_address: str) -> bool:
+    """
+    IPアドレスが信頼ネットワークかチェック
+
+    環境変数 ADMIN_TRUSTED_NETWORKS からカンマ区切りで取得
+    例: "192.168.1.0/24,10.0.0.0/8,172.16.0.0/12"
+
+    Args:
+        ip_address: チェック対象のIPアドレス
+
+    Returns:
+        bool: 信頼ネットワーク内の場合True
+    """
+    import os
+    import ipaddress
+
+    trusted_networks = os.getenv("ADMIN_TRUSTED_NETWORKS", "")
+    if not trusted_networks:
+        return False
+
+    try:
+        user_ip = ipaddress.ip_address(ip_address)
+        for network_str in trusted_networks.split(","):
+            network_str = network_str.strip()
+            if not network_str:
+                continue
+
+            try:
+                network = ipaddress.ip_network(network_str, strict=False)
+                if user_ip in network:
+                    return True
+            except ValueError:
+                # 単一IPアドレスの場合
+                if str(user_ip) == network_str:
+                    return True
+
+        return False
+    except ValueError:
+        return False
+
+
+def check_session_security_violations(admin_email: str, ip_address: str) -> dict:
+    """
+    セッション関連のセキュリティ違反をチェック
+
+    Args:
+        admin_email: 管理者メールアドレス
+        ip_address: IPアドレス
+
+    Returns:
+        dict: 違反チェック結果
+    """
+    from database import get_db
+
+    try:
+        # 信頼ネットワークからのアクセスはbypass
+        if is_trusted_network(ip_address):
+            return {"violated": False, "trusted_network": True}
+
+        # セッションローテーション回数をチェック
+        rotation_count = get_session_rotation_count(admin_email, hours=24)
+
+        with get_db() as db:
+            alert_threshold = get_setting(db, "session_rotation_alert_threshold", 5)
+            lock_threshold = get_setting(db, "session_rotation_lock_threshold", 10)
+
+        violation_data = {
+            "violated": False,
+            "trusted_network": False,
+            "rotation_count": rotation_count,
+            "alert_threshold": alert_threshold,
+            "lock_threshold": lock_threshold,
+            "action_required": "none",
+        }
+
+        if rotation_count >= lock_threshold:
+            violation_data.update(
+                {
+                    "violated": True,
+                    "action_required": "lock",
+                    "message": f"Account locked: {rotation_count} session rotations in 24h",
+                }
+            )
+        elif rotation_count >= alert_threshold:
+            violation_data.update(
+                {
+                    "violated": True,
+                    "action_required": "alert",
+                    "message": f"Security alert: {rotation_count} session rotations in 24h",
+                }
+            )
+
+        return violation_data
+
+    except Exception as e:
+        print(f"check_session_security_violations error: {e}")
+        return {
+            "violated": True,
+            "trusted_network": False,
+            "action_required": "block",
+            "message": f"Security check failed: {str(e)}",
+        }
+
+
+def get_admin_session_stats(admin_email: str = None, hours: int = 24) -> dict:
+    """
+    管理者セッション統計を取得
+
+    Args:
+        admin_email: 特定の管理者に絞る場合のメールアドレス
+        hours: 集計時間（時間）
+
+    Returns:
+        dict: セッション統計情報
+    """
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            # 全管理者のアクティブセッション数
+            total_sessions = db.execute(
+                "SELECT COUNT(*) FROM admin_sessions WHERE is_active = TRUE"
+            ).fetchone()[0]
+
+            # ロール別セッション数
+            super_admin_sessions = db.execute(
+                """
+                SELECT COUNT(*) FROM admin_sessions
+                JOIN admin_users ON admin_sessions.admin_email = admin_users.email
+                WHERE admin_sessions.is_active = TRUE AND admin_users.role = 'super_admin'
+            """
+            ).fetchone()[0]
+
+            regular_admin_sessions = total_sessions - super_admin_sessions
+
+            # 警告レベルの管理者数（セッションローテーション回数による）
+            from config.timezone import get_app_now, add_app_timedelta
+
+            cutoff_time = add_app_timedelta(get_app_now(), hours=-hours)
+            cutoff_str = cutoff_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            alert_threshold = get_setting(db, "session_rotation_alert_threshold", 5)
+
+            warning_count = db.execute(
+                """
+                SELECT COUNT(DISTINCT admin_email) FROM admin_session_events
+                WHERE event_type = 'rotated' AND created_at >= ?
+                GROUP BY admin_email
+                HAVING COUNT(*) >= ?
+            """,
+                (cutoff_str, alert_threshold),
+            ).fetchone()
+
+            warning_count = warning_count[0] if warning_count else 0
+
+            return {
+                "total_sessions": total_sessions,
+                "super_admin_sessions": super_admin_sessions,
+                "regular_admin_sessions": regular_admin_sessions,
+                "warning_count": warning_count,
+            }
+
+    except Exception as e:
+        print(f"get_admin_session_stats error: {e}")
+        return {
+            "total_sessions": 0,
+            "super_admin_sessions": 0,
+            "regular_admin_sessions": 0,
+            "warning_count": 0,
+        }
+
+
+def get_all_admin_sessions_with_stats() -> list:
+    """
+    全管理者のセッション情報を統計付きで取得
+
+    Returns:
+        list: 管理者別セッション情報のリスト
+    """
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            # 全管理者の情報を取得
+            admins = db.execute(
+                """
+                SELECT email, role FROM admin_users WHERE is_active = TRUE
+            """
+            ).fetchall()
+
+            result = []
+            for admin in admins:
+                email = admin["email"]
+                role = admin["role"]
+
+                # セッション数取得
+                current_sessions = get_admin_session_count(email)
+
+                # 最新ログイン時刻
+                latest_login = db.execute(
+                    """
+                    SELECT MAX(created_at) FROM admin_sessions
+                    WHERE admin_email = ? AND is_active = TRUE
+                """,
+                    (email,),
+                ).fetchone()[0]
+
+                # ローテーション回数
+                rotation_count_24h = get_session_rotation_count(email, hours=24)
+
+                # 制限情報
+                if role == "super_admin":
+                    unlimited_enabled = get_setting(
+                        db, "super_admin_unlimited_sessions", True
+                    )
+                    max_limit = (
+                        None
+                        if unlimited_enabled
+                        else get_setting(db, "regular_admin_session_limit", 10)
+                    )
+                else:
+                    max_limit = get_setting(db, "regular_admin_session_limit", 10)
+
+                # ステータス判定
+                status = calculate_admin_session_status(
+                    rotation_count_24h, is_trusted=False
+                )
+
+                result.append(
+                    {
+                        "email": email,
+                        "role": role,
+                        "current_sessions": current_sessions,
+                        "max_limit": max_limit,
+                        "last_login": latest_login,
+                        "rotation_count_24h": rotation_count_24h,
+                        "status": status,
+                    }
+                )
+
+            return result
+
+    except Exception as e:
+        print(f"get_all_admin_sessions_with_stats error: {e}")
+        return []
+
+
+def calculate_admin_session_status(
+    rotation_count: int, is_trusted: bool = False
+) -> str:
+    """
+    管理者セッションのステータスを計算
+
+    Args:
+        rotation_count: ローテーション回数
+        is_trusted: 信頼ネットワークからのアクセスか
+
+    Returns:
+        str: 'normal', 'warning', 'critical', 'locked'
+    """
+    from database import get_db
+
+    # 信頼ネットワークからは常に正常
+    if is_trusted:
+        return "normal"
+
+    try:
+        with get_db() as db:
+            alert_threshold = get_setting(db, "session_rotation_alert_threshold", 5)
+            lock_threshold = get_setting(db, "session_rotation_lock_threshold", 10)
+
+        if rotation_count >= lock_threshold:
+            return "critical"
+        elif rotation_count >= alert_threshold:
+            return "warning"
+        else:
+            return "normal"
+
+    except Exception:
+        return "normal"
+
+
+def get_admin_session_details(admin_email: str) -> dict:
+    """
+    管理者の詳細セッション情報を取得
+
+    Args:
+        admin_email: 管理者メールアドレス
+
+    Returns:
+        dict: セッション詳細情報
+    """
+    from database import get_db
+
+    try:
+        with get_db() as db:
+            db.row_factory = sqlite3.Row
+
+            sessions = db.execute(
+                """
+                SELECT session_id, created_at, last_verified_at,
+                       ip_address, user_agent, is_active
+                FROM admin_sessions
+                WHERE admin_email = ?
+                ORDER BY last_verified_at DESC
+            """,
+                (admin_email,),
+            ).fetchall()
+
+            return {
+                "admin_email": admin_email,
+                "sessions": [dict(session) for session in sessions],
+            }
+
+    except Exception as e:
+        print(f"get_admin_session_details error: {e}")
+        return {"admin_email": admin_email, "sessions": []}
+
+
 # ===== セッションハイジャック対策機能 (Sub-Phase 1D) =====
 
 
@@ -1959,26 +2684,42 @@ def detect_session_anomalies(admin_email, session_id, current_ip, current_ua):
             anomalies = []
             action_required = "allow"
 
-            # 複数同時セッション検出（3セッションまで許可）
+            # 管理者ロールを取得
+            admin_role = get_admin_role(admin_email)
+
+            # 複数同時セッション検出（ロール別制限を考慮）
             total_sessions = len(other_sessions) + 1
 
-            if total_sessions == 2:
-                anomalies.append("multiple_active_sessions")
-                action_required = "warn"  # 2セッションは警告のみ
-            elif total_sessions == 3:
-                anomalies.append("multiple_active_sessions")
-                action_required = "warn"  # 3セッションも警告のみ
-            elif total_sessions > 3:
-                anomalies.append("excessive_multiple_sessions")
-                action_required = "block"  # 4セッション以上はブロック
-
-                # 異なるIPからの過剰セッション
-                current_ip_sessions = [
-                    s for s in other_sessions if s["ip_address"] == current_ip
-                ]
-                if len(current_ip_sessions) != len(other_sessions):
-                    anomalies.append("multiple_ip_excessive_sessions")
+            # スーパー管理者は無制限セッションが許可されている場合、異常検出をスキップ
+            if admin_role == 'super_admin':
+                unlimited_enabled = get_setting(db, 'super_admin_unlimited_sessions', True)
+                if unlimited_enabled:
+                    # スーパー管理者の無制限セッションは正常として扱う
+                    pass
+                else:
+                    # 無制限が無効の場合は通常の制限を適用
+                    if total_sessions > 10:
+                        anomalies.append("excessive_multiple_sessions")
+                        action_required = "block"
+            else:
+                # 一般管理者の制限チェック
+                if total_sessions == 2:
+                    anomalies.append("multiple_active_sessions")
+                    action_required = "warn"  # 2セッションは警告のみ
+                elif total_sessions == 3:
+                    anomalies.append("multiple_active_sessions")
+                    action_required = "warn"  # 3セッションも警告のみ
+                elif total_sessions > 10:  # 一般管理者の制限に合わせる
+                    anomalies.append("excessive_multiple_sessions")
                     action_required = "block"
+
+                    # 異なるIPからの過剰セッション
+                    current_ip_sessions = [
+                        s for s in other_sessions if s["ip_address"] == current_ip
+                    ]
+                    if len(current_ip_sessions) != len(other_sessions):
+                        anomalies.append("multiple_ip_excessive_sessions")
+                        action_required = "block"
 
             # 短時間での複数セッション作成
             recent_threshold = get_app_now() - timedelta(minutes=10)

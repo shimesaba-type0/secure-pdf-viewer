@@ -309,7 +309,16 @@ def require_admin_session(f):
                 )
 
             # 5. セッション検証時刻の更新（verify_admin_session内で実行済み）
-            # セキュリティログ記録（将来実装）
+            # GitHub Issue #10: セッションローテーションチェック
+            from database.models import rotate_session_if_needed
+
+            # セッションローテーションが必要かチェック
+            rotated = rotate_session_if_needed(session_id, email)
+            if rotated:
+                print(f"[INFO] Session rotated for admin {email}")
+                # セッション再生成により新しいセッションIDが作成されるため、
+                # このリクエストは古いセッションIDのまま続行される
+                # 次回のリクエストから新しいセッションIDが使用される
 
         else:
             # セッションIDが存在しない場合
@@ -755,11 +764,17 @@ def check_session_integrity():
     Returns:
         bool: True if valid, False if invalid
     """
-    app.logger.info(f"Session integrity check - Current session keys: {list(session.keys())}")
-    app.logger.info(f"Session integrity check - authenticated: {session.get('authenticated')}")
-    app.logger.info(f"Session integrity check - passphrase_verified: {session.get('passphrase_verified')}")
+    app.logger.info(
+        f"Session integrity check - Current session keys: {list(session.keys())}"
+    )
+    app.logger.info(
+        f"Session integrity check - authenticated: {session.get('authenticated')}"
+    )
+    app.logger.info(
+        f"Session integrity check - passphrase_verified: {session.get('passphrase_verified')}"
+    )
     app.logger.info(f"Session integrity check - email: {session.get('email')}")
-    
+
     if not session.get("authenticated"):
         app.logger.error("Session integrity check failed - not authenticated")
         return False
@@ -791,7 +806,9 @@ def check_session_integrity():
         db_session = cursor.fetchone()
         app.logger.info(f"Database session found: {bool(db_session)}")
         if db_session:
-            app.logger.info(f"DB session data: start_time={db_session[0]}, email_hash={db_session[1]}")
+            app.logger.info(
+                f"DB session data: start_time={db_session[0]}, email_hash={db_session[1]}"
+            )
 
         conn.close()
 
@@ -810,10 +827,13 @@ def check_session_integrity():
                 auth_time = datetime.fromisoformat(auth_time_str)
                 # UTCタイムスタンプをアプリタイムゾーンの時刻に変換（統一関数使用）
                 import pytz
+
                 db_start_time_utc = datetime.fromtimestamp(db_session[0], tz=pytz.UTC)
                 db_start_time = to_app_timezone(db_start_time_utc)
-                
-                app.logger.info(f"Time comparison - auth_time: {auth_time}, db_start_time: {db_start_time}")
+
+                app.logger.info(
+                    f"Time comparison - auth_time: {auth_time}, db_start_time: {db_start_time}"
+                )
 
                 # 時刻の差が5分以上の場合は異常とみなす
                 time_diff = abs((auth_time - db_start_time).total_seconds())
@@ -2001,7 +2021,7 @@ def verify_otp():
             """,
                 (email, otp_code),
             ).fetchone()
-            
+
             app.logger.info(f"OTP record found: {bool(otp_record)}")
 
             if not otp_record:
@@ -2027,14 +2047,20 @@ def verify_otp():
                     )
 
             # 有効期限チェック
-            app.logger.info(f"Starting expiration check. expires_at raw: {otp_record['expires_at']}")
+            app.logger.info(
+                f"Starting expiration check. expires_at raw: {otp_record['expires_at']}"
+            )
             expires_at = datetime.fromisoformat(otp_record["expires_at"])
             now = get_app_now()
-            app.logger.info(f"Before timezone conversion - expires_at: {expires_at}, now: {now}")
+            app.logger.info(
+                f"Before timezone conversion - expires_at: {expires_at}, now: {now}"
+            )
             # タイムゾーン統一のため、両方をアプリタイムゾーンに変換
             expires_at = to_app_timezone(expires_at)
             now = to_app_timezone(now)
-            app.logger.info(f"After timezone conversion - expires_at: {expires_at}, now: {now}")
+            app.logger.info(
+                f"After timezone conversion - expires_at: {expires_at}, now: {now}"
+            )
             app.logger.info(f"Is expired? {now > expires_at}")
 
             if now > expires_at:
@@ -2083,12 +2109,14 @@ def verify_otp():
             session["authenticated"] = True
             session["email"] = email
             session["auth_completed_at"] = get_app_now().isoformat()
-            
+
             # デバッグ用：セッション内容を確認
             app.logger.info(f"Current session keys: {list(session.keys())}")
             app.logger.info(f"Session authenticated: {session.get('authenticated')}")
             app.logger.info(f"Session email: {session.get('email')}")
-            app.logger.info(f"Session passphrase_verified: {session.get('passphrase_verified')}")
+            app.logger.info(
+                f"Session passphrase_verified: {session.get('passphrase_verified')}"
+            )
 
             # セッション統計を更新
             app.logger.info("Updating session statistics")
@@ -2102,7 +2130,7 @@ def verify_otp():
 
             # UTCタイムスタンプを保存（.timestamp()は常にUTC基準）
             app_timestamp = int(now.timestamp())
-            
+
             conn.execute(
                 """
                 INSERT OR REPLACE INTO session_stats 
@@ -2125,6 +2153,87 @@ def verify_otp():
             if is_admin(email):
                 client_ip = get_real_ip()
 
+                # GitHub Issue #10: 管理者セッション制限チェック
+                from database.models import (
+                    check_admin_session_limit,
+                    cleanup_old_sessions_for_user,
+                    log_session_event,
+                    check_session_security_violations,
+                    rotate_session_if_needed,
+                )
+
+                # セッション制限チェック
+                limit_check = check_admin_session_limit(email)
+                print(f"DEBUG: Admin session limit check for {email}: {limit_check}")
+
+                if not limit_check["allowed"]:
+                    # セッション制限に達している場合、ローテーション処理を実行
+                    if limit_check["role"] != "super_admin" or not limit_check["unlimited"]:
+                        # 一般管理者または制限ありスーパー管理者の場合、強制ローテーション
+                        max_sessions = limit_check["max_limit"]
+                        if max_sessions and limit_check["current_count"] >= max_sessions:
+                            # 制限に達している場合、最古のセッションを1個削除
+                            force_cleaned_count = cleanup_old_sessions_for_user(email, max_sessions - 1)
+                            print(f"DEBUG: Force rotated {force_cleaned_count} sessions for {email} (limit: {max_sessions})")
+
+                            # ローテーション処理をログ
+                            log_session_event(
+                                email,
+                                "",
+                                "force_rotation",
+                                {
+                                    "reason": "session_limit_reached",
+                                    "deleted_count": force_cleaned_count,
+                                    "max_limit": max_sessions,
+                                    "current_count": limit_check["current_count"]
+                                },
+                            )
+
+                    # ローテーション後に再チェック
+                    limit_check = check_admin_session_limit(email)
+                    print(f"DEBUG: After rotation, session limit check: {limit_check}")
+
+                    if not limit_check["allowed"]:
+                        conn.close()
+                        app.logger.warning(
+                            f"Admin session limit still exceeded after rotation for {email}: {limit_check['current_count']}/{limit_check['max_limit']}"
+                        )
+
+                        # セッション制限超過をログ
+                        log_session_event(
+                            email,
+                            session_id,
+                            "limit_exceeded",
+                            {
+                                "current_count": limit_check["current_count"],
+                                "max_limit": limit_check["max_limit"],
+                                "role": limit_check["role"],
+                                "ip_address": client_ip,
+                            },
+                        )
+
+                        return render_template(
+                            "verify_otp.html",
+                            email=email,
+                            error=f"セッション数制限に達しています。現在: {limit_check['current_count']}/{limit_check['max_limit']}セッション。しばらく時間をおいて再試行してください。",
+                        )
+
+                # セキュリティ違反チェック
+                security_check = check_session_security_violations(email, client_ip)
+                if (
+                    security_check["violated"]
+                    and security_check["action_required"] == "lock"
+                ):
+                    conn.close()
+                    app.logger.warning(
+                        f"Admin account locked due to security violations: {email}"
+                    )
+                    return render_template(
+                        "verify_otp.html",
+                        email=email,
+                        error="セキュリティ上の理由によりアカウントがロックされています。管理者にお問い合わせください。",
+                    )
+
                 print(
                     f"DEBUG: Creating admin session for {email} with session_id {session_id}"
                 )
@@ -2137,6 +2246,24 @@ def verify_otp():
                     conn=conn,  # 既存のデータベース接続を渡す
                 )
                 print(f"DEBUG: Admin session creation result: {admin_session_result}")
+
+                # セッション作成成功時にイベントログ記録
+                if admin_session_result:
+                    log_session_event(
+                        email,
+                        session_id,
+                        "created",
+                        {
+                            "login_method": "otp",
+                            "device_type": device_type,
+                            "ip_address": client_ip,
+                            "user_agent": user_agent,
+                            "role": limit_check.get("role", "admin"),
+                            "security_check": security_check
+                            if not security_check["violated"]
+                            else None,
+                        },
+                    )
 
                 # Phase 3B: 管理者ログイン操作のログ記録
                 if admin_session_result:
@@ -2163,7 +2290,9 @@ def verify_otp():
             # セッション制限警告のSSE通知を送信
             app.logger.info("Checking for session limit warnings")
             if session_limit_check.get("warning"):
-                app.logger.info("Session limit warning detected, sending SSE notification")
+                app.logger.info(
+                    "Session limit warning detected, sending SSE notification"
+                )
                 try:
                     sse_queue.put(
                         {
@@ -2186,7 +2315,9 @@ def verify_otp():
                 except:
                     pass  # SSE失敗は無視
 
-            app.logger.info(f"OTP verification successful, redirecting to index for {email}")
+            app.logger.info(
+                f"OTP verification successful, redirecting to index for {email}"
+            )
             return redirect(url_for("index"))
 
         except Exception as e:
@@ -4089,8 +4220,9 @@ def add_pdf_to_db(original_filename, stored_filename, filepath, file_size):
 
     # Set current timestamp for upload_date
     from config.timezone import get_app_now, get_app_datetime_string
+
     upload_date = get_app_datetime_string()
-    
+
     cursor.execute(
         """
         INSERT INTO pdf_files (original_filename, stored_filename, file_path, file_size, upload_date)
@@ -5839,7 +5971,11 @@ def admin_api_audit_logs_export():
         )
 
         # 実際のactionsリストを取得
-        actions = actions_result.get("actions", []) if isinstance(actions_result, dict) else []
+        actions = (
+            actions_result.get("actions", [])
+            if isinstance(actions_result, dict)
+            else []
+        )
 
         # エクスポートファイル名
         timestamp = get_app_datetime_string().replace(":", "-").replace(" ", "_")
@@ -5945,7 +6081,7 @@ def admin_api_audit_logs_chart_data():
         if chart_type == "admin_activity":
             # 管理者別活動状況
             admin_stats = get_admin_action_stats(period=period, group_by="admin_email")
-            
+
             # stats配列からlabelsとdataを作成
             labels = []
             data = []
@@ -5976,7 +6112,7 @@ def admin_api_audit_logs_chart_data():
         elif chart_type == "risk_trend":
             # リスクレベル推移
             risk_stats = get_admin_action_stats(period=period, group_by="risk_level")
-            
+
             # 各リスクレベルの値を取得
             risk_counts = {"low": 0, "medium": 0, "high": 0, "critical": 0}
             for stat in risk_stats.get("stats", []):
@@ -6003,8 +6139,10 @@ def admin_api_audit_logs_chart_data():
 
         elif chart_type == "resource_access":
             # リソース別アクセス
-            resource_stats = get_admin_action_stats(period=period, group_by="resource_type")
-            
+            resource_stats = get_admin_action_stats(
+                period=period, group_by="resource_type"
+            )
+
             # stats配列からlabelsとdataを作成
             labels = []
             data = []
@@ -6033,17 +6171,17 @@ def admin_api_audit_logs_chart_data():
         elif chart_type == "daily_activity":
             # 日別活動状況 - 過去7日間の日次データを生成
             from config.timezone import get_app_now, add_app_timedelta
-            
+
             with get_db() as db:
                 days = 7 if period == "7d" else (30 if period == "30d" else 7)
                 labels = []
                 data = []
-                
+
                 for i in range(days):
                     date_obj = add_app_timedelta(get_app_now(), days=-i)
                     date_str = date_obj.strftime("%Y-%m-%d")
                     labels.insert(0, date_str)
-                    
+
                     # その日の操作数を取得
                     sql = """
                         SELECT COUNT(*) FROM admin_actions 
@@ -6068,7 +6206,7 @@ def admin_api_audit_logs_chart_data():
         else:
             # デフォルト: 操作種別統計
             stats = get_admin_action_stats(period=period, group_by="action_type")
-            
+
             # stats配列からlabelsとdataを作成
             labels = []
             data = []
@@ -6168,10 +6306,10 @@ def admin_api_audit_log_action_details(action_id):
 def admin_security_dashboard():
     """
     セキュリティ監視ダッシュボード
-    
+
     表示内容:
     - リアルタイム異常検出状況
-    - ログ完全性検証状況  
+    - ログ完全性検証状況
     - リスクスコア推移
     - セキュリティアラート履歴
     """
@@ -6189,43 +6327,51 @@ def get_anomaly_status():
     """異常検出状況API"""
     try:
         from security.anomaly_detector import detect_admin_anomalies
-        
-        admin_email = request.args.get('admin_email')
-        timeframe = int(request.args.get('timeframe', 3600))
-        
+
+        admin_email = request.args.get("admin_email")
+        timeframe = int(request.args.get("timeframe", 3600))
+
         if not admin_email:
             # 全管理者の異常検出サマリーを返却
             conn = sqlite3.connect(get_db_path())
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT DISTINCT admin_email 
                 FROM admin_actions 
                 WHERE created_at >= datetime('now', '-1 hour')
-            """)
+            """
+            )
             admin_emails = [row[0] for row in cursor.fetchall()]
             conn.close()
-            
+
             anomaly_summary = []
             for email in admin_emails:
                 result = detect_admin_anomalies(email, timeframe)
-                anomaly_summary.append({
-                    "admin_email": email,
-                    "anomalies_detected": result["anomalies_detected"],
-                    "risk_score": result["risk_score"],
-                    "anomaly_count": len(result["anomaly_types"])
-                })
-            
-            return jsonify({
-                "success": True,
-                "summary": anomaly_summary,
-                "total_admins": len(admin_emails),
-                "anomalous_admins": len([s for s in anomaly_summary if s["anomalies_detected"]])
-            })
+                anomaly_summary.append(
+                    {
+                        "admin_email": email,
+                        "anomalies_detected": result["anomalies_detected"],
+                        "risk_score": result["risk_score"],
+                        "anomaly_count": len(result["anomaly_types"]),
+                    }
+                )
+
+            return jsonify(
+                {
+                    "success": True,
+                    "summary": anomaly_summary,
+                    "total_admins": len(admin_emails),
+                    "anomalous_admins": len(
+                        [s for s in anomaly_summary if s["anomalies_detected"]]
+                    ),
+                }
+            )
         else:
             # 指定管理者の詳細異常検出結果
             result = detect_admin_anomalies(admin_email, timeframe)
             return jsonify({"success": True, "data": result})
-            
+
     except Exception as e:
         logger.error(f"異常検出状況取得エラー: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -6237,23 +6383,26 @@ def get_log_integrity_status():
     """ログ完全性検証状況API"""
     try:
         from security.integrity import verify_all_logs_integrity
-        
-        batch_size = int(request.args.get('batch_size', 1000))
+
+        batch_size = int(request.args.get("batch_size", 1000))
         result = verify_all_logs_integrity(batch_size)
-        
+
         integrity_percentage = 0
         if result["total_logs"] > 0:
             integrity_percentage = (result["valid_logs"] / result["total_logs"]) * 100
-        
-        return jsonify({
-            "success": True,
-            "data": {
-                **result,
-                "integrity_percentage": round(integrity_percentage, 2),
-                "has_issues": result["invalid_logs"] > 0 or result["unverified_logs"] > 0
+
+        return jsonify(
+            {
+                "success": True,
+                "data": {
+                    **result,
+                    "integrity_percentage": round(integrity_percentage, 2),
+                    "has_issues": result["invalid_logs"] > 0
+                    or result["unverified_logs"] > 0,
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         logger.error(f"ログ完全性状況取得エラー: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -6264,30 +6413,35 @@ def get_log_integrity_status():
 def trigger_anomaly_scan():
     """異常検出スキャン実行API"""
     try:
-        from security.anomaly_detector import detect_admin_anomalies, trigger_security_alert
-        
+        from security.anomaly_detector import (
+            detect_admin_anomalies,
+            trigger_security_alert,
+        )
+
         data = request.get_json() or {}
-        admin_email = data.get('admin_email')
-        timeframe = data.get('timeframe', 3600)
-        send_alerts = data.get('send_alerts', False)
-        
+        admin_email = data.get("admin_email")
+        timeframe = data.get("timeframe", 3600)
+        send_alerts = data.get("send_alerts", False)
+
         if not admin_email:
             return jsonify({"success": False, "error": "admin_email is required"}), 400
-        
+
         # 異常検出実行
         anomaly_result = detect_admin_anomalies(admin_email, timeframe)
-        
+
         # アラート送信（要求された場合）
         alert_result = None
         if send_alerts and anomaly_result["anomalies_detected"]:
             alert_result = trigger_security_alert(anomaly_result)
-        
-        return jsonify({
-            "success": True,
-            "anomaly_result": anomaly_result,
-            "alert_result": alert_result
-        })
-        
+
+        return jsonify(
+            {
+                "success": True,
+                "anomaly_result": anomaly_result,
+                "alert_result": alert_result,
+            }
+        )
+
     except Exception as e:
         logger.error(f"異常検出スキャン実行エラー: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -6300,63 +6454,80 @@ def get_security_alerts():
     try:
         # セキュリティアラートをログから抽出
         # TODO: 将来的には専用のalerts テーブルを作成することを検討
-        
+
         # 現在はログファイルからSECURITY_ALERTを検索
         import re
         from datetime import datetime, timedelta
-        
+
         alerts = []
         log_file_path = "logs/app.log"
-        
+
         try:
             # 過去24時間のアラートを検索
             cutoff_time = datetime.now() - timedelta(hours=24)
-            
-            with open(log_file_path, 'r', encoding='utf-8') as f:
+
+            with open(log_file_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if "SECURITY_ALERT:" in line:
                         try:
                             # ログ行からアラート情報を抽出
-                            match = re.search(r'SECURITY_ALERT: (SEC_\w+) - (\w+) - admin=([^,]+), risk=(\d+), types=\[(.*?)\]', line)
+                            match = re.search(
+                                r"SECURITY_ALERT: (SEC_\w+) - (\w+) - admin=([^,]+), risk=(\d+), types=\[(.*?)\]",
+                                line,
+                            )
                             if match:
-                                alert_id, severity, admin_email, risk_score, anomaly_types = match.groups()
-                                
+                                (
+                                    alert_id,
+                                    severity,
+                                    admin_email,
+                                    risk_score,
+                                    anomaly_types,
+                                ) = match.groups()
+
                                 # タイムスタンプを抽出
-                                timestamp_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', line)
-                                timestamp = timestamp_match.group(1) if timestamp_match else ""
-                                
-                                alerts.append({
-                                    "alert_id": alert_id,
-                                    "severity": severity.lower(),
-                                    "admin_email": admin_email,
-                                    "risk_score": int(risk_score),
-                                    "anomaly_types": [t.strip().strip("'\"") for t in anomaly_types.split(',') if t.strip()],
-                                    "timestamp": timestamp
-                                })
+                                timestamp_match = re.search(
+                                    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line
+                                )
+                                timestamp = (
+                                    timestamp_match.group(1) if timestamp_match else ""
+                                )
+
+                                alerts.append(
+                                    {
+                                        "alert_id": alert_id,
+                                        "severity": severity.lower(),
+                                        "admin_email": admin_email,
+                                        "risk_score": int(risk_score),
+                                        "anomaly_types": [
+                                            t.strip().strip("'\"")
+                                            for t in anomaly_types.split(",")
+                                            if t.strip()
+                                        ],
+                                        "timestamp": timestamp,
+                                    }
+                                )
                         except Exception as parse_error:
                             logger.warning(f"アラート行解析エラー: {parse_error}")
                             continue
-                            
+
         except FileNotFoundError:
             logger.warning(f"ログファイルが見つかりません: {log_file_path}")
-        
+
         # 最新のアラートを先頭に並び替え
         alerts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        
+
         # 統計情報を計算
         alert_stats = {
             "total_alerts": len(alerts),
             "critical_alerts": len([a for a in alerts if a["severity"] == "critical"]),
             "high_alerts": len([a for a in alerts if a["severity"] == "high"]),
-            "medium_alerts": len([a for a in alerts if a["severity"] == "medium"])
+            "medium_alerts": len([a for a in alerts if a["severity"] == "medium"]),
         }
-        
-        return jsonify({
-            "success": True,
-            "alerts": alerts[:50],  # 最新50件を返却
-            "stats": alert_stats
-        })
-        
+
+        return jsonify(
+            {"success": True, "alerts": alerts[:50], "stats": alert_stats}  # 最新50件を返却
+        )
+
     except Exception as e:
         logger.error(f"セキュリティアラート履歴取得エラー: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -6367,31 +6538,191 @@ def get_security_alerts():
 def trigger_integrity_check():
     """ログ完全性検証実行API"""
     try:
-        from security.integrity import verify_all_logs_integrity, add_checksum_to_existing_logs
-        
+        from security.integrity import (
+            verify_all_logs_integrity,
+            add_checksum_to_existing_logs,
+        )
+
         data = request.get_json() or {}
-        batch_size = data.get('batch_size', 1000)
-        add_missing_checksums = data.get('add_missing_checksums', False)
-        
+        batch_size = data.get("batch_size", 1000)
+        add_missing_checksums = data.get("add_missing_checksums", False)
+
         results = {}
-        
+
         # チェックサム未設定ログに追加（要求された場合）
         if add_missing_checksums:
             checksum_result = add_checksum_to_existing_logs()
             results["checksum_addition"] = checksum_result
-        
+
         # 全ログの完全性検証実行
         integrity_result = verify_all_logs_integrity(batch_size)
         results["integrity_verification"] = integrity_result
-        
-        return jsonify({
-            "success": True,
-            "results": results
-        })
-        
+
+        return jsonify({"success": True, "results": results})
+
     except Exception as e:
         logger.error(f"ログ完全性検証実行エラー: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ===== 管理者セッション監視機能 (GitHub Issue #10) =====
+
+
+@app.route("/admin/session-monitor")
+@require_admin_session
+def admin_session_monitor():
+    """管理者セッション監視ページ（スーパー管理者専用）"""
+    from database.models import is_super_admin
+
+    email = session.get("email")
+    if not is_super_admin(email):
+        flash("スーパー管理者権限が必要です", "error")
+        return redirect(url_for("admin"))
+
+    return render_template("admin_session_monitor.html")
+
+
+@app.route("/admin/my-sessions")
+@require_admin_session
+def admin_my_sessions():
+    """自分のセッション情報ページ"""
+    from database.models import get_admin_session_details
+
+    email = session.get("email")
+    session_details = get_admin_session_details(email)
+
+    return render_template("admin_my_sessions.html", session_details=session_details)
+
+
+@app.route("/admin/api/session-stats")
+@require_admin_session
+def api_session_stats():
+    """セッション統計データを取得"""
+    from database.models import is_super_admin, get_admin_session_stats
+
+    try:
+        email = session.get("email")
+
+        # スーパー管理者のみ全データ表示
+        if not is_super_admin(email):
+            return jsonify({"error": "スーパー管理者権限が必要です"}), 403
+
+        stats = get_admin_session_stats()
+
+        return jsonify(
+            {
+                "success": True,
+                "total_sessions": stats.get("total_sessions", 0),
+                "super_admin_sessions": stats.get("super_admin_sessions", 0),
+                "regular_admin_sessions": stats.get("regular_admin_sessions", 0),
+                "warning_count": stats.get("warning_count", 0),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"セッション統計取得エラー: {e}")
+        return jsonify({"error": f"統計データの取得に失敗しました: {str(e)}"}), 500
+
+
+@app.route("/admin/api/admin-sessions")
+@require_admin_session
+def api_admin_sessions():
+    """管理者セッション一覧を取得"""
+    from database.models import is_super_admin, get_all_admin_sessions_with_stats
+
+    try:
+        email = session.get("email")
+
+        # スーパー管理者のみ全データ表示
+        if not is_super_admin(email):
+            return jsonify({"error": "スーパー管理者権限が必要です"}), 403
+
+        sessions_data = get_all_admin_sessions_with_stats()
+
+        return jsonify({"success": True, "admin_sessions": sessions_data})
+
+    except Exception as e:
+        logger.error(f"管理者セッション一覧取得エラー: {e}")
+        return jsonify({"error": f"セッション一覧の取得に失敗しました: {str(e)}"}), 500
+
+
+@app.route("/admin/api/admin-sessions/<admin_email>")
+@require_admin_session
+def api_admin_session_details(admin_email):
+    """管理者セッション詳細情報を取得"""
+    from database.models import is_super_admin, get_admin_session_details
+
+    try:
+        email = session.get("email")
+
+        # スーパー管理者のみ全データ表示
+        if not is_super_admin(email):
+            return jsonify({"error": "スーパー管理者権限が必要です"}), 403
+
+        session_details = get_admin_session_details(admin_email)
+
+        return jsonify(session_details)
+
+    except Exception as e:
+        logger.error(f"セッション詳細取得エラー: {e}")
+        return jsonify({"error": f"セッション詳細の取得に失敗しました: {str(e)}"}), 500
+
+
+@app.route("/admin/api/cleanup-sessions", methods=["POST"])
+@require_admin_session
+def api_cleanup_sessions():
+    """セッションクリーンアップAPI"""
+    from database.models import is_super_admin, cleanup_old_sessions_for_user
+
+    try:
+        email = session.get("email")
+
+        # スーパー管理者のみ実行可能
+        if not is_super_admin(email):
+            return jsonify({"error": "スーパー管理者権限が必要です"}), 403
+
+        data = request.get_json()
+        if not data or "admin_email" not in data:
+            return jsonify({"error": "admin_email パラメータが必要です"}), 400
+
+        admin_email = data["admin_email"]
+        cleaned_count = cleanup_old_sessions_for_user(admin_email)
+
+        return jsonify({"success": True, "cleaned_count": cleaned_count})
+
+    except Exception as e:
+        logger.error(f"セッションクリーンアップエラー: {e}")
+        return jsonify({"error": f"セッションクリーンアップに失敗しました: {str(e)}"}), 500
+
+
+@app.route("/admin/api/terminate-session", methods=["POST"])
+@require_admin_session
+def api_terminate_session():
+    """セッション終了API"""
+    from database.models import is_super_admin, delete_admin_session
+
+    try:
+        email = session.get("email")
+
+        # スーパー管理者のみ実行可能
+        if not is_super_admin(email):
+            return jsonify({"error": "スーパー管理者権限が必要です"}), 403
+
+        data = request.get_json()
+        if not data or "session_id" not in data:
+            return jsonify({"error": "session_id パラメータが必要です"}), 400
+
+        session_id = data["session_id"]
+        success = delete_admin_session(session_id)
+
+        if success:
+            return jsonify({"success": True, "message": "セッションを終了しました"})
+        else:
+            return jsonify({"error": "セッション終了に失敗しました"}), 500
+
+    except Exception as e:
+        logger.error(f"セッション終了エラー: {e}")
+        return jsonify({"error": f"セッション終了に失敗しました: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
